@@ -193,6 +193,11 @@ class Runner:
             print('Soccer reward changed: retaining policy/optimizer; episode rewards across runs are not directly comparable', flush=True)
         self.policy_bootstrap_version = model_dict.get('policy_bootstrap_version', 0)
         if hasattr(self.env, 'balance_release_iteration'):
+            near_state = model_dict.get('near_start_state', {})
+            if near_state.get('version') == self.cfg.get('curriculum', {}).get('near_start', {}).get('version'):
+                # Restored through a public task method: wrapper keeps private
+                # simulator state inaccessible to the generic runner.
+                self.env.restore_near_start_state(near_state)
             if model_dict.get('curriculum_version', 1) == self.cfg.get('curriculum', {}).get('version', 1):
                 self.env.balance_release_iteration = model_dict.get('balance_release_iteration')
                 self.env.soccer_progress = model_dict.get('soccer_progress', 0.)
@@ -265,6 +270,7 @@ class Runner:
             'balance_release_iteration': getattr(self.env, 'balance_release_iteration', None),
             'curriculum_version': self.cfg.get('curriculum', {}).get('version', 1),
             'soccer_progress': getattr(self.env, 'soccer_progress', 0.),
+            'near_start_state': self.env.near_start_state() if hasattr(self.env, 'near_start_state') else {},
             'action_scale': self.cfg['control']['action_scale'],
         }
 
@@ -524,9 +530,18 @@ class Runner:
                     statistics['soccer/near_ball_stall_fraction'] = (self.env.near_ball_stall > 0).float().mean().item()
                     statistics['soccer/far_ball_stall_fraction'] = (self.env.far_ball_stall > 0).float().mean().item()
                     statistics['soccer/amp_multiplier_mean'] = self.env.amp_reward_multiplier.mean().item()
+                    statistics['curriculum/near_start_fraction'] = self.env.near_start_fraction
+                    statistics['curriculum/near_start_progress'] = self.env.near_start_progress
+                    statistics['soccer/near_start_success_rate'] = self.env.near_start_success_rate
+                    statistics['soccer/full_start_success_rate'] = self.env.full_start_success_rate
+                    statistics['soccer/near_start_completed_trials'] = self.env.near_start_trials
+                self.recorder.collect_evaluation()
                 self.recorder.record_statistics(statistics, it)
                 if self.stop_requested or (it + 1) % self.cfg["runner"]["save_interval"] == 0 or it + 1 == self.cfg["basic"]["max_iterations"]:
                     self.recorder.save(self._checkpoint(it + 1), it + 1)
+                    interval = self.cfg['runner'].get('evaluation_interval', 0)
+                    if self.cfg['basic']['task'] == 'Q1' and interval and (it + 1) % interval == 0:
+                        self.recorder.start_evaluation(os.path.join(self.recorder.model_dir, f'model_{it + 1}.pth'), it + 1)
                 print("epoch: {}/{} | {:.0f} env steps/s | actor {:.4f} | value {:.4f}".format(
                     it + 1, self.cfg["basic"]["max_iterations"],
                     statistics['performance/env_steps_per_second'], statistics['actor_loss'], statistics['value_loss']), flush=True)

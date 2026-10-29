@@ -10,6 +10,7 @@ import torch
 
 from .t1 import T1
 from utils.motion import Motion
+from utils.kinematics import ResetKinematics
 from utils.torch_math import quat_rotate, quat_rotate_inverse, quat_mul, quat_from_euler_xyz
 from utils.utils import apply_randomization
 
@@ -58,6 +59,16 @@ class Q1(T1):
         self._curriculum_last_adjustment = None
         self._curriculum_quality_window = []
         self.amp_reward_scale = 1.
+        self.near_start_progress = 0.
+        self.near_start_success_rate = 0.
+        self.near_start_trials = 0
+        self._near_start_success_mass = 0.
+        self._near_start_trial_mass = 0.
+        self._near_start_last_adjustment = None
+        self._near_start_last_trial_count = 0
+        self.full_start_success_rate = 0.
+        self._full_start_success_mass = 0.
+        self._full_start_trial_mass = 0.
         self.device = cfg['basic']['device']
         self.num_envs = cfg['env']['num_envs']
         self.num_dofs = cfg['env']['num_actions']
@@ -123,6 +134,11 @@ class Q1(T1):
         self.approach_anchor_base = torch.zeros(self.num_envs, 2, device=self.device)
         self.approach_anchor_ball = torch.zeros_like(self.approach_anchor_base)
         self.amp_reward_multiplier = torch.ones_like(self.near_ball_idle_s)
+        self.near_start_episode = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        neutral_fk = ResetKinematics(cfg['asset']['file'], self.dof_names, cfg['asset']['foot_names'], self.device)
+        neutral = neutral_fk(self.default_dof_pos)
+        self.neutral_feet_pos = torch.stack([neutral[n][0] for n in cfg['asset']['foot_names']], dim=1)
+        self.neutral_feet_quat = torch.stack([neutral[n][1] for n in cfg['asset']['foot_names']], dim=1)
         self._survival_pass_mass = 0.
         self._survival_trial_mass = 0.
         self.survival_rate_5s = 0.
@@ -230,6 +246,7 @@ class Q1(T1):
         self.qpos[ids, a:a + 2] = torch.rand((len(ids), 2), device=self.device) * self._tensor([13., 8.]) - self._tensor([6.5, 4.])
         self.qpos[(ids[:, None], [a + 3, a + 4, a + 5, a + 6])] = quat[:, [3, 0, 1, 2]]
         self._reset_ball_states(ids)
+        self._reset_near_start(ids)
         self.batch.forward(ids)
         self._sync_states()
         self._refresh_task_state()
@@ -277,6 +294,85 @@ class Q1(T1):
         self.qpos[ids, a + 2:a + 7] = self._tensor([0.11, 1, 0, 0, 0])
         self.qvel[ids, v:v + 6] = 0
 
+    @property
+    def near_start_fraction(self):
+        cfg = self.cfg.get('curriculum', {}).get('near_start', {})
+        if not cfg.get('enabled', False) or self.balance_phase:
+            return 0.
+        return cfg['initial_fraction'] + self.near_start_progress * (cfg['final_fraction'] - cfg['initial_fraction'])
+
+    def near_start_state(self):
+        return dict(version=self.cfg['curriculum'].get('near_start', {}).get('version'),
+                    progress=float(self.near_start_progress), success_rate=float(self.near_start_success_rate),
+                    trials=int(self.near_start_trials), success_mass=float(self._near_start_success_mass),
+                    trial_mass=float(self._near_start_trial_mass), last_adjustment=self._near_start_last_adjustment,
+                    last_trial_count=self._near_start_last_trial_count,
+                    full_success_rate=float(self.full_start_success_rate), full_success_mass=float(self._full_start_success_mass),
+                    full_trial_mass=float(self._full_start_trial_mass))
+
+    def restore_near_start_state(self, state):
+        self.near_start_progress = state.get('progress', 0.)
+        self.near_start_success_rate = state.get('success_rate', 0.)
+        self.near_start_trials = state.get('trials', 0)
+        self._near_start_success_mass = state.get('success_mass', 0.)
+        self._near_start_trial_mass = state.get('trial_mass', 0.)
+        self._near_start_last_adjustment = state.get('last_adjustment')
+        self._near_start_last_trial_count = state.get('last_trial_count', 0)
+        self.full_start_success_rate = state.get('full_success_rate', 0.)
+        self._full_start_success_mass = state.get('full_success_mass', 0.)
+        self._full_start_trial_mass = state.get('full_trial_mass', 0.)
+
+    def _reset_near_start(self, ids):
+        """Neutral, collision-free last-step practice, mixed with full-field resets."""
+        self.near_start_episode[ids] = torch.rand(len(ids), device=self.device) < self.near_start_fraction
+        selected = ids[self.near_start_episode[ids]]
+        if not len(selected):
+            return
+        cfg = self.cfg['curriculum']['near_start']
+        count = len(selected)
+        ball = self.qpos[selected, self.ball_addr:self.ball_addr + 3]
+        target = ball.new_tensor([7., 0.]) - ball[:, :2]
+        spread = cfg['yaw_error_degrees'] + self.near_start_progress * (cfg['final_yaw_error_degrees'] - cfg['yaw_error_degrees'])
+        yaw = torch.atan2(target[:, 1], target[:, 0]) + (torch.rand(count, device=self.device) * 2 - 1) * np.deg2rad(spread)
+        quat = quat_from_euler_xyz(torch.zeros_like(yaw), torch.zeros_like(yaw), yaw)
+        foot = torch.randint(2, (count,), device=self.device)
+        foot_offset = quat_rotate(quat, self.neutral_feet_pos[selected, foot])
+        foot_quat = quat_mul(quat, self.neutral_feet_quat[selected, foot])
+        low_gap, high_gap = cfg['gap_range']
+        high_gap += self.near_start_progress * (cfg['final_gap_max'] - high_gap)
+        gap = low_gap + torch.rand(count, device=self.device) * (high_gap - low_gap)
+        height = self.cfg['init_state']['pos'][2]
+        top = self.cfg['asset']['foot_collision_bounds'][1]
+        vertical = (ball[:, 2] - height - foot_offset[:, 2] - top[2]).clamp_min(0)
+        horizontal = ((gap + self.cfg['rewards']['ball_radius']).square() - vertical.square()).clamp_min(0).sqrt()
+        relative_ball = torch.zeros(count, 3, device=self.device)
+        relative_ball[:, 0] = top[0] + horizontal
+        world_offset = quat_rotate(foot_quat, relative_ball)
+        a = self.root_addr
+        self.qpos[selected, a:a + 2] = ball[:, :2] - foot_offset[:, :2] - world_offset[:, :2]
+        self.qpos[selected, a + 2] = height
+        self.qpos[(selected[:, None], [a + 3, a + 4, a + 5, a + 6])] = quat[:, [3, 0, 1, 2]]
+        self.qpos[(selected[:, None], self.pos_addrs)] = self.default_dof_pos[selected]
+        self.qvel[selected] = 0
+
+    def _record_near_start_trials(self):
+        resolved = self.near_start_episode & self.reset_buf
+        count = int(resolved.sum())
+        if count:
+            successes = self.extras['success'][resolved].sum().item()
+            decay = float(np.exp(-count / 512.))
+            self._near_start_success_mass = decay * self._near_start_success_mass + successes
+            self._near_start_trial_mass = decay * self._near_start_trial_mass + count
+            self.near_start_success_rate = self._near_start_success_mass / self._near_start_trial_mass
+            self.near_start_trials += count
+        resolved = ~self.near_start_episode & self.reset_buf
+        count = int(resolved.sum())
+        if count:
+            decay = float(np.exp(-count / 512.))
+            self._full_start_success_mass = decay * self._full_start_success_mass + self.extras['success'][resolved].sum().item()
+            self._full_start_trial_mass = decay * self._full_start_trial_mass + count
+            self.full_start_success_rate = self._full_start_success_mass / self._full_start_trial_mass
+
     def _compute_amp_obs(self):
         return torch.cat((self.projected_gravity, self.base_lin_vel, self.base_ang_vel,
                           self.dof_pos, self.dof_vel * self.cfg['normalization']['dof_vel'],
@@ -297,6 +393,15 @@ class Q1(T1):
 
     def set_training_iteration(self, iteration):
         curriculum = self.cfg.get('curriculum', {})
+        near_cfg = curriculum.get('near_start', {})
+        if (near_cfg.get('enabled', False) and self.near_start_trials - self._near_start_last_trial_count >= near_cfg['min_completed_trials'] and
+            (self._near_start_last_adjustment is None or iteration - self._near_start_last_adjustment >= near_cfg['adjust_interval_iterations'])):
+            if self.near_start_success_rate >= near_cfg['advance_success_rate'] and self.survival_rate_5s >= .8:
+                self.near_start_progress = min(1., self.near_start_progress + near_cfg['progress_step'])
+            elif self.near_start_success_rate < near_cfg['retreat_success_rate']:
+                self.near_start_progress = max(0., self.near_start_progress - near_cfg['progress_step'])
+            self._near_start_last_adjustment = iteration
+            self._near_start_last_trial_count = self.near_start_trials
         until = curriculum.get('balance_until_iteration', 0)
         minimum_fraction = curriculum.get('release_active_5s_fraction', 0.)
         active_fraction = (self.episode_length_buf * self.dt >= 5).float().mean().item()
@@ -478,6 +583,7 @@ class Q1(T1):
         self.episode_length_buf += 1
         self.common_step_counter += 1
         self._check_termination()
+        self._record_near_start_trials()
         self._record_survival_trials()
         if self.reset_buf.any():
             rate = self.extras['success'][self.reset_buf].mean().item()

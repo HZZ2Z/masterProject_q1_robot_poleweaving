@@ -9,6 +9,8 @@ import os
 import time
 import json
 import math
+import subprocess
+import sys
 from collections import deque
 from pathlib import Path
 import yaml
@@ -56,6 +58,7 @@ class Recorder:
         self.writer = SummaryWriter(os.path.join(self.dir, "summaries"))
         self.wandb_run = None
         self.wandb_metrics = {}
+        self.evaluation = None
         if self.cfg["runner"]["use_wandb"]:
             self.wandb_run = wandb.init(
                 project=self.cfg['runner'].get('wandb_project', self.cfg["basic"]["task"]),
@@ -67,6 +70,7 @@ class Recorder:
             )
             self.wandb_run.define_metric('iteration')
             self.wandb_run.define_metric('*', step_metric='iteration')
+            self.wandb_run.define_metric('evaluation/*', step_metric='evaluation/checkpoint_iteration')
 
         self.episode_statistics = {}
         self.last_episode = {}
@@ -119,9 +123,48 @@ class Recorder:
             self.wandb_metrics.clear()
 
     def close(self):
+        self.collect_evaluation()
         self.writer.close()
         if self.wandb_run is not None:
+            if self.wandb_metrics:
+                self.wandb_run.log(self.wandb_metrics)
+                self.wandb_metrics.clear()
             self.wandb_run.finish()
+
+    def start_evaluation(self, checkpoint, iteration):
+        if self.evaluation is not None:
+            print('Previous fixed evaluation is still pending; skipping overlapping evaluation', flush=True)
+            return
+        directory = Path(self.dir) / 'evaluations'
+        directory.mkdir(exist_ok=True)
+        output = directory / f'model_{iteration}.json'
+        environment = os.environ.copy()
+        for key in ('LD_LIBRARY_PATH', 'LD_PRELOAD', 'PYTHONHOME', 'PYTHONPATH'):
+            environment.pop(key, None)
+        environment['CUDA_VISIBLE_DEVICES'] = ''
+        with output.with_suffix('.log').open('w') as log:
+            process = subprocess.Popen([sys.executable, '-u', 'evaluate_q1.py', '--checkpoint', str(checkpoint),
+                                        '--output', str(output)], stdout=log, stderr=subprocess.STDOUT,
+                                       stdin=subprocess.DEVNULL, env=environment)
+        self.evaluation = (process, output, iteration)
+
+    def collect_evaluation(self):
+        if self.evaluation is None or self.evaluation[0].poll() is None:
+            return
+        process, output, iteration = self.evaluation
+        self.evaluation = None
+        if process.returncode or not output.exists():
+            print(f'Fixed evaluation failed; inspect {output.with_suffix(".log")}', flush=True)
+            return
+        result = json.loads(output.read_text())
+        metrics = {f'evaluation/{key}': value for key, value in result['summary'].items() if value is not None}
+        for distance, group in result.get('by_distance', {}).items():
+            metrics.update({f'evaluation/distance_{distance}/{key}': value for key, value in group.items()})
+        metrics['evaluation/checkpoint_iteration'] = iteration
+        for key, value in metrics.items():
+            self.writer.add_scalar(key, value, iteration)
+        self.wandb_metrics.update(metrics)
+        print(f'Fixed evaluation {iteration}: {result["summary"]}', flush=True)
 
     def save(self, model_dict, it):
         path = os.path.join(self.model_dir, "model_{}.pth".format(it))

@@ -269,11 +269,13 @@ class SoccerPlayer:
         obs[13 + 2 * n:13 + 3 * n] = self.actions
         return obs
 
-    def step(self):
+    def step(self, auto_reset=True):
         if self.task == 'Q1':
             if self.control_steps and self.physics_steps % self.decimation == 0:
                 cause = self._q1_episode_end()
                 if cause:
+                    if not auto_reset:
+                        return cause
                     attribute = {'fall': 'falls', 'goal': 'goals', 'out': 'outs', 'timeout': 'timeouts'}[cause]
                     setattr(self, attribute, getattr(self, attribute) + 1)
                     self.reset_robot()

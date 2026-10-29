@@ -24,6 +24,7 @@ def cfg():
     result['basic']['device'] = 'cpu'
     result['env']['num_envs'] = 4
     result['physics']['num_threads'] = 2
+    result['curriculum']['near_start']['enabled'] = False
     return result
 
 
@@ -745,3 +746,127 @@ def test_q1_replay_ball_spawn_uses_same_center_disk(q1_player):
         xy = p.data.qpos[p.ball_addr:p.ball_addr + 2]
         assert np.linalg.norm(xy) <= 3.5 + 1e-6
         assert np.linalg.norm(xy - p.data.qpos[p.root_addr:p.root_addr + 2]) >= .65
+
+
+def test_near_start_curriculum_is_safe_and_preserves_ball_disk(cfg):
+    cfg['curriculum']['near_start']['enabled'] = True
+    cfg['curriculum']['near_start']['initial_fraction'] = 1.
+    cfg['env']['num_envs'] = 128
+    env = Q1(cfg)
+    env.reset()
+    assert env.near_start_episode.all()
+    gap = env._foot_ball_gap()
+    assert gap.min() > .075
+    assert gap.max() < .28
+    assert (env.ball_pos[:, :2].norm(dim=-1) <= 3.5 + 1e-5).all()
+    torch.testing.assert_close(env.dof_pos, env.default_dof_pos)
+    assert env.qvel.eq(0).all()
+    # Native collision engine must not report a robot-ball overlap at spawn.
+    data = mujoco.MjData(env.model)
+    ball_geom = env.model.geom('soccer_ball').id
+    floor = env.model.geom('floor').id
+    for row in env.qpos:
+        data.qpos[:] = row.numpy()
+        mujoco.mj_forward(env.model, data)
+        assert not any(ball_geom in c.geom and floor not in c.geom and c.dist < 0 for c in data.contact)
+
+
+def test_near_start_mixture_advances_only_on_completed_near_trials(cfg):
+    cfg['curriculum']['near_start']['enabled'] = True
+    cfg['env']['num_envs'] = 512
+    env = Q1(cfg)
+    env.reset()
+    assert .4 < env.near_start_episode.float().mean() < .6
+    env.balance_release_iteration = 0
+    env.survival_rate_5s = .9
+    env.near_start_success_rate = .9
+    env.set_training_iteration(7000)
+    assert env.near_start_progress == 0  # no completed trials yet
+    env.near_start_trials = 200
+    env.set_training_iteration(7001)
+    assert env.near_start_progress == pytest.approx(.1)
+    assert env.near_start_fraction < .5
+    state = env.near_start_state()
+    env.near_start_progress = 0
+    env.restore_near_start_state(state)
+    assert env.near_start_progress == pytest.approx(.1)
+    env.near_start_success_rate = .1
+    env.near_start_trials += 128
+    env.set_training_iteration(7101)
+    assert env.near_start_progress == 0
+
+
+def test_fixed_evaluation_cases_and_real_contact_labels(q1_player):
+    from evaluate_q1 import fixed_cases, place_case, has_foot_contact, foot_gap
+    cases = fixed_cases()
+    assert len(cases) == 24 and cases == fixed_cases()
+    p = q1_player
+    place_case(p, cases[0])
+    before = p.data.qpos.copy()
+    place_case(p, cases[0])
+    np.testing.assert_array_equal(p.data.qpos, before)
+    foot_bodies = {p.model.body(n).id for n in p.cfg['asset']['foot_names']}
+    foot_geoms = {g for g in range(p.model.ngeom) if p.model.geom_bodyid[g] in foot_bodies}
+    ball = p.model.geom('soccer_ball').id
+    assert foot_gap(p) > 0
+    assert not has_foot_contact(p, foot_geoms, ball)
+    # Put the ball inside a foot: actual MuJoCo contact, not just proximity.
+    p.data.qpos[p.ball_addr:p.ball_addr + 3] = p.data.xpos[p.model.body(p.cfg['asset']['foot_names'][0]).id] + [.05, 0, .02]
+    mujoco.mj_forward(p.model, p.data)
+    assert has_foot_contact(p, foot_geoms, ball)
+
+
+def test_evaluation_terminal_does_not_reset_scene(q1_player):
+    p = q1_player
+    p.control_steps = 3001
+    p.physics_steps = p.decimation
+    before = p.data.qpos.copy()
+    assert p.step(auto_reset=False) == 'timeout'
+    np.testing.assert_array_equal(p.data.qpos, before)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason='CUDA required for Warp')
+def test_near_start_gpu_reset_geometry(cfg):
+    cfg['curriculum']['near_start'].update(enabled=True, initial_fraction=1.)
+    cfg['basic']['device'] = 'cuda:0'
+    cfg['env']['num_envs'] = 32
+    env = Q1(cfg)
+    env.reset()
+    assert env.near_start_episode.all()
+    assert env._foot_ball_gap().min() > .075
+    assert env._foot_ball_gap().max() < .28
+    for _ in range(20):
+        obs, reward, _, _ = env.step(torch.zeros(32, 22, device='cuda:0'))
+        assert torch.isfinite(obs).all() and torch.isfinite(reward).all()
+    env.batch.check()
+
+
+def test_fixed_evaluation_metrics_keep_checkpoint_step(cfg, tmp_path):
+    from utils.recorder import Recorder
+    cfg['runner'].update(save_path=str(tmp_path), use_wandb=False)
+    log = Recorder(cfg)
+    output = tmp_path / 'evaluation.json'
+    output.write_text(json.dumps({'summary': {'goal': .25, 'post_touch_fall_rate': None},
+                                  'by_distance': {'0.4': {'touched': 0.}}}))
+    class Completed:
+        returncode = 0
+        def poll(self): return 0
+    log.evaluation = (Completed(), output, 7000)
+    log.collect_evaluation()
+    assert log.evaluation is None
+    assert log.wandb_metrics['evaluation/checkpoint_iteration'] == 7000
+    assert log.wandb_metrics['evaluation/goal'] == .25
+    assert log.wandb_metrics['evaluation/distance_0.4/touched'] == 0
+    log.close()
+
+
+def test_near_curriculum_checkpoint_uses_safe_primitive_values(cfg, tmp_path):
+    env = Q1(cfg)
+    env.near_start_success_rate = np.float64(.5)
+    env._near_start_success_mass = np.float64(12.)
+    env._full_start_trial_mass = np.float64(24.)
+    path = tmp_path / 'curriculum.pth'
+    torch.save({'near_start_state': env.near_start_state()}, path)
+    state = torch.load(path, weights_only=True)['near_start_state']
+    env.restore_near_start_state(state)
+    assert env.near_start_success_rate == .5
