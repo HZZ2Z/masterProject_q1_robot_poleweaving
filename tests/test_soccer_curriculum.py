@@ -60,7 +60,8 @@ def test_soccer_gate_prefers_task_progress_to_standing_return(monkeypatch):
     saved = copy.deepcopy(gate.soccer_best_actor)
     monkeypatch.setattr(safety, 'evaluate_actor', lambda *a, **kw: dict(standing))
     result = gate.check(agent, .3)
-    assert result['evaluation/policy_accepted'] == 0
+    # Safe task-score fluctuations no longer reset the learning policy.
+    assert result['evaluation/policy_accepted'] == 1
     for k in saved:
         torch.testing.assert_close(saved[k], gate.soccer_best_actor[k])
     falling = dict(moving, task_score=10., survival_5s=.2, fall_fraction=.8)

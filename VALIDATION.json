@@ -1,119 +1,69 @@
 {
-  "checked_at": "2026-10-30T01:00:16.837937",
-  "reward_version": 4,
-  "checkpoint_version": 2,
+  "checked_at": "2026-10-30T04:17:40.217264",
+  "checkpoint_version": 4,
   "tests": {
-    "passed": 46,
+    "passed": 61,
     "failed": 0
   },
-  "gpu_smoke": {
-    "backend": "mujoco_warp",
-    "num_envs": 2,
-    "iterations": 2,
-    "run": "logs/v4_final_gpu/2026-10-30-00-23-53-180978",
-    "wandb": false,
-    "phases": [
-      "standing",
-      "soccer"
+  "audit": {
+    "passes": 2,
+    "baseline_commit": "785c635",
+    "fixed": [
+      "On-policy temporal GAE and detached fixed value targets",
+      "No unvalidated model actor gradients",
+      "Success termination versus timeout bootstrap",
+      "Atomic actor/critic/optimizer/action-bound rollback",
+      "Safety rollback separated from soccer checkpoint ranking"
+    ],
+    "references": [
+      "https://arxiv.org/abs/1506.02438",
+      "https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/",
+      "https://arxiv.org/abs/1502.05477"
     ]
   },
+  "gpu_validation": {
+    "run": "logs/audit_validation/2026-10-30-04-11-23-210342",
+    "num_envs": 1024,
+    "iterations": [
+      5615,
+      5714
+    ],
+    "wandb": false,
+    "value_mse_decreased_iterations": 100,
+    "max_policy_kl": 0.004883691668510437,
+    "action_limits": [
+      0.24400000274181366
+    ],
+    "last20_cohort_survival_mean": 0.7579438464724303,
+    "evaluation": {
+      "evaluation/survival_5s": 0.8125,
+      "evaluation/fall_fraction": 0.1875,
+      "evaluation/near_approach_m": 0.009963158518075943,
+      "evaluation/near_kick_event_rate": 0.0,
+      "evaluation/near_net_goal_progress_m": 0.0,
+      "evaluation/policy_accepted": 1.0,
+      "evaluation/rollback_count": 0
+    },
+    "process_memory_mib_observed": 6688
+  },
+  "limits": [
+    "Short validation does not establish convergence",
+    "No productive kick in fixed validation yet",
+    "World model is supervised but currently disconnected from actor gradients",
+    "Local VPG with KL backtracking is not full upstream SuperMimic, PPO or TRPO"
+  ],
   "resume_smoke": {
     "passed": true,
-    "device": "cpu",
+    "checkpoint_version": 4,
     "iterations": [
-      3,
-      4
+      5715,
+      5716
     ],
-    "run": "logs/v4_final_resume/2026-10-30-00-23-59-406154"
+    "run": "logs/audit_validation/2026-10-30-04-17-06-373197"
   },
   "headless_playback": {
     "passed": true,
-    "control_steps": 20
-  },
-  "long_training_started": true,
-  "limitations": [
-    "No convergence validation",
-    "Model-based soccer adaptation; not the upstream tracking trainer",
-    "No AMP discriminator reward",
-    "GUI viewer not tested in this headless session"
-  ],
-  "full_gpu_probe": {
-    "environments": 1024,
-    "iterations": 24,
-    "actor_critic_updates": true,
-    "process_memory_mib": 5142
-  },
-  "scene_comparison": {
-    "max_pixel_difference": 0,
-    "same_state_and_camera": true
-  },
-  "formal_launch": {
-    "pid": 2607420,
-    "log": "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/train_2026-10-30-00-59-52.log",
-    "command": [
-      "/home/kemove/miniconda3/envs/q1-kick/bin/python",
-      "-u",
-      "train.py",
-      "--start-training",
-      "--config",
-      "configs/soccer.yaml"
-    ],
-    "started_at": "2026-10-30T00:59:52.396164"
-  },
-  "training_outcome": {
-    "status": "stopped_failed_run",
-    "iteration": 2303,
-    "reason": "All completed episodes fall; recent duration ~0.23s; deterministic policy regresses far below neutral baseline",
-    "action_saturation_fraction": 0.3877083341963589,
-    "diagnosis": "logs/fall_diagnosis.json",
-    "note": "Previous short tests checked execution and gradients, not learning effectiveness."
-  },
-  "corrected_training": {
-    "checked_at": "2026-10-30T01:56:26.140594",
-    "learner_version": 3,
-    "tests": {
-      "passed": 51,
-      "failed": 0
-    },
-    "real_policy_updates_validated": 50,
-    "fixed_evaluation": {
-      "environments": 32,
-      "horizon_s": 6,
-      "neutral": {
-        "survival_5s": 0.5,
-        "fall_fraction": 0.5,
-        "return": 1.1790419816970825,
-        "duration_s": 4.0387468338012695
-      },
-      "corrected_policy": {
-        "survival_5s": 0.6875,
-        "fall_fraction": 0.3125,
-        "return": 7.339147567749023,
-        "duration_s": 4.7518720626831055
-      }
-    },
-    "startup": {
-      "pid": 2958063,
-      "log": "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/train_v3_2026-10-30-01-55-56.log",
-      "command": [
-        "/home/kemove/miniconda3/envs/q1-kick/bin/python",
-        "-u",
-        "train.py",
-        "--start-training",
-        "--config",
-        "configs/soccer.yaml",
-        "--checkpoint",
-        "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/fix_v3_real_policy_validation/2026-10-30-01-53-27-226707/checkpoint_300.pt"
-      ],
-      "started_at": "2026-10-30T01:55:56.633080",
-      "learner_version": 3,
-      "initial_checkpoint": "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/fix_v3_real_policy_validation/2026-10-30-01-53-27-226707/checkpoint_300.pt",
-      "status": "running"
-    },
-    "notes": [
-      "Fixed-case evaluation, not a convergence claim",
-      "Actor uses actual on-policy TD advantage with small physical-model auxiliary objective",
-      "Initial checkpoint is corrected pretraining, not failed v2 weights"
-    ]
+    "steps": 20,
+    "actor": "accepted"
   }
 }

@@ -152,6 +152,7 @@ def test_partial_reset_and_training_observation_contract(cfg):
 
 def test_timeout_reset_keeps_truncation_flag(cfg):
     env = Q1(cfg)
+    env.set_training_iteration(0)  # neutral stance: isolate timeout from random reference falls
     env.reset()
     env.episode_length_buf[:] = int(cfg['rewards']['episode_length_s'] / env.dt) + 1
     _, _, done, info = env.step(torch.zeros(4, 22))

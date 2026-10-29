@@ -1,12 +1,8 @@
-"""Autoregressive dynamics fitting and differentiable imagined actor-critic.
-
-Soccer adaptation: learn reward/termination from real contact transitions rather
-than use the upstream reference-motion reward. No PPO or AMP update is used.
-"""
+"""Supervised autoregressive dynamics and real-trajectory GAE policy learning."""
 import torch
 from torch import nn
 import torch.nn.functional as F
-from supermimic.models import mlp, frozen
+from supermimic.models import mlp
 
 
 class TemporalReplay:
@@ -45,7 +41,7 @@ class TemporalReplay:
 class SoccerAgent(nn.Module):
     def __init__(self, dim, obs_dim=79, width=256, horizon=4, lr=5e-5):
         super().__init__()
-        self.dim, self.obs_dim, self.horizon = dim, obs_dim, horizon
+        self.dim, self.obs_dim, self.validation_horizon = dim, obs_dim, horizon
         self.register_buffer('mean', torch.zeros(dim))
         self.register_buffer('scale', torch.ones(dim))
         self.register_buffer('action_limit', torch.tensor(.10))
@@ -135,7 +131,7 @@ class SoccerAgent(nn.Module):
 
     def configure_task(self, layout):
         self.layout = layout
-        # Keep domain parameters and curriculum context fixed in imagination.
+        # Keep domain parameters and curriculum context fixed in model rollouts.
         self.dynamic_mask.fill_(0)
         for start, end in layout['dynamic_ranges']:
             self.dynamic_mask[start:end] = 1
@@ -143,6 +139,8 @@ class SoccerAgent(nn.Module):
     @torch.no_grad()
     def validate_model(self, batch):
         states, actions, targets, _, dones, _ = batch
+        if actions.shape[1] > self.validation_horizon:
+            raise ValueError('Validation sequence exceeds configured horizon')
         initial = self.normalize(states[:, 0])
         predicted = initial
         total = initial.new_zeros(5)
@@ -173,101 +171,91 @@ class SoccerAgent(nn.Module):
                 'model_validation/joint_rmse_rad': values[3].sqrt().item(),
                 'model_validation/root_velocity_rmse': values[4].sqrt().item()}
 
-    def fit_critic(self, batch):
-        states, _, targets, rewards, _, falls = batch
-        states, targets = self.normalize(states), self.normalize(targets)
-        with torch.no_grad():
-            # Targets come from real transitions, including pre-reset timeout targets.
-            target = rewards * .1 + .99 * (1 - falls) * self.critic(targets).squeeze(-1)
-        loss = F.smooth_l1_loss(self.critic(states).squeeze(-1), target)
-        self.optimize(loss, self.critic_optimizer, self.critic.parameters())
-        return loss.item()
+    def learn_real_rollout(self, rollout, exploration_std, gamma=.995, lam=.98,
+                           critic_epochs=4, max_kl=.005, update_actor=True):
+        """One on-policy GAE update; replay/model gradients never enter the actor.
 
-    def physical_reward(self, current, following, action):
-        # Explicit smooth planning objective; the actual complete v4 reward is
-        # still used for real critic TD targets and for acceptance evaluation.
-        if self.layout is None:
-            return -.01 * following.square().mean(-1) - action.square().sum(-1), following.new_ones(len(following))
-        c, n = current * self.scale + self.mean, following * self.scale + self.mean
-        l = self.layout
-        q = l['root_quat']
-        w, x, y, z = n[:, q:q+4].unbind(-1)
-        upright = (2 * (x*z - w*y)).square() + (2 * (y*z + w*x)).square()
-        height = n[:, l['root_z']]
-        vel = l['root_velocity']
-        speed2 = n[:, vel:vel+6].square().sum(-1)
-        continuation = torch.sigmoid((height - .2) / .015) * torch.sigmoid((50 - speed2) / 3)
-        joints = n[:, l['joints_start']:l['joints_start']+22]
-        defaults = n[:, l['default_start']:l['default_start']+22]
-        progress = c[:, l['progress_index']].clamp(0, 1)
-        dt = l['dt']
-        stall = torch.maximum(c[:, l['progress_index']+4], c[:, l['progress_index']+5]).clamp(0, 1)
-        productive_survival = 3 * (1 - progress * stall) if l.get('productive_survival', False) else 3
-        reward = (productive_survival - 50 * (height - l['nominal_height']).square() - 5 * upright
-                  - (1-progress) * (joints-defaults).square().mean(-1)) * dt
-        reward = reward - dt * (action-c[:, 57:79]).square().sum(-1)
-        reward = reward - .001 / dt * (n[:, vel:vel+6]-c[:, vel:vel+6]).square().sum(-1)
-        ball = l['ball_start']
-        bp, bn = c[:, ball:ball+2], n[:, ball:ball+2]
-        root = l['root_xy']
-        approach = (bn-c[:, root:root+2]).norm(dim=-1) - (bn-n[:, root:root+2]).norm(dim=-1)
-        goal = bn.new_tensor([7., 0.])
-        forward = (bp-goal).norm(dim=-1) - (bn-goal).norm(dim=-1)
-        approach_gain = 1 + c[:, -1].clamp(0, 1) * (l.get('near_approach_gain', 1.) - 1)
-        reward = reward + progress * dt * (50 * approach_gain * approach + 500 * forward)
-        if l.get('productive_survival', False):
-            near = c[:, l['progress_index']+3].clamp(0, 1)
-            stall_cost = near * 2 * c[:, l['progress_index']+4] + (1-near) * c[:, l['progress_index']+5]
-            reward = reward - progress * dt * l.get('stall_penalty_factor', 1.) * stall_cost
-        # Known termination cost, not the learned termination head's gradient.
-        reward = reward - 20 * (1-continuation)
-        return reward * .1, continuation
-
-    def improve(self, real_states, real_batch=None, exploration_std=.01):
-        state = self.normalize(real_states).detach()
-        before = [p.detach().clone() for p in self.actor.parameters()]
+        rollout is time-major. Latent Gaussian samples are stored before tanh;
+        done stops GAE traces, while terminated alone disables bootstrapping.
+        """
+        import copy
+        states, _, targets, rewards, dones, terminated, latents = rollout
+        shape = rewards.shape
+        flat = states.flatten(0, 1)
+        normalized = self.normalize(flat).detach()
         with torch.no_grad():
-            reference_action = self.action_limit * self.actor(state[:, :self.obs_dim]).tanh()
-        with frozen(self.dynamics, self.outcomes, self.critic):
-            alive = state.new_ones(len(state))
-            objective = state.new_zeros(len(state))
-            for t in range(self.horizon):
-                action = self.action_limit * self.actor(state[:, :self.obs_dim]).tanh()
-                following, _, _ = self.predict(state, action)
-                reward, continuation = self.physical_reward(state, following, action)
-                objective = objective + (.99 ** t) * alive * (reward - .01 * action.square().sum(-1))
-                alive = alive * continuation
-                state = following
-            objective = objective + (.99 ** self.horizon) * alive * self.critic(state).squeeze(-1)
-            current = self.normalize(real_states).detach()
-            proposed = self.action_limit * self.actor(current[:, :self.obs_dim]).tanh()
-            planning_loss = -objective.mean()
-            actor_loss = planning_loss + 10 * (proposed-reference_action).square().mean()
-            if real_batch is not None:
-                real, executed, targets, rewards, _, falls = real_batch
-                real, targets = self.normalize(real), self.normalize(targets)
-                with torch.no_grad():
-                    advantage = rewards * .1 + .99 * (1-falls) * self.critic(targets).squeeze(-1) - self.critic(real).squeeze(-1)
-                    advantage = ((advantage-advantage.mean()) / advantage.std(unbiased=False).clamp_min(1e-5)).clamp(-5,5)
-                    squashed = (executed/self.action_limit).clamp(-.999999,.999999)
-                    latent = torch.atanh(squashed)
-                mean = self.actor(real[:, :self.obs_dim])
-                std = exploration_std / float(self.action_limit)
-                log_prob = torch.distributions.Normal(mean, std).log_prob(latent).sum(-1)
-                real_loss = -(log_prob * advantage).mean()
-                # The model remains an auxiliary proposal; real transitions
-                # provide the dominant score-function policy gradient. No PPO.
-                actor_loss = real_loss + .01 * planning_loss + .001 * mean.square().mean()
-                self.last_diagnostics = {'loss/real_policy': real_loss.item(),
-                                         'loss/planning_policy': planning_loss.item()}
-
-            self.optimize(actor_loss, self.actor_optimizer, self.actor.parameters())
-        # Bound one optimizer update on real observations. This complements the
-        # global action bound and the separate real-simulator acceptance gate.
+            values = self.critic(normalized).squeeze(-1).reshape(shape)
+            next_values = self.critic(self.normalize(targets.flatten(0, 1))).squeeze(-1).reshape(shape)
+            advantages, returns = real_gae(rewards * .1, values, next_values, dones, terminated, gamma, lam)
+            ids = torch.randperm(len(flat), device=flat.device)[:8192]
+            x = normalized[ids]
+            target = returns.flatten()[ids].detach()
+            advantage = advantages.flatten()[ids]
+            advantage_std = advantage.std(unbiased=False)
+            advantage = (advantage - advantage.mean()) / advantage_std.clamp_min(1e-6)
+            sampled_latent = latents.flatten(0, 1)[ids].detach()
+            obs = x[:, :self.obs_dim]
+            old_mean = self.actor(obs).detach()
+            std = exploration_std / float(self.action_limit)
+            old_logp = torch.distributions.Normal(old_mean, std).log_prob(sampled_latent).sum(-1)
+            variance = target.var(unbiased=False).clamp_min(1e-8)
+            before_mse = (self.critic(x).squeeze(-1)-target).square().mean()
+        # Targets are detached ONCE before any optimizer step; no stale replay.
+        critic_losses = []
+        for _ in range(critic_epochs):
+            order = torch.randperm(len(x), device=x.device)
+            for batch in order.split(2048):
+                loss = F.mse_loss(self.critic(x[batch]).squeeze(-1), target[batch])
+                self.optimize(loss, self.critic_optimizer, self.critic.parameters())
+                critic_losses.append(loss.item())
         with torch.no_grad():
-            delta = (self.act(real_states)-reference_action).abs().max()
-            if delta > .005:
-                alpha = float(.005 / delta)
-                for p, old in zip(self.actor.parameters(), before):
-                    p.copy_(old + alpha * (p-old))
-        return actor_loss.item(), 0.
+            fitted = self.critic(x).squeeze(-1)
+            after_mse = (fitted-target).square().mean()
+            explained = 1 - (fitted-target).var(unbiased=False) / variance
+        loss_value, kl, alpha = 0., 0., 0.
+        if update_actor and advantage_std > 1e-6:
+            parameters = list(self.actor.parameters())
+            before = [p.detach().clone() for p in parameters]
+            optimizer_before = copy.deepcopy(self.actor_optimizer.state_dict())
+            mean = self.actor(obs)
+            logp = torch.distributions.Normal(mean, std).log_prob(sampled_latent).sum(-1)
+            loss = -(logp * advantage).mean()
+            loss_value = loss.item()
+            self.optimize(loss, self.actor_optimizer, parameters)
+            proposed = [p.detach().clone() for p in parameters]
+            alpha = 1.
+            with torch.no_grad():
+                for _ in range(12):
+                    for p, old, new in zip(parameters, before, proposed):
+                        p.copy_(old + alpha * (new-old))
+                    new_mean = self.actor(obs)
+                    kl = ((new_mean-old_mean).square() / (2*std*std)).sum(-1).mean().item()
+                    logp = torch.distributions.Normal(new_mean, std).log_prob(sampled_latent).sum(-1)
+                    improvement = ((logp-old_logp).clamp(-20,20).exp() * advantage).mean().item()
+                    if kl <= max_kl and improvement >= -1e-6:
+                        break
+                    alpha *= .5
+                else:
+                    for p, old in zip(parameters, before):
+                        p.copy_(old)
+                    alpha, kl = 0., 0.
+                if alpha < 1:
+                    self.actor_optimizer.load_state_dict(optimizer_before)
+        self.last_diagnostics = {
+            'learning/policy_kl': kl, 'learning/update_fraction': alpha,
+            'learning/value_mse_before': before_mse.item(),
+            'learning/value_mse_after': after_mse.item(),
+            'learning/explained_variance': explained.item(),
+        }
+        return loss_value, sum(critic_losses) / max(1, len(critic_losses))
+
+
+def real_gae(rewards, values, next_values, dones, terminated, gamma=.995, lam=.98):
+    """Separate bootstrap and trace masks; never propagate through auto-reset."""
+    advantages = torch.zeros_like(rewards)
+    future = torch.zeros_like(rewards[0])
+    for t in reversed(range(len(rewards))):
+        delta = rewards[t] + gamma * (1-terminated[t]) * next_values[t] - values[t]
+        future = delta + gamma * lam * (1-dones[t]) * future
+        advantages[t] = future
+    return advantages.detach(), (advantages + values).detach()

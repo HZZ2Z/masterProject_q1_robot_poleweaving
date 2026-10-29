@@ -95,5 +95,6 @@ class SoccerEnvironment:
         info = {'done': done, 'fall': fall, 'timeout': timeout,
                 'task_feedback': self.task_feedback,
                 'success': extra['success'].clone() * done,
+                'terminated': fall | (extra['success'].bool() & done),
                 'soccer_progress': self.env.soccer_progress, 'metrics': self.transition_metrics}
         return self.state(), self.terminal_state, reward, info

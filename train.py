@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import random
 import signal
+import subprocess
 import time
 
 import numpy as np
@@ -30,13 +31,14 @@ def parser():
     p.add_argument('--iterations', type=int)
     p.add_argument('--output', type=Path)
     p.add_argument('--checkpoint', type=Path)
+    p.add_argument('--migrate-learner', action='store_true', help='Migrate v3 to on-policy GAE; preserve accepted actor/model and reset critic')
     p.add_argument('--migrate-curriculum', action='store_true', help='Allow curriculum-only changes to a v3 checkpoint')
     p.add_argument('--no-wandb', action='store_true')
     return p
 
 
 def build_agent(state_dim, cfg):
-    agent = SoccerAgent(state_dim, width=cfg['width'], horizon=cfg['imagination_horizon'],
+    agent = SoccerAgent(state_dim, width=cfg['width'], horizon=cfg.get('validation_horizon', cfg.get('imagination_horizon', 4)),
                         lr=cfg['learning_rate']).to(cfg['device'])
     if 'task_layout' in cfg:
         agent.configure_task(cfg['task_layout'])
@@ -51,7 +53,7 @@ CURRICULUM_FIELDS = ('balance_release_iteration', 'soccer_progress', 'recent_suc
 
 def save_checkpoint(path, agent, env, cfg, iteration):
     optimizers = [agent.model_optimizer, agent.actor_optimizer, agent.critic_optimizer]
-    payload = {'version': 3, 'iteration': iteration, 'config': cfg,
+    payload = {'version': 4, 'iteration': iteration, 'config': cfg,
                'state_dim': agent.dim, 'task_signature': env.task_signature,
                'near_start': env.env.near_start_state(),
                'environment': env.cfg, 'agent': agent.state_dict(),
@@ -66,14 +68,14 @@ def save_checkpoint(path, agent, env, cfg, iteration):
     temp.replace(path)
 
 
-def validate_checkpoint(checkpoint, env, migrate_curriculum=False):
+def validate_checkpoint(checkpoint, env, migrate_curriculum=False, migrate_learner=False):
     if migrate_curriculum:
         keys = ('rewards', 'init_state', 'control', 'randomization', 'asset')
         if any(checkpoint.get('environment', {}).get(k) != env.cfg[k] for k in keys):
             raise ValueError('Curriculum migration cannot change physics, controls or rewards')
         checkpoint = dict(checkpoint, task_signature=env.task_signature)
 
-    if (checkpoint.get('version') != 3 or checkpoint.get('state_dim') != env.state_dim
+    if (checkpoint.get('version') not in ((3, 4) if migrate_learner else (4,)) or checkpoint.get('state_dim') != env.state_dim
             or checkpoint.get('task_signature') != env.task_signature):
         raise ValueError('Incompatible task/state schema: use a fresh run for the corrected learning objective; '
                          'old smoke and PPO checkpoints cannot be resumed')
@@ -90,15 +92,15 @@ def main():
         cfg.update(device=args.device or 'cpu', num_envs=2, iterations=2, warmup_steps=8,
                    replay_steps=16, collect_steps=4, model_sequence=2,
                    model_batches=1, batch_size=4, width=32,
-                   imagination_horizon=2, actor_start_iteration=0, evaluation_interval=1)
+                   validation_horizon=2, actor_start_iteration=0, evaluation_interval=1)
     if args.preflight:
         cfg['num_envs'] = args.num_envs or 2
     if min(cfg[k] for k in ('num_envs', 'iterations', 'collect_steps', 'warmup_steps',
                            'replay_steps', 'model_sequence', 'model_batches', 'batch_size',
-                           'width', 'imagination_horizon', 'save_interval')) <= 0:
+                           'width', 'validation_horizon', 'save_interval')) <= 0:
         raise ValueError('Counts and sizes must be positive')
-    if cfg['imagination_horizon'] > cfg['model_sequence']:
-        raise ValueError('Imagination horizon must not exceed supervised model sequence')
+    if cfg['validation_horizon'] > cfg['model_sequence']:
+        raise ValueError('Validation horizon must not exceed supervised model sequence')
     if cfg['model_sequence'] > min(cfg['warmup_steps'], cfg['replay_steps']):
         raise ValueError('model_sequence must fit warmup and replay')
     if args.start_training and cfg['num_envs'] % 4:
@@ -113,20 +115,20 @@ def main():
     env = load_environment(cfg['device'], cfg['num_envs'])
     e = env.env
     cfg['task_layout'] = dict(physical_start=170, physical_end=170+e.model.nq+e.model.nv,
-                              root_xy=170+e.root_addr, root_z=172+e.root_addr,
+                              root_z=172+e.root_addr,
                               root_quat=173+e.root_addr, root_velocity=170+e.model.nq+e.root_vel_addr,
                               joints_start=170+int(e.pos_addrs[0]),
-                              ball_start=170+e.ball_addr, default_start=368,
-                              progress_index=env.state_dim-16, dt=e.dt,
-                              productive_survival=e.cfg['curriculum'].get('productive_survival', False),
-                              near_approach_gain=e.cfg['curriculum'].get('near_approach_gain', 1.),
-                              stall_penalty_factor=e.cfg['curriculum'].get('stall_penalty_factor', 1.),
-                              nominal_height=e.cfg['init_state']['pos'][2],
                               dynamic_ranges=[(0,262),(308,368),
                                               (env.state_dim-18,env.state_dim-16),
                                               (env.state_dim-15,env.state_dim-5)])
     cfg['task_layout'] = json.loads(json.dumps(cfg['task_layout'], default=lambda x: x.item()))
-    cfg['learner_version'] = 3
+    cfg['learner_version'] = 4
+    try:
+        cfg['code_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+        cfg['code_dirty'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode != 0
+    except (OSError, subprocess.CalledProcessError):
+        cfg['code_commit'] = 'unavailable'
+
     cfg['task_signature'] = env.task_signature
     cfg['reward_version'] = env.cfg['rewards']['version']
     cfg['scene_sha256'] = hashlib.sha256(Path(env.cfg['asset']['mujoco_file']).read_bytes()).hexdigest()
@@ -142,12 +144,15 @@ def main():
     if args.checkpoint:
         # Checkpoints contain optimizer/RNG state. Load only trusted local files.
         checkpoint = torch.load(args.checkpoint, map_location=cfg['device'], weights_only=False)
-        validate_checkpoint(checkpoint, env, args.migrate_curriculum)
-        for key in ('width', 'imagination_horizon', 'learning_rate'):
+        validate_checkpoint(checkpoint, env, args.migrate_curriculum, args.migrate_learner)
+        for key in ('width', 'learning_rate'):
             cfg[key] = checkpoint['config'][key]
+        cfg['validation_horizon'] = checkpoint['config'].get(
+            'validation_horizon', checkpoint['config'].get('imagination_horizon', cfg['validation_horizon']))
         start = checkpoint['iteration']
         cfg['resumed_from'] = str(args.checkpoint.resolve())
         cfg['curriculum_migration'] = args.migrate_curriculum
+        cfg['learner_migration'] = args.migrate_learner
         if args.smoke:
             cfg['iterations'] = start + 2
         for key, value in checkpoint['curriculum'].items():
@@ -167,6 +172,21 @@ def main():
         random.setstate(checkpoint['python_rng'])
         if checkpoint['cuda_rng'] is not None and cfg['device'].startswith('cuda'):
             torch.cuda.set_rng_state_all([s.cpu() for s in checkpoint['cuda_rng']])
+    if args.migrate_learner:
+        if checkpoint is None or checkpoint.get('version') != 3:
+            raise ValueError('--migrate-learner requires a v3 checkpoint')
+        safety = checkpoint.get('safety') or {}
+        if 'accepted_actor' in safety:
+            agent.actor.load_state_dict(safety['accepted_actor'])
+            agent.actor_optimizer.load_state_dict(safety['accepted_optimizer'])
+            agent.action_limit.fill_(safety.get('accepted_action_limit', float(agent.action_limit)))
+        # Rebuild V for the current policy; do not inherit divergent off-policy TD.
+        for module in agent.critic.modules():
+            if isinstance(module, torch.nn.Linear):
+                module.reset_parameters()
+        torch.nn.init.zeros_(agent.critic[-1].weight)
+        torch.nn.init.zeros_(agent.critic[-1].bias)
+        agent.critic_optimizer = torch.optim.Adam(agent.critic.parameters(), lr=agent.lr)
     if cfg['iterations'] <= start:
         raise ValueError('iterations is a cumulative target and must exceed checkpoint iteration')
     output = Path(cfg['output']).resolve() / datetime.now().strftime('%Y-%m-%d-%H-%M-%S-%f')
@@ -179,7 +199,7 @@ def main():
     if args.start_training and not args.no_wandb:
         import wandb
         wandb_run = wandb.init(entity=cfg['wandb_entity'], project=cfg['wandb_project'],
-                              config={**cfg, 'environment': env.cfg, 'algorithm': 'model_based_soccer_with_real_policy_gradient',
+                              config={**cfg, 'environment': env.cfg, 'algorithm': 'real_gae_vpg_kl_backtracking_with_supervised_world_model',
                                       'reward_includes_amp': False}, dir=str(output), name=output.name)
         wandb_run.define_metric('iteration')
         wandb_run.define_metric('*', step_metric='iteration')
@@ -203,12 +223,13 @@ def main():
             for _ in range(steps):
                 noise = cfg['exploration_std'] + cfg.get('exploration_progress_scale', .03) * env.env.soccer_progress
                 mean = agent.actor(agent.normalize(state)[:, :agent.obs_dim])
-                action = agent.action_limit * (mean + noise / agent.action_limit * torch.randn(
-                    cfg['num_envs'], 22, device=cfg['device'])).tanh()
+                latent = mean + noise / agent.action_limit * torch.randn(
+                    cfg['num_envs'], 22, device=cfg['device'])
+                action = agent.action_limit * latent.tanh()
                 following, target, reward, info = env.step(action)
                 replay.add(state, action, target, reward, info['done'], info['fall'])
                 if record_policy:
-                    on_policy.append((state, action, target, reward, info['done'].float(), info['fall'].float()))
+                    on_policy.append((state, action, target, reward, info['done'].float(), info['terminated'].float(), latent))
                 state = following
                 values = torch.stack(list(info['metrics'].values()))
                 feedback = values if feedback is None else feedback + values
@@ -221,7 +242,7 @@ def main():
         totals.update(dict(zip(info['metrics'], (feedback / steps).cpu().tolist())))
         totals.update(env.episode_metrics.drain(env.env.dt))
         if record_policy:
-            latest_rollout = tuple(torch.cat([transition[i] for transition in on_policy], 0) for i in range(6))
+            latest_rollout = tuple(torch.stack([transition[i] for transition in on_policy], 0) for i in range(7))
         return totals
 
     try:
@@ -232,12 +253,12 @@ def main():
             agent.calibrate(replay.states[:replay.count].flatten(0, 1))
         gate = SafetyGate(agent, count=4 if args.smoke else cfg.get('evaluation_envs', 32),
                           steps=20 if args.smoke else cfg.get('evaluation_steps', 300))
-        if checkpoint and checkpoint.get('safety'):
+        if checkpoint and checkpoint.get('safety') and not args.migrate_learner:
             gate.load_state_dict(checkpoint['safety'])
         agent.safety_gate = gate
         print('Real-physics neutral baseline: ' + json.dumps(gate.baseline), flush=True)
-        if args.migrate_curriculum and not args.smoke:
-            initial_evaluation = gate.check(agent, env.env.soccer_progress)
+        if (args.migrate_curriculum or args.migrate_learner) and not args.smoke:
+            initial_evaluation = gate.check(agent, 0. if env.env.balance_phase else 1.)
             print('Migrated policy evaluation: ' + json.dumps(initial_evaluation), flush=True)
             save_checkpoint(output / f'checkpoint_{start}.pt', agent, env, cfg, start)
             (output / 'last.pt').symlink_to(f'checkpoint_{start}.pt')
@@ -252,26 +273,27 @@ def main():
                 state = env.state()
                 replay.count = replay.cursor = 0  # Manual smoke reset starts a new sequence.
             env.env.set_training_iteration(iteration)
-            agent.action_limit.fill_(.10 + .90 * env.env.soccer_progress)
+            state = env.state()  # refresh privileged curriculum context before collection
+            # Action transform is part of the policy and survives rollback/resume.
+            # Never replace it from curriculum after a policy has been accepted.
             totals = collect(cfg['collect_steps'])
             losses = [agent.fit_model(replay.sample(cfg['batch_size'], cfg['model_sequence']))
                       for _ in range(cfg['model_batches'])]
-            critic_loss = agent.fit_critic(replay.sample(cfg['batch_size'], cfg['model_sequence']))
-            actor_loss = 0.
-            model_check = agent.validate_model(replay.sample(cfg['batch_size'], cfg['imagination_horizon'], validation=True))
+            model_check = agent.validate_model(replay.sample(cfg['batch_size'], cfg['validation_horizon'], validation=True))
             ready = (model_check['model_validation/physical_mse'] < cfg.get('model_max_mse', 1.)
                      and model_check['model_validation/persistence_ratio'] < cfg.get('model_max_ratio', .8)
                      and model_check['model_validation/height_mae_m'] < cfg.get('model_max_height_mae', .01)
                      and model_check['model_validation/joint_rmse_rad'] < cfg.get('model_max_joint_rmse', .025)
                      and model_check['model_validation/root_velocity_rmse'] < cfg.get('model_max_velocity_rmse', .5))
-            if iteration >= cfg['actor_start_iteration'] and (ready or args.smoke):
-                initial = replay.sample(cfg['batch_size'], 1)[0][:, 0]
-                indices = torch.randperm(len(latest_rollout[0]), device=cfg['device'])[:4096]
-                actor_loss, _ = agent.improve(initial, tuple(x[indices] for x in latest_rollout),
-                                              cfg['exploration_std'] + cfg.get('exploration_progress_scale', .03) * env.env.soccer_progress)
+            actor_loss, critic_loss = agent.learn_real_rollout(
+                latest_rollout, cfg['exploration_std'] + cfg.get('exploration_progress_scale', .03) * env.env.soccer_progress,
+                gamma=cfg.get('gamma', .995), lam=cfg.get('gae_lambda', .98),
+                critic_epochs=1 if args.smoke else cfg.get('critic_epochs', 4),
+                max_kl=cfg.get('policy_max_kl', .005),
+                update_actor=iteration >= max(cfg['actor_start_iteration'], start + cfg.get('critic_warmup_iterations', 20)))
             evaluation = {}
             if iteration % cfg.get('evaluation_interval', 50) == 0 or iteration == cfg['iterations']:
-                evaluation = gate.check(agent, env.env.soccer_progress)
+                evaluation = gate.check(agent, 0. if env.env.balance_phase else 1.)
                 print('Real-physics policy check: ' + json.dumps(evaluation), flush=True)
             metrics = {'iteration': iteration, 'reward/control_step': totals['control_reward'],
                        'loss/model': float(np.mean(losses)), 'loss/actor': actor_loss,
@@ -288,7 +310,7 @@ def main():
             metrics.update(model_check)
             metrics.update(agent.last_diagnostics)
             metrics.update(evaluation)
-            metrics['learning/model_ready'] = float(ready)
+            metrics['model_validation/passed'] = float(ready)
             metrics['learning/action_limit'] = float(agent.action_limit)
             metrics.update({k: v for k, v in totals.items() if '/' in k or k in ('steps', 'success_rate', 'fall_rate')})
             if 'episode/duration_s' in totals:

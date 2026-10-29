@@ -10,7 +10,8 @@ def test_checkpoint_preserves_policy_optimizer_and_curriculum(tmp_path):
     agent.make_optimizers()
     state = env.state()
     agent.calibrate(state)
-    agent.improve(state)
+    agent.optimize(agent.actor(state[:, :79]).square().sum() + agent.actor(state[:, :79]).sum(),
+                   agent.actor_optimizer, agent.actor.parameters())
     env.env.soccer_progress = .13
     env.env.near_start_progress = .2
     env.env.near_start_trials = 321
@@ -47,7 +48,7 @@ def test_curriculum_only_migration_rejects_reward_changes():
     import copy
     import pytest
     env = load_environment('cpu', 4)
-    saved = {'version': 3, 'state_dim': env.state_dim, 'task_signature': 'old',
+    saved = {'version': 4, 'state_dim': env.state_dim, 'task_signature': 'old',
              'environment': copy.deepcopy(env.cfg)}
     saved['environment']['curriculum']['release_active_5s_fraction'] = .8
     validate_checkpoint(saved, env, migrate_curriculum=True)
@@ -70,3 +71,12 @@ def test_near_group_gets_soccer_before_full_groups():
     env.near_start_success_rate = .1
     env.set_training_iteration(3206)
     assert (env.task_progress == 1).all()
+
+
+def test_v3_requires_explicit_learner_migration():
+    import pytest
+    env = load_environment('cpu', 2)
+    old = {'version': 3, 'state_dim': env.state_dim, 'task_signature': env.task_signature}
+    with pytest.raises(ValueError, match='Incompatible'):
+        validate_checkpoint(old, env)
+    validate_checkpoint(old, env, migrate_learner=True)

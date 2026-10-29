@@ -81,12 +81,14 @@ class SafetyGate:
         self.accepted_actor = copy.deepcopy(agent.actor.state_dict())
         self.accepted_optimizer = copy.deepcopy(agent.actor_optimizer.state_dict())
         self.accepted_action_limit = float(agent.action_limit)
+        self.accepted_critic = copy.deepcopy(agent.critic.state_dict())
+        self.accepted_critic_optimizer = copy.deepcopy(agent.critic_optimizer.state_dict())
         self.soccer_best_actor = None
         self.soccer_best_action_limit = None
         self.soccer_best_metrics = None
         self.rejections = 0
         self.progress = 0.
-        self.version = 2
+        self.version = 3
 
     def check(self, agent, progress=0.):
         soccer = progress > 0
@@ -106,10 +108,9 @@ class SafetyGate:
         measured = evaluate_actor(agent, 1. if soccer else 0., self.count, self.steps)
         candidate = dict(measured)
         if soccer:
-            # Total standing return cannot overrule soccer regressions. Small
-            # ties allow continued exploration before the first productive kick.
-            accepted = (soccer_candidate_is_safe(measured, self.baseline)
-                        and measured['task_score'] >= self.best['task_score'] - 1e-5)
+            # Safety controls rollback; soccer score ranks checkpoints separately.
+            # Millimetre-level approach fluctuations must not erase safe learning.
+            accepted = soccer_candidate_is_safe(measured, self.baseline)
         else:
             accepted = (measured['duration_s'] >= max(self.baseline['duration_s'], self.best['duration_s']) - .02
                         and measured['return'] >= max(self.baseline['return'], self.best['return']) - .1)
@@ -118,6 +119,8 @@ class SafetyGate:
             self.accepted_actor = copy.deepcopy(agent.actor.state_dict())
             self.accepted_optimizer = copy.deepcopy(agent.actor_optimizer.state_dict())
             self.accepted_action_limit = float(agent.action_limit)
+            self.accepted_critic = copy.deepcopy(agent.critic.state_dict())
+            self.accepted_critic_optimizer = copy.deepcopy(agent.critic_optimizer.state_dict())
             eligible = (soccer and measured['near_kick_event_rate'] > 0
                         and measured['near_net_goal_progress_m'] >= .01)
             if eligible and (self.soccer_best_metrics is None or measured['task_score'] > self.soccer_best_metrics['task_score']):
@@ -128,6 +131,8 @@ class SafetyGate:
             agent.actor.load_state_dict(self.accepted_actor)
             agent.actor_optimizer.load_state_dict(self.accepted_optimizer)
             agent.action_limit.fill_(self.accepted_action_limit)
+            agent.critic.load_state_dict(self.accepted_critic)
+            agent.critic_optimizer.load_state_dict(self.accepted_critic_optimizer)
             self.rejections += 1
             measured = evaluate_actor(agent, 1. if soccer else 0., self.count, self.steps)
         return {**{f'evaluation/{k}': v for k,v in measured.items()},
@@ -141,7 +146,7 @@ class SafetyGate:
         return dict(self.__dict__)
 
     def load_state_dict(self, state):
-        if state.get('version') == 2:
+        if state.get('version') == 3:
             self.__dict__.update(state)
         else:
             # Old acceptance scores were dominated by standing reward. Preserve

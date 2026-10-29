@@ -16,14 +16,17 @@ def test_replay_wrap_preserves_time_and_target():
     assert state.min() >= 4 and state.max() <= 8
 
 
-def test_analytic_actor_update_preserves_model_weights():
+def test_real_actor_update_preserves_model_weights():
     torch.manual_seed(3)
     agent = SoccerAgent(12, obs_dim=5, width=16, horizon=3)
     agent.make_optimizers()
     states = torch.randn(8, 12)
     before_actor = [p.clone() for p in agent.actor.parameters()]
     before_model = [p.clone() for p in agent.dynamics.parameters()]
-    losses = agent.improve(states)
+    latent = torch.randn(1, 8, 22) * .1
+    terminal = torch.ones(1, 8)
+    rollout = (states[None], .1*latent.tanh(), states[None], latent[..., 0], terminal, terminal, latent)
+    losses = agent.learn_real_rollout(rollout, .01, critic_epochs=1)
     assert all(torch.isfinite(torch.tensor(losses)))
     assert any(not torch.equal(a, b) for a, b in zip(before_actor, agent.actor.parameters()))
     for a, b in zip(before_model, agent.dynamics.parameters()):
@@ -52,6 +55,7 @@ def test_terminal_target_is_captured_before_timeout_reset():
     env.env.episode_length_buf[0] = 100000
     next_state, terminal, _, info = env.step(torch.zeros(2, 22))
     assert info['done'][0] and info['timeout'][0] and not info['fall'][0]
+    assert not info['terminated'][0]
     # Qpos follows 79 actor and 91 critic coordinates in model state.
     qpos_start = 170
     assert not torch.allclose(next_state[0, qpos_start:qpos_start+3], terminal[0, qpos_start:qpos_start+3])
@@ -89,3 +93,14 @@ def test_visual_history_advances_once_with_terminal_capture():
             env.env.episode_length_buf[0] = 100000
         env.step(torch.zeros(2, 22))
         torch.testing.assert_close(env.env.ball_obs_buffer[1, 1:], before[1, :-1])
+
+
+def test_real_goal_is_terminal_for_value_bootstrap():
+    wrapper = load_environment('cpu', 2)
+    e = wrapper.env
+    e.qpos[0, e.ball_addr:e.ball_addr+2] = torch.tensor([7.1, 0.])
+    e.qvel[0, e.ball_vel_addr:e.ball_vel_addr+3] = 0
+    e.goal_cnt[0] = 49
+    _, _, _, info = wrapper.step(torch.zeros(2, 22))
+    assert info['success'][0] and info['done'][0]
+    assert not info['fall'][0] and info['terminated'][0]

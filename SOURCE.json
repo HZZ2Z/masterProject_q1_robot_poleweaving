@@ -30,16 +30,17 @@
         "utils/physics.py": "7abf6a7aa6d055a88ac756565e6400158a075cd231f1ecc52ea1a03f3a93afb1"
       },
       "local_changes": [
-        "pre-reset terminal capture with one visual-history advance per continuing world",
-        "local W&B/save destination in envs/Q1.yaml"
+        "pre-reset terminal capture and explicit successful termination",
+        "fixed 25/25/50 reset mixture and near-first reward curriculum",
+        "local W&B/save destination"
       ],
       "local_sha256": {
-        "envs/q1.py": "724fb902d51819acf3e26c5a1172243386742e194a1c49293821844e4e885b1e",
-        "envs/Q1.yaml": "b0212836895a2b0e0f7770c1b738a4f1a95e6fd7ff5306882f6ce65430820a14",
-        "q1_supermimic/environment.py": "baba130dc97d86d3a8f8658d87a78054f4655800db3a2bce76d3c0d7492ddd65",
-        "q1_supermimic/learning.py": "2e51a2a45a3490e256839a51a8c433af904e8ec31761f812b8e4b8b5a3690947",
-        "train.py": "524f0acdda7ace86bb102ac143c6e6385291a38cda4716e313fbde69bfb28238",
-        "play.py": "09c40fd3a8fd128adc4a612dd941074c556df8878fa36f0622fb752c38530fb1"
+        "envs/q1.py": "36ff8186039727ec390a70c7fc69dacb8f4b3b4372dc2f4b20c6013cd948a25c",
+        "envs/Q1.yaml": "4d374fd316c34b842993bdbf470428a92958835473c3cf2da917b738979e3e1d",
+        "q1_supermimic/environment.py": "887e31bffb22d89d0df00b2633ec41aae7e726f7aa2500a0a0f22fda6ae0c0d4",
+        "q1_supermimic/learning.py": "9495fa6dae493363bcb356cd1bc0f2e2d0fa74285f999757df6f6f9c5fca7d34",
+        "train.py": "6d066022ff8313069efb18c7b742a1b9072e7941d143b260ad5f8f0e3ac1ade5",
+        "play.py": "5b8bf99ef35ea11581863131dbd4f602ee5c32febefd08b816007d3093e5653a"
       }
     }
   },
@@ -57,13 +58,14 @@
     "bounded Torch memory allocation for shared GPU"
   ],
   "corrected_learning": {
-    "version": 3,
+    "version": 4,
     "date": "2026-10-30",
+    "method": "On-policy GAE VPG with KL backtracking; supervised world model; no model actor gradient",
     "files": {
-      "train.py": "4c7c488bad96390bd08e0797ec9fc9674b8dfc091b7e3e5eab065f5879a17a5b",
-      "q1_supermimic/learning.py": "4069dfe4e0171c782640e20db34baf8dd3ca9c5ba56b83cbcd31cb9241f9d73f",
-      "q1_supermimic/safety.py": "b765d7f3c848d3516a675c9d0c602dc10f882c65b12058cbadd634bcf8f6487b",
-      "configs/soccer.yaml": "d02f9a7150272d90187db8c7355b4b882effc5b749b725281bf7a78234f6f128"
+      "train.py": "6d066022ff8313069efb18c7b742a1b9072e7941d143b260ad5f8f0e3ac1ade5",
+      "q1_supermimic/learning.py": "9495fa6dae493363bcb356cd1bc0f2e2d0fa74285f999757df6f6f9c5fca7d34",
+      "q1_supermimic/safety.py": "0af2be2750789a59fe688ecca6da05239c403d33d428a61e221bfa38bc4ece13",
+      "configs/soccer.yaml": "d9370a588ac86d66b1ed5bc0c9d3bc41f35dfea547e264a122f620323870e1f0"
     }
   }
 }

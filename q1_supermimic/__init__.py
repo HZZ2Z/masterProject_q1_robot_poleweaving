@@ -1,4 +1,4 @@
-"""Model-based Q1 soccer adaptation of SuperMimic."""
+"""Q1 soccer adaptation with SuperMimic network components."""
 from pathlib import Path
 import sys
 
