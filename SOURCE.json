@@ -36,11 +36,11 @@
       ],
       "local_sha256": {
         "envs/q1.py": "36ff8186039727ec390a70c7fc69dacb8f4b3b4372dc2f4b20c6013cd948a25c",
-        "envs/Q1.yaml": "4d374fd316c34b842993bdbf470428a92958835473c3cf2da917b738979e3e1d",
-        "q1_supermimic/environment.py": "887e31bffb22d89d0df00b2633ec41aae7e726f7aa2500a0a0f22fda6ae0c0d4",
-        "q1_supermimic/learning.py": "9495fa6dae493363bcb356cd1bc0f2e2d0fa74285f999757df6f6f9c5fca7d34",
-        "train.py": "6d066022ff8313069efb18c7b742a1b9072e7941d143b260ad5f8f0e3ac1ade5",
-        "play.py": "5b8bf99ef35ea11581863131dbd4f602ee5c32febefd08b816007d3093e5653a"
+        "envs/Q1.yaml": "1938d2bc38aa760dee35634b5b6243affe8ad7aa2937182c41df289c555dd991",
+        "q1_supermimic/environment.py": "28e432d66a1322beedff2d54054266d8699a39dc7f009c56bb17370300d9739f",
+        "q1_supermimic/learning.py": "eac43773e9f7257bf27da704981da4f0c190de49a16f9c6b4c54f4b03bcf722a",
+        "train.py": "f1ecd07ef8b5b9d4f967ae0f761172c3ca8194cd30e81403938d7605e042d41e",
+        "play.py": "d8dee47ccd8546515b2208e581a1ee9f56bc9e3155cc01b48fa7c5768b55aa17"
       }
     }
   },
@@ -58,14 +58,19 @@
     "bounded Torch memory allocation for shared GPU"
   ],
   "corrected_learning": {
-    "version": 4,
+    "version": 5,
     "date": "2026-10-30",
-    "method": "On-policy GAE VPG with KL backtracking; supervised world model; no model actor gradient",
+    "method": "Analytic short-horizon model actor with real-trajectory GAE critic; velocity dynamics, integrated pose and physics-derived observations",
     "files": {
-      "train.py": "6d066022ff8313069efb18c7b742a1b9072e7941d143b260ad5f8f0e3ac1ade5",
-      "q1_supermimic/learning.py": "9495fa6dae493363bcb356cd1bc0f2e2d0fa74285f999757df6f6f9c5fca7d34",
-      "q1_supermimic/safety.py": "0af2be2750789a59fe688ecca6da05239c403d33d428a61e221bfa38bc4ece13",
-      "configs/soccer.yaml": "d9370a588ac86d66b1ed5bc0c9d3bc41f35dfea547e264a122f620323870e1f0"
-    }
+      "train.py": "f1ecd07ef8b5b9d4f967ae0f761172c3ca8194cd30e81403938d7605e042d41e",
+      "q1_supermimic/learning.py": "eac43773e9f7257bf27da704981da4f0c190de49a16f9c6b4c54f4b03bcf722a",
+      "q1_supermimic/safety.py": "e7b67bc7a0020ec8b4772895173ef08d558fc0c17b048ac700de56e516eab0c9",
+      "configs/soccer.yaml": "eb232c0bacfb0b2eea3fbad76e8999fc395894cc2913b4a67fd91bab1dd98463"
+    },
+    "adaptation_limits": [
+      "Not a full upstream tracking trainer or paper reproduction",
+      "No AMP discriminator",
+      "Fixed visual visibility and sensor residuals within short imagination"
+    ]
   }
 }

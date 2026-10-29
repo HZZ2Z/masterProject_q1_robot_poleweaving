@@ -1,69 +1,127 @@
 {
-  "checked_at": "2026-10-30T04:17:40.217264",
-  "checkpoint_version": 4,
+  "checked_at": "2026-10-30T05:21:40.693558",
+  "checkpoint_version": 5,
   "tests": {
-    "passed": 61,
+    "passed": 69,
     "failed": 0
   },
   "audit": {
-    "passes": 2,
-    "baseline_commit": "785c635",
+    "baseline_commit": "4d7d41f",
     "fixed": [
-      "On-policy temporal GAE and detached fixed value targets",
-      "No unvalidated model actor gradients",
-      "Success termination versus timeout bootstrap",
-      "Atomic actor/critic/optimizer/action-bound rollback",
-      "Safety rollback separated from soccer checkpoint ranking"
+      "Model dynamics now participates in actor gradients; no hidden VPG fallback",
+      "Velocity-based pose integration and physics-derived observations",
+      "Independent root-pose action-response validation in addition to aggregate physical errors",
+      "Matched real/imagined exploration and four-frame policy history",
+      "Cumulative KL constrained against latest real-physics accepted policy",
+      "Finite-cohort survival regression tolerance; atomic rollback retained"
     ],
     "references": [
+      "https://github.com/PrimebotTech/SuperMimic",
       "https://arxiv.org/abs/1506.02438",
-      "https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/",
-      "https://arxiv.org/abs/1502.05477"
+      "https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/"
     ]
   },
-  "gpu_validation": {
-    "run": "logs/audit_validation/2026-10-30-04-11-23-210342",
-    "num_envs": 1024,
+  "validation_only_probes": {
+    "num_envs": 256,
     "iterations": [
-      5615,
-      5714
+      181,
+      220
     ],
-    "wandb": false,
-    "value_mse_decreased_iterations": 100,
-    "max_policy_kl": 0.004883691668510437,
-    "action_limits": [
-      0.24400000274181366
-    ],
-    "last20_cohort_survival_mean": 0.7579438464724303,
-    "evaluation": {
-      "evaluation/survival_5s": 0.8125,
-      "evaluation/fall_fraction": 0.1875,
-      "evaluation/near_approach_m": 0.009963158518075943,
-      "evaluation/near_kick_event_rate": 0.0,
-      "evaluation/near_net_goal_progress_m": 0.0,
-      "evaluation/policy_accepted": 1.0,
-      "evaluation/rollback_count": 0
+    "run": "logs/model_actor_validation/2026-10-30-05-14-11-285548",
+    "final_model_validation": {
+      "model_validation/physical_mse": 0.09279228746891022,
+      "model_validation/persistence_ratio": 0.12551414966583252,
+      "model_validation/height_mae_m": 0.0013544426765292883,
+      "model_validation/joint_rmse_rad": 0.004370945040136576,
+      "model_validation/root_velocity_rmse": 0.08145684748888016,
+      "model_validation/action_response_cosine": 0.8566988706588745,
+      "model_validation/action_response_relative_error": 0.28803980350494385,
+      "model_validation/root_response_cosine": 0.8416063785552979,
+      "model_validation/root_response_relative_error": 0.3061244785785675,
+      "model_validation/passed": 1.0
     },
-    "process_memory_mib_observed": 6688
+    "finding": "Physical tests passed, but unanchored cumulative updates still regressed and were rolled back. This prompted the final cumulative-KL correction.",
+    "earlier_findings": [
+      "Independent pose predictions: root response cosine 0.2705, relative squared error 3.9338, despite aggregate cosine 0.8591",
+      "Independent observation predictions and unmatched noise caused rejected policy updates"
+    ]
   },
-  "limits": [
-    "Short validation does not establish convergence",
-    "No productive kick in fixed validation yet",
-    "World model is supervised but currently disconnected from actor gradients",
-    "Local VPG with KL backtracking is not full upstream SuperMimic, PPO or TRPO"
-  ],
+  "final_cumulative_kl_check": {
+    "updates": 20,
+    "applied_updates": 7,
+    "max_cumulative_kl": 0.009987159632146358,
+    "before": {
+      "duration_s": 3.8212473392486572,
+      "return": -0.7925686836242676,
+      "survival_5s": 0.4375,
+      "horizon_s": 6.0,
+      "fall_fraction": 0.5625,
+      "near_approach_m": 0.010608592070639133,
+      "near_kick_event_rate": 0.0,
+      "near_net_goal_progress_m": 0.0,
+      "near_success_rate": 0.0,
+      "near_sample_count": 16,
+      "task_score": 0.010608592070639133
+    },
+    "after": {
+      "duration_s": 3.7931222915649414,
+      "return": -0.8762340545654297,
+      "survival_5s": 0.4375,
+      "horizon_s": 6.0,
+      "fall_fraction": 0.5625,
+      "near_approach_m": 0.007876033894717693,
+      "near_kick_event_rate": 0.0,
+      "near_net_goal_progress_m": 0.0,
+      "near_success_rate": 0.0,
+      "near_sample_count": 16,
+      "task_score": 0.007876033894717693
+    },
+    "after_exploration": {
+      "duration_s": 3.4049978256225586,
+      "return": -6.1855010986328125,
+      "survival_5s": 0.34375,
+      "horizon_s": 6.0,
+      "fall_fraction": 0.65625,
+      "near_approach_m": 0.01850719563663006,
+      "near_kick_event_rate": 0.0,
+      "near_net_goal_progress_m": 0.0,
+      "near_success_rate": 0.0,
+      "near_sample_count": 16,
+      "task_score": 0.01850719563663006
+    },
+    "parameter_change_l2": 0.026953800203404068
+  },
   "resume_smoke": {
     "passed": true,
-    "checkpoint_version": 4,
     "iterations": [
-      5715,
-      5716
+      201,
+      202
     ],
-    "run": "logs/audit_validation/2026-10-30-04-17-06-373197"
+    "run": "logs/model_actor_validation/2026-10-30-05-16-54-363065"
   },
   "headless_playback": {
     "passed": true,
     "steps": 20,
     "actor": "accepted"
+  },
+  "limits": [
+    "No productive kick or convergence demonstrated by bounded validation",
+    "Final cumulative-KL test preserved deterministic survival, but did not improve it; exploration survival decreased by one of 32 cases",
+    "Independent football adaptation, not full upstream motion-tracking/AMP training",
+    "Visual visibility and observation residuals are held fixed during short imagination",
+    "Formal run must start fresh without validation or old training checkpoints"
+  ],
+  "fresh_gpu_smoke": {
+    "passed": true,
+    "num_envs": 1024,
+    "iterations": [
+      1,
+      2
+    ],
+    "run": "logs/model_actor_validation/2026-10-30-05-19-42-740650",
+    "checkpoint_loaded": false,
+    "process_memory_mib_observed": 4382,
+    "torch_peak_allocated_gib": 3.8028674125671387,
+    "wandb": false
   }
 }

@@ -1,4 +1,4 @@
-"""Q1 V3 soccer task adapter; policy sees only the 79 virtual-vision inputs."""
+"""Q1 V3 soccer task adapter; policy sees only virtual-vision observations and their history."""
 import copy
 import hashlib
 import json
@@ -28,16 +28,23 @@ class SoccerEnvironment:
         self.env.transition_callback = self._capture
         self.env.set_training_iteration(0)
         self.env.reset()
+        self.history = self.env.obs_buf[:, None].repeat(1, 4, 1)
+        self.history_dim = self.history.shape[1] * self.history.shape[2]
         self.observation_dim = self.env.num_obs
         self.state_dim = self.state().shape[-1]
         task = {k: self.cfg[k] for k in ('rewards', 'init_state', 'curriculum', 'control', 'randomization', 'asset')}
         self.task_signature = hashlib.sha256(json.dumps(task, sort_keys=True).encode()).hexdigest()
         self.terminal_state = None
 
+    def reset(self):
+        self.env.reset()
+        self.history[:] = self.env.obs_buf[:, None]
+        return self.state()
+
     def state(self):
         e = self.env
         # Privileged dynamics inputs include actual ball/root state and delayed
-        # PD targets. The actor always receives only the first 79 coordinates.
+        # PD targets. The actor receives only observations and the appended observation history.
         return torch.cat((e.obs_buf, e.critic_obs_buf, e.qpos, e.qvel,
                           e.last_dof_targets, e.pd_kp / 80, e.pd_kd / 3,
                           e.delay_steps[:, None].float() / 10,
@@ -54,9 +61,11 @@ class SoccerEnvironment:
                           e.approach_anchor_base, e.approach_anchor_ball,
                           e.near_start_episode[:, None].float(),
                           torch.full((e.num_envs, 1), e.near_start_progress, device=e.device),
-                          torch.nn.functional.one_hot(e.reset_group.clamp_min(0), 3).float()), -1).clone()
+                          torch.nn.functional.one_hot(e.reset_group.clamp_min(0), 3).float(),
+                          self.history.flatten(1)), -1).clone()
 
     def _capture(self, env):
+        self.history = torch.cat((self.history[:, 1:], env.obs_buf[:, None]), dim=1)
         self.terminal_state = self.state()
         forward_kick, side_kick = env._kick_reward_components()
         self.task_feedback = {
@@ -90,6 +99,7 @@ class SoccerEnvironment:
         # Reward is integrated over the control period by the soccer task.
         reward = reward.sum(-1).clone()
         done = done.clone()
+        self.history[done] = self.env.obs_buf[done, None]
         timeout = extra['time_outs'].clone()
         fall = done & ~timeout
         info = {'done': done, 'fall': fall, 'timeout': timeout,

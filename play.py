@@ -26,7 +26,7 @@ def main():
     for key, value in ckpt['curriculum'].items():
         setattr(env.env, key, value)
     env.env.set_training_iteration(ckpt['iteration'])
-    env.env.reset()
+    env.reset()
     agent = build_agent(env.state_dim, cfg)
     agent.load_state_dict(ckpt['agent'])
     if args.best and args.accepted:

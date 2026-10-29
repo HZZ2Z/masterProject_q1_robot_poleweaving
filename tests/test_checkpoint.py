@@ -48,7 +48,7 @@ def test_curriculum_only_migration_rejects_reward_changes():
     import copy
     import pytest
     env = load_environment('cpu', 4)
-    saved = {'version': 4, 'state_dim': env.state_dim, 'task_signature': 'old',
+    saved = {'version': 5, 'state_dim': env.state_dim, 'task_signature': 'old',
              'environment': copy.deepcopy(env.cfg)}
     saved['environment']['curriculum']['release_active_5s_fraction'] = .8
     validate_checkpoint(saved, env, migrate_curriculum=True)
@@ -73,10 +73,12 @@ def test_near_group_gets_soccer_before_full_groups():
     assert (env.task_progress == 1).all()
 
 
-def test_v3_requires_explicit_learner_migration():
+def test_old_policy_versions_cannot_enter_fresh_model_route():
     import pytest
     env = load_environment('cpu', 2)
     old = {'version': 3, 'state_dim': env.state_dim, 'task_signature': env.task_signature}
     with pytest.raises(ValueError, match='Incompatible'):
         validate_checkpoint(old, env)
-    validate_checkpoint(old, env, migrate_learner=True)
+    old['version'] = 4
+    with pytest.raises(ValueError, match='Incompatible'):
+        validate_checkpoint(old, env)

@@ -497,7 +497,7 @@ curriculum:
     adjust_interval_iterations: 100
     progress_step: 0.1
   policy_bootstrap_version: 1
-  balance_until_iteration: 2632
+  balance_until_iteration: 100
   soccer_transition_iterations: 500
   release_active_5s_fraction: 0.65
   near_first_until_progress: 0.35

@@ -1,16 +1,18 @@
 """Fixed-seed real-physics safety floor and soccer-specific policy selection."""
 import copy
+import math
 import torch
 from .environment import load_environment
 
 
 @torch.no_grad()
-def evaluate_actor(agent, progress=0., count=32, steps=300, seed=104729, zero=False):
+def evaluate_actor(agent, progress=0., count=32, steps=300, seed=104729, zero=False, noise_std=0.):
     actor = copy.deepcopy(agent.actor).cpu().eval()
     mean, scale = agent.mean.cpu(), agent.scale.cpu()
     limit = float(agent.action_limit)
+    noise_rng = torch.Generator().manual_seed(seed+123)
     with torch.random.fork_rng(devices=[]):
-        torch.manual_seed(seed)
+        torch.random.default_generator.manual_seed(seed)
         wrapper = load_environment('cpu', count)
         env = wrapper.env
         if progress > 0:
@@ -20,7 +22,7 @@ def evaluate_actor(agent, progress=0., count=32, steps=300, seed=104729, zero=Fa
             env.soccer_progress = .1
             env.set_training_iteration(0)
             env.reference_init_probability = 0.
-            env.reset()
+            wrapper.reset()
         state = wrapper.state()
         near = env.reset_group == 2
         initial_gap = env._foot_ball_gap().clone()
@@ -37,8 +39,11 @@ def evaluate_actor(agent, progress=0., count=32, steps=300, seed=104729, zero=Fa
             if zero:
                 action = torch.zeros(count, 22)
             else:
-                obs = ((state-mean)/scale).clamp(-20,20)[:, :agent.obs_dim]
+                obs = agent.policy_observation(((state-mean)/scale).clamp(-20,20))
                 action = limit * actor(obs).tanh()
+            if noise_std:
+                latent = torch.atanh((action/limit).clamp(-.999999, .999999))
+                action = limit*(latent + noise_std/limit*torch.randn(action.shape, generator=noise_rng)).tanh()
             state, _, reward, info = wrapper.step(action)
             feedback = info['task_feedback']  # pre-reset snapshots, including terminal frames
             valid = alive & ~info['fall']
@@ -73,9 +78,22 @@ def soccer_candidate_is_safe(measured, baseline):
             and measured['fall_fraction'] <= .35)
 
 
+def survival_floor(rate, count):
+    """Wilson 95% lower bound: a finite test cohort is not an exact probability.
+
+    Used as a regression tolerance, not a confidence claim for adaptive reuse
+    of the fixed evaluation seeds. The task's soccer floor remains separate.
+    """
+    z2 = 1.96**2
+    return (rate + z2/(2*count) - 1.96*math.sqrt(rate*(1-rate)/count + z2/(4*count**2))) / (1+z2/count)
+
+
 class SafetyGate:
-    def __init__(self, agent, count=32, steps=300):
+    def __init__(self, agent, count=32, steps=300, noise_std=0.):
         self.count, self.steps = count, steps
+        self.noise_std = noise_std
+        self.noisy_baseline = evaluate_actor(agent, count=count, steps=steps, zero=True, noise_std=noise_std)
+        self.noisy_best = dict(self.noisy_baseline)
         self.baseline = evaluate_actor(agent, count=count, steps=steps, zero=True)
         self.best = dict(self.baseline)
         self.accepted_actor = copy.deepcopy(agent.actor.state_dict())
@@ -88,12 +106,16 @@ class SafetyGate:
         self.soccer_best_metrics = None
         self.rejections = 0
         self.progress = 0.
-        self.version = 3
+        self.peak_survival = self.baseline['survival_5s']
+        self.peak_noisy_survival = self.noisy_baseline['survival_5s']
+        self.version = 5
 
     def check(self, agent, progress=0.):
         soccer = progress > 0
         if soccer and self.progress == 0:
             self.baseline = evaluate_actor(agent, 1., self.count, self.steps, zero=True)
+            self.noisy_baseline = evaluate_actor(agent, 1., self.count, self.steps, zero=True, noise_std=self.noise_std)
+            self.noisy_best = dict(self.noisy_baseline)
             # Compare against the deployed incumbent on this fixed soccer task.
             candidate_actor = copy.deepcopy(agent.actor.state_dict())
             candidate_limit = float(agent.action_limit)
@@ -107,14 +129,18 @@ class SafetyGate:
         self.progress = progress
         measured = evaluate_actor(agent, 1. if soccer else 0., self.count, self.steps)
         candidate = dict(measured)
+        noisy = evaluate_actor(agent, 1. if soccer else 0., self.count, self.steps, noise_std=self.noise_std)
         if soccer:
             # Safety controls rollback; soccer score ranks checkpoints separately.
             # Millimetre-level approach fluctuations must not erase safe learning.
             accepted = soccer_candidate_is_safe(measured, self.baseline)
         else:
-            accepted = (measured['duration_s'] >= max(self.baseline['duration_s'], self.best['duration_s']) - .02
-                        and measured['return'] >= max(self.baseline['return'], self.best['return']) - .1)
+            accepted = measured['survival_5s'] >= survival_floor(self.peak_survival, self.count)
+        accepted = accepted and noisy['survival_5s'] >= survival_floor(self.peak_noisy_survival, self.count)
         if accepted:
+            self.peak_survival = max(self.peak_survival, measured['survival_5s'])
+            self.peak_noisy_survival = max(self.peak_noisy_survival, noisy['survival_5s'])
+            self.noisy_best = noisy
             self.best = measured
             self.accepted_actor = copy.deepcopy(agent.actor.state_dict())
             self.accepted_optimizer = copy.deepcopy(agent.actor_optimizer.state_dict())
@@ -137,6 +163,7 @@ class SafetyGate:
             measured = evaluate_actor(agent, 1. if soccer else 0., self.count, self.steps)
         return {**{f'evaluation/{k}': v for k,v in measured.items()},
                 **{f'evaluation/candidate_{k}': v for k,v in candidate.items()},
+                'evaluation/exploratory_survival_5s': noisy['survival_5s'] if accepted else self.noisy_best['survival_5s'],
                 'evaluation/policy_accepted': float(accepted),
                 'evaluation/soccer_best_available': float(self.soccer_best_actor is not None),
                 'evaluation/rollback_count': self.rejections,
@@ -146,9 +173,54 @@ class SafetyGate:
         return dict(self.__dict__)
 
     def load_state_dict(self, state):
-        if state.get('version') == 3:
+        if state.get('version') == 5:
             self.__dict__.update(state)
         else:
             # Old acceptance scores were dominated by standing reward. Preserve
             # loaded policy/optimizers but re-evaluate with the new task criteria.
             self.rejections = state.get('rejections', 0)
+
+
+@torch.no_grad()
+def validate_action_response(agent, count=16, seed=130363):
+    """Held-out paired real transitions; checks action sensitivity, not just MSE.
+
+    Both branches replay the same seed and actions before +/- perturbations.
+    These cases never enter the model-training replay buffer.
+    """
+    device = agent.mean.device
+    generator = torch.Generator().manual_seed(seed+1)
+    direction = torch.randn(count, 22, generator=generator)
+    direction /= direction.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+    predicted, actual, initials = [], [], []
+    with torch.random.fork_rng(devices=[]):
+        for sign in (-1., 1.):
+            torch.random.default_generator.manual_seed(seed)
+            wrapper = load_environment('cpu', count)
+            state = wrapper.state()
+            for _ in range(20):
+                state, _, _, _ = wrapper.step(agent.act(state.to(device)).cpu())
+            initial = state.to(device)
+            action = (agent.act(initial).cpu() + sign*.05*direction).clamp(-1, 1)
+            _, target, _, _ = wrapper.step(action)
+            pred = agent.predict(agent.normalize(initial), action.to(device))[0]
+            predicted.append(pred*agent.scale + agent.mean)
+            actual.append(target.to(device))
+            initials.append(initial)
+        if not torch.equal(initials[0], initials[1]):
+            raise RuntimeError('Counterfactual branches must start from identical states')
+    a, b = agent.layout['physical_start'], agent.layout['physical_end']
+    observed = (actual[1]-actual[0])[:, a:b] / agent.scale[a:b]
+    estimated = (predicted[1]-predicted[0])[:, a:b] / agent.scale[a:b]
+    denom = observed.square().sum().clamp_min(1e-12)
+    relative = (estimated-observed).square().sum()/denom
+    cosine = torch.nn.functional.cosine_similarity(estimated.flatten(), observed.flatten(), dim=0)
+    # Root pose is small in aggregate norm but determines balance gradients.
+    r = agent.layout.get('root_xy', a) - a
+    root_observed, root_estimated = observed[:,r:r+7], estimated[:,r:r+7]
+    root_cosine = torch.nn.functional.cosine_similarity(root_estimated.flatten(), root_observed.flatten(), dim=0)
+    root_error = (root_estimated-root_observed).square().sum()/root_observed.square().sum().clamp_min(1e-12)
+    return {'model_validation/action_response_cosine': cosine.item(),
+            'model_validation/action_response_relative_error': relative.item(),
+            'model_validation/root_response_cosine': root_cosine.item(),
+            'model_validation/root_response_relative_error': root_error.item()}
