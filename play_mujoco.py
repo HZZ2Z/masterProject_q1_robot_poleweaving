@@ -102,10 +102,12 @@ def latest_g1_checkpoint():
 
 
 class SoccerPlayer:
-    def __init__(self, checkpoint=None, seed=42, reset_mode='reference', task='Q1'):
+    def __init__(self, checkpoint=None, seed=42, reset_mode='reference', task='Q1', training_spawns=True):
         with open(f'envs/{task}.yaml', encoding='utf-8') as f:
             self.cfg = yaml.safe_load(f)
         self.task = task
+        self.training_spawns = training_spawns and task == 'Q1' and self.cfg['init_state'].get('spawn_mixture') is not None
+        self.spawn_kind = 1
         self.num_actions = self.cfg['env']['num_actions']
         self.rng = np.random.default_rng(seed)
         self.reset_mode = reset_mode
@@ -184,9 +186,13 @@ class SoccerPlayer:
         a = self.ball_addr
         if self.task == 'Q1':
             for _ in range(32):
-                radius = self.cfg['init_state']['ball_spawn_radius'] * np.sqrt(self.rng.random())
-                angle = self.rng.uniform(0, 2 * np.pi)
-                xy = radius * np.array([np.cos(angle), np.sin(angle)])
+                if self.spawn_kind == 0:
+                    margin = self.cfg['rewards']['ball_radius']
+                    xy = self.rng.uniform([-7 + margin, -4.5 + margin], [7 - margin, 4.5 - margin])
+                else:
+                    radius = self.cfg['init_state']['ball_spawn_radius'] * np.sqrt(self.rng.random())
+                    angle = self.rng.uniform(0, 2 * np.pi)
+                    xy = radius * np.array([np.cos(angle), np.sin(angle)])
                 if np.linalg.norm(xy - self.data.qpos[self.root_addr:self.root_addr + 2]) >= .65:
                     break
             else:
@@ -201,6 +207,8 @@ class SoccerPlayer:
 
     def reset_robot(self):
         mujoco.mj_resetData(self.model, self.data)
+        if self.training_spawns:
+            self.spawn_kind = int(self.rng.choice(3, p=self.cfg['init_state']['spawn_mixture']))
         a = self.root_addr
         yaw = self.rng.uniform(0, 2 * np.pi)
         yaw_quat = np.array([0., 0., np.sin(yaw / 2), np.cos(yaw / 2)])
@@ -208,7 +216,8 @@ class SoccerPlayer:
         if self.task == 'Q1':
             base_xy = self.rng.uniform([-6.5, -4.], [6.5, 4.])
         self.data.qvel[:] = 0
-        if self.reset_mode == 'reference' and self.task == 'Q1':
+        reference = self.reset_mode == 'reference' and not (self.training_spawns and self.spawn_kind == 2)
+        if reference and self.task == 'Q1':
             frame = self.q1_motion.sample_batch(1)
             base_quat = frame['base_quat'][0].numpy()
             self.data.qpos[a:a + 7] = [*base_xy, frame['base_height'][0].item() + .01,
@@ -218,7 +227,7 @@ class SoccerPlayer:
             self.data.qvel[v:v + 3] = quat_rotate(base_quat, frame['base_lin_vel'][0].numpy())
             self.data.qvel[v + 3:v + 6] = frame['base_ang_vel'][0].numpy()
             self.data.qvel[self.vel_addrs] = frame['dof_vel'][0].numpy()
-        elif self.reset_mode == 'reference':
+        elif reference:
             frame = self.reference_frames[self.rng.integers(len(self.reference_frames))]
             base_quat = quat_mul(yaw_quat, frame[3:7])
             self.data.qpos[a:a + 7] = [*base_xy, frame[2] + 0.01,
@@ -243,6 +252,24 @@ class SoccerPlayer:
         self.control_steps = 0
         self.goal_hold_steps = 0
         self.reset_ball()
+        if self.training_spawns and self.spawn_kind == 2:
+            self._place_near_ball()
+
+    def _place_near_ball(self):
+        cfg = self.cfg['curriculum']['near_start']
+        ball = self.data.qpos[self.ball_addr:self.ball_addr + 3]
+        yaw = np.arctan2(-ball[1], 7 - ball[0]) + self.rng.uniform(-1, 1) * np.deg2rad(cfg['yaw_error_degrees'])
+        self.data.qpos[self.root_addr + 3:self.root_addr + 7] = [np.cos(yaw / 2), 0, 0, np.sin(yaw / 2)]
+        mujoco.mj_forward(self.model, self.data)
+        foot = self.model.body(self.cfg['asset']['foot_names'][self.rng.integers(2)]).id
+        top = self.cfg['asset']['foot_collision_bounds'][1]
+        gap = self.rng.uniform(*cfg['gap_range'])
+        vertical = max(0, ball[2] - self.data.xpos[foot, 2] - top[2])
+        horizontal = np.sqrt(max(0, (gap + self.cfg['rewards']['ball_radius'])**2 - vertical**2))
+        offset = self.data.xmat[foot].reshape(3, 3) @ [top[0] + horizontal, 0, 0]
+        self.data.qpos[self.root_addr:self.root_addr + 2] += ball[:2] - self.data.xpos[foot, :2] - offset[:2]
+        self.data.qvel[:] = 0
+        mujoco.mj_forward(self.model, self.data)
 
     def _q1_episode_end(self):
         """Same terminal conditions and goal hold duration as the Q1 task."""

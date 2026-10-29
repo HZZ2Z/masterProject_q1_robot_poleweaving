@@ -71,6 +71,14 @@ class Q1(T1):
         self._full_start_trial_mass = 0.
         self.device = cfg['basic']['device']
         self.num_envs = cfg['env']['num_envs']
+        mixture = cfg['init_state'].get('spawn_mixture')
+        self.spawn_group = torch.ones(self.num_envs, dtype=torch.long, device=self.device)
+        if mixture is not None:
+            if len(mixture) != 3 or min(mixture) < 0 or not np.isclose(sum(mixture), 1.):
+                raise ValueError('spawn_mixture must contain three nonnegative fractions summing to one')
+            boundaries = torch.tensor(np.cumsum(mixture)[:2], device=self.device)
+            quantiles = (torch.arange(self.num_envs, device=self.device) + .5) / self.num_envs
+            self.spawn_group[:] = torch.bucketize(quantiles, boundaries)
         self.num_dofs = cfg['env']['num_actions']
         self.dof_names = cfg['asset']['dof_names']
         self.terrain = FlatTerrain()
@@ -278,16 +286,22 @@ class Q1(T1):
         # Sample outside the robot's full leg reach plus the ball radius.
         # Independent uniform samples can otherwise start a foot inside the ball.
         robot_xy = self.qpos[ids, self.root_addr:self.root_addr + 2]
-        def sample_disk(count):
+        def sample_positions(sample_ids):
+            count = len(sample_ids)
             radius = self.cfg['init_state']['ball_spawn_radius'] * torch.rand(count, device=self.device).sqrt()
             angle = 2 * torch.pi * torch.rand(count, device=self.device)
-            return radius[:, None] * torch.stack((angle.cos(), angle.sin()), dim=-1)
-        ball_xy = sample_disk(len(ids))
+            positions = radius[:, None] * torch.stack((angle.cos(), angle.sin()), dim=-1)
+            field = self.spawn_group[sample_ids] == 0
+            margin = self.cfg['rewards']['ball_radius']
+            half_size = positions.new_tensor([7. - margin, 4.5 - margin])
+            positions[field] = (torch.rand((int(field.sum()), 2), device=self.device) * 2 - 1) * half_size
+            return positions
+        ball_xy = sample_positions(ids)
         for _ in range(32):
             overlap = torch.linalg.vector_norm(ball_xy - robot_xy, dim=1) < .65
             if not overlap.any():
                 break
-            ball_xy[overlap] = sample_disk(int(overlap.sum()))
+            ball_xy[overlap] = sample_positions(ids[overlap])
         else:
             raise RuntimeError('Could not sample a collision-free ball spawn')
         self.qpos[ids, a:a + 2] = ball_xy
@@ -297,6 +311,8 @@ class Q1(T1):
     @property
     def near_start_fraction(self):
         cfg = self.cfg.get('curriculum', {}).get('near_start', {})
+        if self.cfg['init_state'].get('spawn_mixture') is not None:
+            return self.cfg['init_state']['spawn_mixture'][2]
         if not cfg.get('enabled', False) or self.balance_phase:
             return 0.
         return cfg['initial_fraction'] + self.near_start_progress * (cfg['final_fraction'] - cfg['initial_fraction'])
@@ -324,7 +340,10 @@ class Q1(T1):
 
     def _reset_near_start(self, ids):
         """Neutral, collision-free last-step practice, mixed with full-field resets."""
-        self.near_start_episode[ids] = torch.rand(len(ids), device=self.device) < self.near_start_fraction
+        if self.cfg['init_state'].get('spawn_mixture') is not None:
+            self.near_start_episode[ids] = self.spawn_group[ids] == 2
+        else:
+            self.near_start_episode[ids] = torch.rand(len(ids), device=self.device) < self.near_start_fraction
         selected = ids[self.near_start_episode[ids]]
         if not len(selected):
             return
@@ -394,7 +413,7 @@ class Q1(T1):
     def set_training_iteration(self, iteration):
         curriculum = self.cfg.get('curriculum', {})
         near_cfg = curriculum.get('near_start', {})
-        if (near_cfg.get('enabled', False) and self.near_start_trials - self._near_start_last_trial_count >= near_cfg['min_completed_trials'] and
+        if (near_cfg.get('enabled', False) and near_cfg.get('adaptive', True) and self.near_start_trials - self._near_start_last_trial_count >= near_cfg['min_completed_trials'] and
             (self._near_start_last_adjustment is None or iteration - self._near_start_last_adjustment >= near_cfg['adjust_interval_iterations'])):
             if self.near_start_success_rate >= near_cfg['advance_success_rate'] and self.survival_rate_5s >= .8:
                 self.near_start_progress = min(1., self.near_start_progress + near_cfg['progress_step'])

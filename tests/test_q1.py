@@ -25,6 +25,7 @@ def cfg():
     result['env']['num_envs'] = 4
     result['physics']['num_threads'] = 2
     result['curriculum']['near_start']['enabled'] = False
+    result['init_state'].pop('spawn_mixture', None)
     return result
 
 
@@ -642,7 +643,7 @@ def q1_player(cfg, tmp_path):
     from play_mujoco import SoccerPlayer
     checkpoint = tmp_path / 'policy.pth'
     torch.save({'model': ActorCritic(cfg).state_dict()}, checkpoint)
-    return SoccerPlayer(str(checkpoint), seed=42, reset_mode='default', task='Q1')
+    return SoccerPlayer(str(checkpoint), seed=42, reset_mode='default', task='Q1', training_spawns=False)
 
 
 def test_q1_replay_goal_hold_timeout_and_fall_priority(q1_player):
@@ -772,6 +773,7 @@ def test_near_start_curriculum_is_safe_and_preserves_ball_disk(cfg):
 
 
 def test_near_start_mixture_advances_only_on_completed_near_trials(cfg):
+    cfg['curriculum']['near_start'].update(adaptive=True, final_fraction=.15)
     cfg['curriculum']['near_start']['enabled'] = True
     cfg['env']['num_envs'] = 512
     env = Q1(cfg)
@@ -908,3 +910,50 @@ def test_visual_scene_styles_are_repeatable_and_noncolliding(cfg):
     ball_material = model.geom_matid[model.geom('soccer_ball').id]
     assert ball_material >= 0
     assert model.geom('soccer_ball').size[0] == pytest.approx(.1)
+
+
+def test_fixed_25_25_50_spawn_cohorts_and_near_distance(cfg):
+    cfg['init_state']['spawn_mixture'] = [.25, .25, .5]
+    cfg['curriculum']['near_start'].update(enabled=True, adaptive=False)
+    cfg['env']['num_envs'] = 400
+    env = Q1(cfg)
+    env.near_start_progress = 1.  # fixed endpoints must not widen on resume
+    env.reset()
+    assert [(env.spawn_group == i).sum().item() for i in range(3)] == [100, 100, 200]
+    field, disk, near = [env.spawn_group == i for i in range(3)]
+    assert env.near_start_episode.equal(near)
+    xy = env.ball_pos[:, :2]
+    assert (xy[field, 0].abs() <= 6.9 + 1e-5).all()
+    assert (xy[field, 1].abs() <= 4.4 + 1e-5).all()
+    assert (xy[field].norm(dim=-1) > 3.5).any()
+    assert (xy[disk | near].norm(dim=-1) <= 3.5 + 1e-5).all()
+    gap = env._foot_ball_gap()[near]
+    assert gap.min() > .075 and gap.max() < .28
+    env._reset_idx(torch.tensor([0, 101, 250]))
+    assert env.near_start_episode.equal(near)
+    assert env.near_start_fraction == .5
+    env.near_start_trials = 1000
+    env.near_start_success_rate = 1.
+    env.survival_rate_5s = 1.
+    env.set_training_iteration(9999)
+    assert env.near_start_progress == 1.  # adaptive controller is disabled
+
+
+def test_replay_fixed_spawn_mixture_and_near_safety(q1_player):
+    from evaluate_q1 import foot_gap
+    p = q1_player
+    p.training_spawns = True
+    counts = np.zeros(3, dtype=int)
+    for _ in range(120):
+        p.reset_robot()
+        counts[p.spawn_kind] += 1
+        xy = p.data.qpos[p.ball_addr:p.ball_addr + 2]
+        if p.spawn_kind == 0:
+            assert abs(xy[0]) <= 6.9 and abs(xy[1]) <= 4.4
+        else:
+            assert np.linalg.norm(xy) <= 3.5
+        if p.spawn_kind == 2:
+            assert .075 < foot_gap(p) < .28
+            assert np.all(p.data.qvel == 0)
+    assert (counts > 15).all()
+    assert 40 < counts[2] < 80

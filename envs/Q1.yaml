@@ -6,9 +6,9 @@ basic:
   device: cuda:0
   max_iterations: 20000
   seed: 42
-  description: 'Q1 Warp 9728x24: mixed near-ball curriculum, fixed evaluation, kicks 2/8'
+  description: 'Q1 Warp 4096x24: fixed 25/25/50 spawns, half GPU memory, kicks 2/8'
 env:
-  num_envs: 9728
+  num_envs: 4096
   num_observations: 79
   num_critic_obs: 91
   num_privileged_obs: 14
@@ -35,6 +35,7 @@ motion:
   - right_ankle_roll_joint
   - waist_yaw_joint
 runner:
+  gpu_memory_fraction_limit: 0.5
   evaluation_interval: 500
   num_stack: 50
   horizon_length: 24
@@ -160,6 +161,8 @@ asset:
 init_state:
   # Goal lines are x=+-7m: spawn disk diameter is half their 14m separation.
   ball_spawn_radius: 3.5
+  # Fixed parallel cohorts: field, centre disk, neutral near-ball practice.
+  spawn_mixture: [0.25, 0.25, 0.5]
   pos:
   - 0.0
   - 0.0
@@ -476,13 +479,14 @@ physics:
 curriculum:
   near_start:
     enabled: true
-    version: 1
+    version: 2
+    adaptive: false
     initial_fraction: 0.5
-    final_fraction: 0.15
+    final_fraction: 0.5
     gap_range: [0.10, 0.25]
-    final_gap_max: 1.0
+    final_gap_max: 0.25
     yaw_error_degrees: 30.0
-    final_yaw_error_degrees: 90.0
+    final_yaw_error_degrees: 30.0
     advance_success_rate: 0.6
     retreat_success_rate: 0.25
     min_completed_trials: 128

@@ -514,6 +514,13 @@ class Runner:
                     torch.cuda.synchronize(self.device)
                     statistics['performance/cuda_peak_allocated_gib'] = torch.cuda.max_memory_allocated(self.device) / 2**30
                     statistics['performance/cuda_reserved_gib'] = torch.cuda.memory_reserved(self.device) / 2**30
+                    free_bytes, total_bytes = torch.cuda.mem_get_info(self.device)
+                    used_bytes = total_bytes - free_bytes
+                    statistics['performance/gpu_total_used_gib'] = used_bytes / 2**30
+                    memory_limit = self.cfg['runner'].get('gpu_memory_fraction_limit', 1.)
+                    if used_bytes > total_bytes * memory_limit:
+                        print(f'GPU memory exceeds {memory_limit:.0%} budget; saving and stopping training', flush=True)
+                        self.stop_requested = True
                 elapsed = time.perf_counter() - iteration_start
                 statistics['performance/env_steps_per_second'] = self.env.num_envs * self.cfg['runner']['horizon_length'] / elapsed
                 statistics['performance/rollout_seconds'] = rollout_seconds
@@ -535,6 +542,9 @@ class Runner:
                     statistics['soccer/near_start_success_rate'] = self.env.near_start_success_rate
                     statistics['soccer/full_start_success_rate'] = self.env.full_start_success_rate
                     statistics['soccer/near_start_completed_trials'] = self.env.near_start_trials
+                    statistics['spawn/field_fraction'] = (self.env.spawn_group == 0).float().mean().item()
+                    statistics['spawn/disk_fraction'] = (self.env.spawn_group == 1).float().mean().item()
+                    statistics['spawn/near_fraction'] = self.env.near_start_episode.float().mean().item()
                 self.recorder.collect_evaluation()
                 self.recorder.record_statistics(statistics, it)
                 if self.stop_requested or (it + 1) % self.cfg["runner"]["save_interval"] == 0 or it + 1 == self.cfg["basic"]["max_iterations"]:

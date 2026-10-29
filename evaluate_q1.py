@@ -54,7 +54,7 @@ def has_foot_contact(player, foot_geoms, ball_geom):
 
 def evaluate(checkpoint, duration=20.):
     torch.set_num_threads(2)
-    player = SoccerPlayer(str(checkpoint), reset_mode='default', task='Q1')
+    player = SoccerPlayer(str(checkpoint), reset_mode='default', task='Q1', training_spawns=False)
     foot_bodies = {player.model.body(n).id for n in player.cfg['asset']['foot_names']}
     foot_geoms = {g for g in range(player.model.ngeom) if player.model.geom_bodyid[g] in foot_bodies and player.model.geom_contype[g]}
     ball_geom = player.model.geom('soccer_ball').id
