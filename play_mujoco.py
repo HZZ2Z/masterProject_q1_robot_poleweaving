@@ -50,6 +50,50 @@ def quat_mul(q1, q2):
     ])
 
 
+def camera_frustum_vertices(model, data, cfg, distance=2.5):
+    """World-space optical frustum, using exactly the observation convention."""
+    origin = data.sensor('camera_position').data.copy()
+    camera = data.sensor('camera_orientation').data[[1, 2, 3, 0]]
+    optical = quat_mul(camera, [.5] * 4)
+    half_width, half_height = distance * np.tan(np.deg2rad(cfg['asset']['camera_fov']) / 2)
+    corners = np.array([origin + quat_rotate(optical, np.array([x, y, distance]))
+                        for x, y in ((-half_width, -half_height), (half_width, -half_height),
+                                     (half_width, half_height), (-half_width, half_height))])
+    return origin, corners
+
+
+def draw_camera_frustum(scene, model, data, cfg, distance=2.5):
+    """Viewer-only transparent faces; never contributes simulation geometry."""
+    origin, corners = camera_frustum_vertices(model, data, cfg, distance)
+    if scene.ngeom + 15 > scene.maxgeom:
+        return
+
+    def initialize(kind, size, pos, mat, rgba):
+        geom = scene.geoms[scene.ngeom]
+        mujoco.mjv_initGeom(geom, kind, np.asarray(size, dtype=float), np.asarray(pos, dtype=float),
+                           np.asarray(mat, dtype=float).reshape(9), np.asarray(rgba, dtype=np.float32))
+        geom.category = mujoco.mjtCatBit.mjCAT_DECOR
+        geom.emission = .45
+        scene.ngeom += 1
+        return geom
+
+    def triangle(a, b, c, alpha):
+        u, v = b - a, c - a
+        normal = np.cross(u, v)
+        mat = np.column_stack((u / np.linalg.norm(u), v / np.linalg.norm(v), normal / np.linalg.norm(normal)))
+        initialize(mujoco.mjtGeom.mjGEOM_TRIANGLE, [np.linalg.norm(u), np.linalg.norm(v), 0], a, mat,
+                   [.1, .7, 1., alpha])
+
+    for i in range(4):
+        triangle(origin, corners[i], corners[(i + 1) % 4], .075)
+    triangle(corners[0], corners[1], corners[2], .035)
+    triangle(corners[0], corners[2], corners[3], .035)
+    for a, b in [(origin, corner) for corner in corners] + [(corners[i], corners[(i + 1) % 4]) for i in range(4)]:
+        geom = initialize(mujoco.mjtGeom.mjGEOM_LINE, [0, 0, 0], [0, 0, 0], np.eye(3), [.15, .75, 1., .8])
+        mujoco.mjv_connector(geom, mujoco.mjtGeom.mjGEOM_LINE, 2., a, b)
+    initialize(mujoco.mjtGeom.mjGEOM_SPHERE, [.012] * 3, origin, np.eye(3), [1., .65, .1, 1.])
+
+
 def latest_g1_checkpoint():
     paths = list(Path('logs').glob('g1_13dof_*/logs/*/nn/model_*.pth'))
     if not paths:
@@ -314,14 +358,19 @@ class SoccerPlayer:
         self.total_steps += 1
 
 
-def run(checkpoint=None, headless=False, steps=None, seed=42, reset_mode='reference', task='Q1'):
+def run(checkpoint=None, headless=False, steps=None, seed=42, reset_mode='reference', task='Q1',
+        show_frustum=True, frustum_range=2.5):
     sim = SoccerPlayer(checkpoint, seed, reset_mode, task)
     limit = steps if steps is not None else (5000 if headless else None)
     if headless:
         for _ in range(limit):
             sim.step()
     else:
-        with mujoco.viewer.launch_passive(sim.model, sim.data) as viewer:
+        visible = [show_frustum]
+        def key_callback(key):
+            if key in (ord('F'), ord('f')):
+                visible[0] = not visible[0]
+        with mujoco.viewer.launch_passive(sim.model, sim.data, key_callback=key_callback) as viewer:
             viewer.cam.distance = 5
             viewer.cam.elevation = -20
             count = 0
@@ -329,6 +378,10 @@ def run(checkpoint=None, headless=False, steps=None, seed=42, reset_mode='refere
                 start = time.time()
                 sim.step()
                 viewer.cam.lookat[:] = sim.data.sensor('position').data
+                with viewer.lock():
+                    viewer.user_scn.ngeom = 0
+                    if visible[0]:
+                        draw_camera_frustum(viewer.user_scn, sim.model, sim.data, sim.cfg, frustum_range)
                 viewer.sync()
                 count += 1
                 remaining = sim.model.opt.timestep - (time.time() - start)
@@ -338,7 +391,7 @@ def run(checkpoint=None, headless=False, steps=None, seed=42, reset_mode='refere
     return sim
 
 
-def view_initial_state(seed=42, reset_mode='reference'):
+def view_initial_state(seed=42, reset_mode='reference', show_frustum=True, frustum_range=2.5):
     """Inspect a real Q1 batch reset without advancing any physics steps."""
     from envs.q1 import Q1
     import glfw
@@ -373,6 +426,10 @@ def view_initial_state(seed=42, reset_mode='reference'):
         viewer.cam.azimuth = 135
         viewer.cam.elevation = -15
         while viewer.is_running():
+            with viewer.lock():
+                viewer.user_scn.ngeom = 0
+                if show_frustum:
+                    draw_camera_frustum(viewer.user_scn, model, data, cfg, frustum_range)
             viewer.sync()
             time.sleep(1 / 60)
 
@@ -384,16 +441,21 @@ def main():
     parser.add_argument('--headless', action='store_true', help='run without a viewer')
     parser.add_argument('--steps', type=int, help='number of MuJoCo physics steps to run')
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--no-frustum', action='store_true', help='hide the camera frustum (F toggles it during playback)')
+    parser.add_argument('--frustum-range', type=float, default=2.5, help='display length in metres; not a sensor range limit')
     parser.add_argument('--initial-state', action='store_true', help='open a frozen Q1 training reset; no checkpoint required')
     parser.add_argument('--reset-mode', choices=('reference', 'default'), default='reference',
                         help='reference uses motion-state resets; default uses the neutral stance')
     args = parser.parse_args()
+    if args.frustum_range <= 0:
+        parser.error('--frustum-range must be positive')
     if args.initial_state:
         if args.task != 'Q1' or args.headless:
             parser.error('--initial-state requires --task Q1 and a graphical display')
-        view_initial_state(args.seed, args.reset_mode)
+        view_initial_state(args.seed, args.reset_mode, not args.no_frustum, args.frustum_range)
         return
-    run(args.checkpoint, args.headless, args.steps, args.seed, args.reset_mode, args.task)
+    run(args.checkpoint, args.headless, args.steps, args.seed, args.reset_mode, args.task,
+        not args.no_frustum, args.frustum_range)
 
 
 if __name__ == '__main__':

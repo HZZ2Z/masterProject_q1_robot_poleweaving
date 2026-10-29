@@ -870,3 +870,41 @@ def test_near_curriculum_checkpoint_uses_safe_primitive_values(cfg, tmp_path):
     state = torch.load(path, weights_only=True)['near_start_state']
     env.restore_near_start_state(state)
     assert env.near_start_success_rate == .5
+
+
+def test_display_frustum_matches_observation_camera(cfg):
+    from play_mujoco import camera_frustum_vertices, draw_camera_frustum, quat_mul, quat_rotate_inverse
+    model = mujoco.MjModel.from_xml_path(cfg['asset']['mujoco_file'])
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    origin, corners = camera_frustum_vertices(model, data, cfg, 2.5)
+    optical = quat_mul(data.sensor('camera_orientation').data[[1, 2, 3, 0]], [.5] * 4)
+    half_fov = np.deg2rad(cfg['asset']['camera_fov']) / 2
+    for corner in corners:
+        ray = quat_rotate_inverse(optical, corner - origin)
+        np.testing.assert_allclose(np.abs(np.arctan2(ray[:2], ray[2])), half_fov, atol=1e-10)
+        assert ray[2] == pytest.approx(2.5)
+    scene = mujoco.MjvScene(model, maxgeom=100)
+    draw_camera_frustum(scene, model, data, cfg)
+    assert scene.ngeom == 15
+    assert 0 < scene.geoms[0].rgba[3] < .2
+    assert np.isfinite(scene.geoms[0].mat).all()
+
+
+def test_visual_scene_styles_are_repeatable_and_noncolliding(cfg):
+    from scripts.prepare_q1 import style_scene
+    tree = ET.parse(cfg['asset']['mujoco_file'])
+    before = len(tree.getroot().findall('.//geom'))
+    original = {g.get('name'): {k: v for k, v in g.attrib.items() if k not in ('rgba', 'group', 'material')}
+                for g in tree.getroot().findall('.//geom') if g.get('name') and not g.get('name').startswith('visual_')}
+    style_scene(tree.getroot())
+    assert len(tree.getroot().findall('.//geom')) == before
+    for geom in tree.getroot().findall('.//geom'):
+        if geom.get('name', '').startswith('visual_'):
+            assert geom.get('contype') == geom.get('conaffinity') == '0'
+        elif geom.get('name') in original:
+            assert {k: v for k, v in geom.attrib.items() if k not in ('rgba', 'group', 'material')} == original[geom.get('name')]
+    model = mujoco.MjModel.from_xml_path(cfg['asset']['mujoco_file'])
+    ball_material = model.geom_matid[model.geom('soccer_ball').id]
+    assert ball_material >= 0
+    assert model.geom('soccer_ball').size[0] == pytest.approx(.1)

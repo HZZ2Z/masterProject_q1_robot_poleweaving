@@ -78,6 +78,8 @@ python play_mujoco.py --task Q1 --initial-state  # 冻结的训练初始状态�
 
 在训练机器的浏览器打开 http://127.0.0.1:6006/，查看 Scalars 下的 `reward`、`success_rate`、`fall_rate`、各项 loss 和 `performance/env_steps_per_second`。TensorBoard 是独立服务，关闭网页不会停止训练。若训练进程早于 best/last 功能升级启动，可用 `python -m utils.recorder --watch-run logs/q1/logs/<时间>` 为该进程的存档建立索引，无需重启训练；后续新启动的训练直接在保存时更新索引。
 
+回放默认显示蓝色半透明相机视锥，使用与策略观测完全相同的相机姿态和 FOV；按 **F** 切换显示，`--no-frustum` 默认隐藏，`--frustum-range 2.5` 指定绘制长度（只是可视化长度，不是相机量程限制）。冻结初始状态也显示视锥。球场采用明亮天空、草地、完整边线与中圈；球门增加圆管门框和网格外观，足球采用可重新生成的黑白五/六边形立方体纹理。装饰几何不参与碰撞，原有球门碰撞范围保留。`scripts/prepare_q1.py` 统一生成场景与纹理。
+
 省略回放的 `--checkpoint` 时，只查找 `logs/q1` 下的 Q1 模型。G1 的 13 自由度权重不能用于 Q1。交互查看统一使用 `play_mujoco.py`；批量训练不打开窗口。
 
 ## 项目结构
