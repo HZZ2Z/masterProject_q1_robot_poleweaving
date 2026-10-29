@@ -1,0 +1,69 @@
+{
+  "SuperMimic": {
+    "url": "https://github.com/PrimebotTech/SuperMimic",
+    "commit": "118338b19dcd14f768d1e7de5a48d04b78987688"
+  },
+  "soccer_environment": {
+    "path": "../q1-humanoid-kick",
+    "copied_files": [
+      "envs/q1.py",
+      "envs/t1.py",
+      "envs/base_task.py",
+      "utils/physics.py",
+      "utils/motion.py",
+      "utils/kinematics.py",
+      "utils/torch_math.py",
+      "utils/utils.py",
+      "resources/q1_description",
+      "data/q1"
+    ],
+    "note": "Independent snapshot; upstream training and checkpoints are not modified.",
+    "reward_sync": {
+      "date": "2026-10-30",
+      "reward_version": 4,
+      "source_sha256": {
+        "envs/q1.py": "5b2e812de72263e4b3f93d3ba5c2c613f66c0a0ff2c61303b9690c8724244682",
+        "envs/t1.py": "57961496788074286d96d6b67bbe85f51b5dfefefbbe9b94b8bc4711939adde5",
+        "envs/Q1.yaml": "b9d9ee6ad8d5b8e1190a98dc291120f3cf46f23084016142d89a202ffdfaaec2",
+        "utils/kinematics.py": "e897c6cd03b6771ec39b5d83121830288fc6405785f879c259cb646b752c4355",
+        "utils/torch_math.py": "05c04aa5d38e3975e9c4d7c6eac360cec38a84aac67db8bc701b2c3a0848c5c5",
+        "utils/physics.py": "7abf6a7aa6d055a88ac756565e6400158a075cd231f1ecc52ea1a03f3a93afb1"
+      },
+      "local_changes": [
+        "pre-reset terminal capture with one visual-history advance per continuing world",
+        "local W&B/save destination in envs/Q1.yaml"
+      ],
+      "local_sha256": {
+        "envs/q1.py": "724fb902d51819acf3e26c5a1172243386742e194a1c49293821844e4e885b1e",
+        "envs/Q1.yaml": "b0212836895a2b0e0f7770c1b738a4f1a95e6fd7ff5306882f6ce65430820a14",
+        "q1_supermimic/environment.py": "baba130dc97d86d3a8f8658d87a78054f4655800db3a2bce76d3c0d7492ddd65",
+        "q1_supermimic/learning.py": "2e51a2a45a3490e256839a51a8c433af904e8ec31761f812b8e4b8b5a3690947",
+        "train.py": "524f0acdda7ace86bb102ac143c6e6385291a38cda4716e313fbde69bfb28238",
+        "play.py": "09c40fd3a8fd128adc4a612dd941074c556df8878fa36f0622fb752c38530fb1"
+      }
+    }
+  },
+  "visual_sync": {
+    "source": "../q1-humanoid-kick",
+    "date": "2026-10-30",
+    "scene_sha256": "11b737bba76907dc40cf7da2802200775cb102b6c3031c9033563b1830efc09e",
+    "render_max_pixel_difference": 0,
+    "physics_invariants_checked": true
+  },
+  "local_changes": [
+    "fixed 25/25/50 reset mixture",
+    "completed-episode PPO-compatible metric names",
+    "matched scene and frustum viewer",
+    "bounded Torch memory allocation for shared GPU"
+  ],
+  "corrected_learning": {
+    "version": 3,
+    "date": "2026-10-30",
+    "files": {
+      "train.py": "4c7c488bad96390bd08e0797ec9fc9674b8dfc091b7e3e5eab065f5879a17a5b",
+      "q1_supermimic/learning.py": "4069dfe4e0171c782640e20db34baf8dd3ca9c5ba56b83cbcd31cb9241f9d73f",
+      "q1_supermimic/safety.py": "b765d7f3c848d3516a675c9d0c602dc10f882c65b12058cbadd634bcf8f6487b",
+      "configs/soccer.yaml": "d02f9a7150272d90187db8c7355b4b882effc5b749b725281bf7a78234f6f128"
+    }
+  }
+}

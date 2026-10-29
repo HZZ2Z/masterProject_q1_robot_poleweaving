@@ -1,0 +1,119 @@
+{
+  "checked_at": "2026-10-30T01:00:16.837937",
+  "reward_version": 4,
+  "checkpoint_version": 2,
+  "tests": {
+    "passed": 46,
+    "failed": 0
+  },
+  "gpu_smoke": {
+    "backend": "mujoco_warp",
+    "num_envs": 2,
+    "iterations": 2,
+    "run": "logs/v4_final_gpu/2026-10-30-00-23-53-180978",
+    "wandb": false,
+    "phases": [
+      "standing",
+      "soccer"
+    ]
+  },
+  "resume_smoke": {
+    "passed": true,
+    "device": "cpu",
+    "iterations": [
+      3,
+      4
+    ],
+    "run": "logs/v4_final_resume/2026-10-30-00-23-59-406154"
+  },
+  "headless_playback": {
+    "passed": true,
+    "control_steps": 20
+  },
+  "long_training_started": true,
+  "limitations": [
+    "No convergence validation",
+    "Model-based soccer adaptation; not the upstream tracking trainer",
+    "No AMP discriminator reward",
+    "GUI viewer not tested in this headless session"
+  ],
+  "full_gpu_probe": {
+    "environments": 1024,
+    "iterations": 24,
+    "actor_critic_updates": true,
+    "process_memory_mib": 5142
+  },
+  "scene_comparison": {
+    "max_pixel_difference": 0,
+    "same_state_and_camera": true
+  },
+  "formal_launch": {
+    "pid": 2607420,
+    "log": "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/train_2026-10-30-00-59-52.log",
+    "command": [
+      "/home/kemove/miniconda3/envs/q1-kick/bin/python",
+      "-u",
+      "train.py",
+      "--start-training",
+      "--config",
+      "configs/soccer.yaml"
+    ],
+    "started_at": "2026-10-30T00:59:52.396164"
+  },
+  "training_outcome": {
+    "status": "stopped_failed_run",
+    "iteration": 2303,
+    "reason": "All completed episodes fall; recent duration ~0.23s; deterministic policy regresses far below neutral baseline",
+    "action_saturation_fraction": 0.3877083341963589,
+    "diagnosis": "logs/fall_diagnosis.json",
+    "note": "Previous short tests checked execution and gradients, not learning effectiveness."
+  },
+  "corrected_training": {
+    "checked_at": "2026-10-30T01:56:26.140594",
+    "learner_version": 3,
+    "tests": {
+      "passed": 51,
+      "failed": 0
+    },
+    "real_policy_updates_validated": 50,
+    "fixed_evaluation": {
+      "environments": 32,
+      "horizon_s": 6,
+      "neutral": {
+        "survival_5s": 0.5,
+        "fall_fraction": 0.5,
+        "return": 1.1790419816970825,
+        "duration_s": 4.0387468338012695
+      },
+      "corrected_policy": {
+        "survival_5s": 0.6875,
+        "fall_fraction": 0.3125,
+        "return": 7.339147567749023,
+        "duration_s": 4.7518720626831055
+      }
+    },
+    "startup": {
+      "pid": 2958063,
+      "log": "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/train_v3_2026-10-30-01-55-56.log",
+      "command": [
+        "/home/kemove/miniconda3/envs/q1-kick/bin/python",
+        "-u",
+        "train.py",
+        "--start-training",
+        "--config",
+        "configs/soccer.yaml",
+        "--checkpoint",
+        "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/fix_v3_real_policy_validation/2026-10-30-01-53-27-226707/checkpoint_300.pt"
+      ],
+      "started_at": "2026-10-30T01:55:56.633080",
+      "learner_version": 3,
+      "initial_checkpoint": "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/fix_v3_real_policy_validation/2026-10-30-01-53-27-226707/checkpoint_300.pt",
+      "status": "running"
+    },
+    "notes": [
+      "Fixed-case evaluation, not a convergence claim",
+      "Actor uses actual on-policy TD advantage with small physical-model auxiliary objective",
+      "Initial checkpoint is corrected pretraining, not failed v2 weights"
+    ]
+  }
+}

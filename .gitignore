@@ -1,0 +1,13 @@
+__pycache__/
+.pytest_cache/
+logs/
+wandb/
+.env
+*.pyc
+MUJOCO_LOG.TXT
+*.pt
+*.pth
+*.ckpt
+*.log
+.env.*
+.netrc
