@@ -1,5 +1,23 @@
 """Torch views of MuJoCo Warp state, with native MuJoCo as CPU reference."""
 import torch
+import os
+import subprocess
+
+
+def process_gpu_memory(device):
+    """NVML process usage includes Warp and Torch, excluding unrelated jobs."""
+    uuid = str(torch.cuda.get_device_properties(device).uuid)
+    if not uuid.startswith('GPU-'):
+        uuid = 'GPU-' + uuid
+    result = subprocess.run(['nvidia-smi', '-i', uuid,
+                             '--query-compute-apps=pid,used_gpu_memory',
+                             '--format=csv,noheader,nounits'],
+                            capture_output=True, text=True, check=True, timeout=5)
+    for line in result.stdout.splitlines():
+        pid, memory_mib = (part.strip() for part in line.split(','))
+        if int(pid) == os.getpid():
+            return int(memory_mib) * 1024**2
+    raise RuntimeError('NVML did not report GPU memory for this training process')
 
 
 class Physics:

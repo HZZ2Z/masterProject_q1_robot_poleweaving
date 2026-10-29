@@ -31,14 +31,14 @@ python train.py --task Q1 --headless --num_envs 8 --num_threads 2 \
   --max_iterations 2 --save_path logs/q1_smoke
 ```
 
-当前正式配置为 4096（整卡显存预算 50%） 个并行环境，每轮采集 24 步；PPO 使用 4 个小批次：
+当前正式配置为 4096（训练进程显存预算 50%） 个并行环境，每轮采集 24 步；PPO 使用 4 个小批次：
 
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True python train.py --task Q1 --headless --device cuda:0 \
   --num_envs 4096 --save_path logs/q1
 ```
 
-默认上限沿用上游的 20,000 次迭代，每轮采集 `4096 × 24 = 98304` 个样本，PPO 分为 4 个小批次。RTX 5090 上完整 Warp 更新约 7.3–7.8 万步/秒；9728 环境约 8.0–8.3 万步/秒，整卡显存约 30–31GB（含其他进程），启用 `PYTORCH_ALLOC_CONF=expandable_segments:True` 减少碎片。10240 曾完成短测，但在后续启动时因碰撞临时缓存显存不足退出，因此当前采用 9728。16384 环境叠加物理、历史观测和 PPO 缓存会超出 32GB。监控 `performance/cuda_peak_allocated_gib`（Torch 分配）和 `performance/cuda_reserved_gib`；它们不包含 Warp 内存，全部显存请同时看 `nvidia-smi`。
+默认上限沿用上游的 20,000 次迭代，每轮采集 `4096 × 24 = 98304` 个样本，PPO 分为 4 个小批次。RTX 5090 上完整 Warp 更新约 7.3–7.8 万步/秒；9728 环境约 8.0–8.3 万步/秒，整卡显存约 30–31GB（含其他进程），启用 `PYTORCH_ALLOC_CONF=expandable_segments:True` 减少碎片。10240 曾完成短测，但在后续启动时因碰撞临时缓存显存不足退出，该数据来自历史容量测试；当前按半卡预算使用 4096。16384 环境叠加物理、历史观测和 PPO 缓存会超出 32GB。监控 `performance/cuda_peak_allocated_gib`（Torch 分配）和 `performance/cuda_reserved_gib`；它们不包含 Warp 内存，全部显存请同时看 `nvidia-smi`。
 
 稳定性修复加入站立课程：保留编码器和 actor 主干，一次性重置动作输出头及 critic，从小噪声的中立站姿学习。达到最早切换轮次、至少 80% 的环境已连续存活 5 秒，且近期重置试次的 5 秒存活率达到门槛，才进入下一阶段。切换时保留正在运行的轨迹，并保存 `standing.pth`；未来重置逐渐混入运动参考帧，不会一次全部替换为动态姿态。
 
@@ -50,7 +50,7 @@ Q1 奖励版本 4：用官方脚部碰撞网格的包围盒与球半径计算三
 
 当前初始化固定分为三个环境组：25% 在门线以内的矩形场地均匀采样（球心 x∈[-6.9,6.9]、y∈[-4.4,4.4]，为 0.1m 球半径留出余量）；25% 在场地中心半径 3.5m 的圆内按面积均匀采样；50% 将机器人放为朝向球、脚球间隙约 10–25cm 的中立安全姿态，这组的球仍在中心圆内。球与原机器人重叠时拒绝重采样。按环境编号固定分组，4096 环境对应 1024/1024/2048，部分重置不改变组别。`near_start.adaptive=false`，比例和近球距离不会自动扩张；保留分组成功率和固定评估用于比较。回放按同样的 25/25/50 概率选择初始化组，固定评估显式关闭训练出生分布。
 
-`runner.gpu_memory_fraction_limit=0.5` 将整卡已用显存（含 Warp 和其他进程）作为预算检查项，超限时在本轮结束保存并停训；当前使用 4096×24 留出临时分配余量。监控 `performance/gpu_total_used_gib`，它比单看 Torch allocator 更接近整卡占用。
+`runner.gpu_memory_fraction_limit=0.5` 用 NVML 查询当前训练 PID 的 GPU 占用（含 Warp、Torch 和 CUDA 缓存），不将其他任务计入本训练预算。超限时在本轮结束保存并停训；当前使用 4096×24 留出余量。监控 `performance/gpu_process_used_gib`；`performance/gpu_total_used_gib` 仅显示整卡占用，不作为停训依据。
 
 固定评估使用原生 MuJoCo 标称模型、确定性策略、固定种子和 24 个场景（骨盆距球 0.4/0.8/1.5/3m、朝向误差 -60/0/60°、两种球位置），每例最多 20 秒，不随训练课程改变。触球读取真实脚球碰撞，推进统计触球后的球门距离改善；记录到位率、触球率、有效踢球率、进球率、触球后摔倒率和近球停滞。近距离可能落入当前虚拟相机盲区，这些难例保留在评估中。每 500 轮保存存档时自动在 CPU 后台评估，结果位于本次 run 的 `evaluations/`，TensorBoard/W&B 的 `evaluation/*` 按被评估的 checkpoint 轮次记录，包含按距离分组的结果。它是固定仿真基准，不是训练指标或真机成绩。
 

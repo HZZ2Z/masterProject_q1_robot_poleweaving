@@ -22,6 +22,7 @@ from utils.buffer import *
 from utils.utils import discount_values, surrogate_loss
 from utils.recorder import Recorder
 from utils.motion import Motion
+from utils.physics import process_gpu_memory
 from envs import *
 
 
@@ -518,9 +519,12 @@ class Runner:
                     used_bytes = total_bytes - free_bytes
                     statistics['performance/gpu_total_used_gib'] = used_bytes / 2**30
                     memory_limit = self.cfg['runner'].get('gpu_memory_fraction_limit', 1.)
-                    if used_bytes > total_bytes * memory_limit:
-                        print(f'GPU memory exceeds {memory_limit:.0%} budget; saving and stopping training', flush=True)
-                        self.stop_requested = True
+                    if memory_limit < 1.:
+                        process_bytes = process_gpu_memory(self.device)
+                        statistics['performance/gpu_process_used_gib'] = process_bytes / 2**30
+                        if process_bytes > total_bytes * memory_limit:
+                            print(f'Training process GPU memory exceeds {memory_limit:.0%} budget; saving and stopping training', flush=True)
+                            self.stop_requested = True
                 elapsed = time.perf_counter() - iteration_start
                 statistics['performance/env_steps_per_second'] = self.env.num_envs * self.cfg['runner']['horizon_length'] / elapsed
                 statistics['performance/rollout_seconds'] = rollout_seconds

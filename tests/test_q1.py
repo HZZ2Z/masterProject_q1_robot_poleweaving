@@ -957,3 +957,15 @@ def test_replay_fixed_spawn_mixture_and_near_safety(q1_player):
             assert np.all(p.data.qvel == 0)
     assert (counts > 15).all()
     assert 40 < counts[2] < 80
+
+
+def test_gpu_memory_budget_counts_training_pid_only(monkeypatch):
+    from types import SimpleNamespace
+    from utils import physics
+    monkeypatch.setattr(physics.os, 'getpid', lambda: 123)
+    monkeypatch.setattr(physics.torch.cuda, 'get_device_properties', lambda device: SimpleNamespace(uuid='test-uuid'))
+    def query(args, **kwargs):
+        assert args[2] == 'GPU-test-uuid'
+        return SimpleNamespace(stdout='456, 12000\n123, 11000\n789, 2000\n')
+    monkeypatch.setattr(physics.subprocess, 'run', query)
+    assert physics.process_gpu_memory('cuda:0') == 11000 * 1024**2
