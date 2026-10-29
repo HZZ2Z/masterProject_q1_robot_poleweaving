@@ -9,9 +9,10 @@ import csv
 import os
 
 import numpy as np
-import pinocchio as pin
+import xml.etree.ElementTree as ET
 import torch
-from isaacgym.torch_utils import quat_mul, quat_rotate_inverse
+from utils.torch_math import quat_mul, quat_rotate_inverse
+from utils.kinematics import ResetKinematics
 
 
 class Motion:
@@ -50,9 +51,21 @@ class Motion:
         valid_idxs = []
         start_idx = 0
         expected_columns = 13 + 2 * self.num_motion_dofs
+        names = cfg["asset"].get("dof_names")
+        expected_header = None
+        if names:
+            names = names[self.dof_start_index:]
+            expected_header = ['x', 'y', 'z', 'qx', 'qy', 'qz', 'qw',
+                               'v_x', 'v_y', 'v_z', 'w_x', 'w_y', 'w_z']
+            expected_header += ['q_' + n for n in names] + ['dq_' + n for n in names]
         for file in sorted(file_list):
             with open(file, "r", encoding="utf-8") as f:
-                data = np.asarray(list(csv.reader(f))[1:], dtype=np.float32)
+                rows = list(csv.reader(f))
+            if expected_header is not None and rows[0] != expected_header:
+                raise ValueError(f"{file} joint columns differ from the configured joint order")
+            data = np.asarray(rows[1:], dtype=np.float32)
+            if not np.isfinite(data).all():
+                raise ValueError(f"Non-finite motion data in {file}")
             if data.ndim != 2 or data.shape[1] != expected_columns:
                 raise ValueError(f"{file} must have {expected_columns} columns, got {data.shape}")
             if data.shape[0] < 2:
@@ -79,26 +92,29 @@ class Motion:
         self.data[:, 3:9] = origin_data[:, 7:13]
         self.data[:, amp_pos_start:amp_vel_start] = origin_data[:, pos_start:vel_start]
         self.data[:, amp_vel_start:amp_feet_start] = origin_data[:, vel_start : vel_start + self.num_motion_dofs]
+        speed_squared = self.data[:, 3:9].square().sum(-1)
+        limit = cfg['rewards']['terminate_vel']
+        # Keep consecutive valid pairs; do not splice across rejected frames.
+        self.valid_idxs = self.valid_idxs[(speed_squared[self.valid_idxs] < limit) &
+                                          (speed_squared[self.valid_idxs + 1] < limit)]
+        self.reset_idxs = self.valid_idxs[speed_squared[self.valid_idxs] < .5 * limit]
+        if not len(self.reset_idxs):
+            raise ValueError('No reference frames are safely below the base velocity termination limit')
 
-        pin_model = pin.buildModelFromUrdf(self.cfg["asset"]["file"])
-        pin_data = pin_model.createData()
-        if pin_model.nq != self.num_dofs:
-            raise ValueError(f"URDF has {pin_model.nq} DoFs, config has {self.num_dofs}")
-        for idx in range(self.data.shape[0]):
-            dof_pos = pin.neutral(pin_model)
-            dof_pos[self.dof_start_index :] = self.data[idx, amp_pos_start:amp_vel_start].cpu().numpy()
-            pin.forwardKinematics(pin_model, pin_data, dof_pos)
-            pin.updateFramePlacements(pin_model, pin_data)
-            for foot_idx, foot_name in enumerate(cfg["asset"]["foot_names"]):
-                start = amp_feet_start + 3 * foot_idx
-                self.data[idx, start : start + 3] = torch.as_tensor(
-                    pin_data.oMf[pin_model.getFrameId(foot_name)].translation,
-                    dtype=torch.float32,
-                    device=self.device,
-                )
+        joints = [j for j in ET.parse(cfg["asset"]["file"]).getroot().findall('joint') if j.get('type') != 'fixed']
+        dof_names = cfg["asset"].get("dof_names", [j.get('name') for j in joints])
+        if len(joints) != self.num_dofs:
+            raise ValueError(f"URDF has {len(joints)} DoFs, config has {self.num_dofs}")
+        fk = ResetKinematics(cfg["asset"]["file"], dof_names, cfg["asset"]["foot_names"], self.device)
+        q = torch.zeros((len(origin_data), self.num_dofs), device=self.device)
+        q[:, self.dof_start_index:] = self.data[:, amp_pos_start:amp_vel_start]
+        frames = fk(q)
+        for foot_idx, name in enumerate(cfg["asset"]["foot_names"]):
+            start = amp_feet_start + 3 * foot_idx
+            self.data[:, start:start + 3] = frames[name][0]
 
     def sample_batch(self, batch_size):
-        sampled_idxs = self.valid_idxs[torch.randint(0, self.valid_idxs.shape[0], (batch_size,), device=self.device)]
+        sampled_idxs = self.reset_idxs[torch.randint(0, self.reset_idxs.shape[0], (batch_size,), device=self.device)]
         yaw_offset = torch.rand(batch_size, dtype=torch.float32, device=self.device) * (2 * np.pi)
         yaw_quat = torch.stack(
             [torch.zeros_like(yaw_offset), torch.zeros_like(yaw_offset), torch.sin(yaw_offset / 2), torch.cos(yaw_offset / 2)], dim=1

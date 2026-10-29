@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
-from isaacgym.torch_utils import get_euler_xyz, quat_mul, quat_rotate, quat_rotate_inverse
+from utils.torch_math import get_euler_xyz, quat_mul, quat_rotate, quat_rotate_inverse
 
 from utils.kinematics import ResetKinematics
 

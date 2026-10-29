@@ -31,6 +31,7 @@ class Runner:
         # prepare the environment
         self._get_args()
         self._update_cfg_from_args()
+        torch.set_num_threads(self.cfg['runner'].get('torch_threads', 4))
         self._configure_multi_gpu()
         self._set_seed()
         task_class = task_registry.get_task_class(self.cfg["basic"]["task"])
@@ -42,6 +43,16 @@ class Runner:
         self.model = ActorCritic(self.cfg).to(self.device)
         self.motion_sampler = Motion(self.cfg, self.device)
         self.amp_normalizer = Normalizer(self.cfg["env"]["num_amp_obs"], self.device)
+        self.amp_mask = torch.ones(self.cfg['env']['num_amp_obs'], device=self.device)
+        supervised = self.cfg['motion'].get('amp_joint_names')
+        if supervised is not None:
+            names = self.cfg['asset']['dof_names'][self.cfg['motion'].get('dof_start_index', 2):]
+            for i, name in enumerate(names):
+                if name not in supervised:
+                    self.amp_mask[9 + i] = 0
+                    self.amp_mask[9 + len(names) + i] = 0
+        expert, following = next(self.motion_sampler.feed_forward_generator(1, 4096))
+        self.amp_normalizer.update(torch.cat((expert, following), dim=0))
         self.discriminator = Discriminator(self.cfg["env"]["num_amp_obs"] * 2).to(self.device)
         self.amp_storage = ReplayBuffer(self.cfg["env"]["num_amp_obs"], self.cfg["motion"]["replay_buffer_size"], self.device)
         self.optimizer = torch.optim.Adam([{"name": "actor_critic", "params": self.model.parameters(), "lr": self.learning_rate}])
@@ -61,7 +72,28 @@ class Runner:
                 },
             ]
         )
+        self.start_iteration = 0
+        self.stop_requested = False
+        self.policy_bootstrap_version = 0
         self._load_checkpoint()
+        bootstrap = self.cfg.get('curriculum', {}).get('policy_bootstrap_version', 0)
+        if bootstrap > self.policy_bootstrap_version:
+            # Discard the failing action head once, retaining the learned encoder
+            # and actor trunk. Future resumes retain the newly learned head.
+            with torch.no_grad():
+                self.model.actor[-1].weight.zero_()
+                self.model.actor[-1].bias.zero_()
+                self.model.logstd.fill_(-3.)
+            for critic in self.model.critics:
+                for layer in critic.modules():
+                    if isinstance(layer, torch.nn.Linear):
+                        layer.reset_parameters()
+            self.optimizer.state.clear()
+            self.learning_rate = self.cfg['algorithm']['learning_rate']
+            for group in self.optimizer.param_groups:
+                group['lr'] = self.learning_rate
+            self.policy_bootstrap_version = bootstrap
+            print('Standing bootstrap: reset action head and critics, retained encoder/actor trunk', flush=True)
         if self.world_size > 1:
             for p in self.model.parameters():
                 if p.data is not None:
@@ -90,7 +122,9 @@ class Runner:
 
     def _get_args(self):
         parser = argparse.ArgumentParser()
-        parser.add_argument("--task", required=True, type=str, help="Name of the task to run.")
+        parser.add_argument("--task", default="Q1", type=str, help="Name of the task to run (default: Q1/MuJoCo Warp).")
+        parser.add_argument("--num_threads", type=int, help="CPU threads used by the native MuJoCo reference backend.")
+        parser.add_argument('--no_wandb', action='store_true', default=None, help='disable W&B for local checks')
         parser.add_argument("--checkpoint", type=str, help="Path of the model checkpoint to load. Overrides config file if provided.")
         parser.add_argument(
             "--headless", action="store_true", default=None, help="Run headless without creating a viewer window. Overrides config file if provided."
@@ -116,6 +150,10 @@ class Runner:
                     self.cfg["runner"][arg] = getattr(self.args, arg)
                 elif arg == "motion_path":
                     self.cfg["motion"][arg] = getattr(self.args, arg)
+                elif arg == "num_threads":
+                    self.cfg.setdefault("physics", {})[arg] = getattr(self.args, arg)
+                elif arg == 'no_wandb':
+                    self.cfg['runner']['use_wandb'] = False
                 else:
                     self.cfg["basic"][arg] = getattr(self.args, arg)
 
@@ -144,24 +182,116 @@ class Runner:
         if not self.cfg["basic"]["checkpoint"]:
             return
         if (self.cfg["basic"]["checkpoint"] == "-1") or (self.cfg["basic"]["checkpoint"] == -1):
-            self.cfg["basic"]["checkpoint"] = sorted(glob.glob(os.path.join("logs", "**/*.pth"), recursive=True), key=os.path.getmtime)[-1]
+            root = self.cfg["runner"]["save_path"] if self.cfg["basic"]["task"] == "Q1" else "logs"
+            candidates = glob.glob(os.path.join(root, "**/nn/model_*.pth"), recursive=True)
+            if not candidates:
+                raise FileNotFoundError(f"No checkpoint found under {root}; train this task first")
+            self.cfg["basic"]["checkpoint"] = max(candidates, key=os.path.getmtime)
         print("Loading model from {}".format(self.cfg["basic"]["checkpoint"]))
         model_dict = torch.load(self.cfg["basic"]["checkpoint"], map_location=self.device, weights_only=True)
-        self.model.load_state_dict(model_dict["model"], strict=False)
-        try:
-            self.discriminator.load_state_dict(model_dict["discriminator"], strict=False)
-        except Exception as e:
-            print(f"Failed to load discriminator: {e}")
+        if model_dict.get('reward_version', 1) != self.cfg['rewards'].get('version', 1):
+            print('Soccer reward changed: retaining policy/optimizer; episode rewards across runs are not directly comparable', flush=True)
+        self.policy_bootstrap_version = model_dict.get('policy_bootstrap_version', 0)
+        if hasattr(self.env, 'balance_release_iteration'):
+            if model_dict.get('curriculum_version', 1) == self.cfg.get('curriculum', {}).get('version', 1):
+                self.env.balance_release_iteration = model_dict.get('balance_release_iteration')
+                self.env.soccer_progress = model_dict.get('soccer_progress', 0.)
+            else:
+                print('Curriculum changed: rechecking standing stability before soccer; retaining policy weights', flush=True)
+        self.model.load_state_dict(model_dict["model"], strict=self.cfg["basic"]["task"] == "Q1")
+        compatible_amp = (model_dict.get('amp_normalizer_version', 1) == Normalizer.version and
+                          model_dict.get('amp_joint_names') == self.cfg['motion'].get('amp_joint_names'))
+        if compatible_amp:
+            self.discriminator.load_state_dict(model_dict['discriminator'], strict=True)
+        else:
+            print('AMP normalization changed: keeping policy weights; resetting discriminator and AMP statistics', flush=True)
+        if 'iteration' in model_dict:
+            self.start_iteration = int(model_dict['iteration'])
+        else:
+            name = os.path.basename(os.path.realpath(self.cfg['basic']['checkpoint']))
+            if name.startswith('model_') and name.endswith('.pth'):
+                self.start_iteration = int(name[6:-4])
+        if 'optimizer' in model_dict and 'discriminator_optimizer' in model_dict:
+            self.optimizer.load_state_dict(model_dict['optimizer'])
+            self.learning_rate = float(model_dict['learning_rate'])
+            if compatible_amp:
+                self.discriminator_optimizer.load_state_dict(model_dict['discriminator_optimizer'])
+                normalizer = model_dict['amp_normalizer']
+                self.amp_normalizer.mean.copy_(normalizer['mean'])
+                self.amp_normalizer.var.copy_(normalizer['var'])
+                self.amp_normalizer.count = normalizer['count']
+                print(f'Resuming optimizer and AMP statistics at iteration {self.start_iteration}', flush=True)
+        else:
+            print(f'Legacy weights at iteration {self.start_iteration}: optimizer and AMP statistics start fresh', flush=True)
+        old_scales = model_dict.get('action_scale')
+        if old_scales is None:
+            parent = os.path.dirname(os.path.realpath(self.cfg['basic']['checkpoint']))
+            for path in (os.path.join(parent, 'config.yaml'), os.path.join(parent, '..', 'config.yaml')):
+                if os.path.isfile(path):
+                    with open(path) as f:
+                        old_scales = yaml.safe_load(f)['control']['action_scale']
+                    break
+        if old_scales is not None:
+            old_scale = torch.as_tensor(old_scales, device=self.device)
+            new_scale = torch.as_tensor(self.cfg['control']['action_scale'], device=self.device)
+            if not torch.allclose(old_scale, new_scale):
+                ratio = old_scale / new_scale
+                with torch.no_grad():
+                    self.model.actor[-1].weight.mul_(ratio[:, None])
+                    self.model.actor[-1].bias.mul_(ratio)
+                    self.model.logstd.add_(ratio.log())
+                self.optimizer.state.clear()
+                self.learning_rate = self.cfg['algorithm']['learning_rate']
+                for group in self.optimizer.param_groups:
+                    group['lr'] = self.learning_rate
+                print('Action ranges changed: rescaled policy outputs to preserve joint targets; reset policy optimizer moments', flush=True)
+
+    def request_stop(self, signum=None, frame=None):
+        self.stop_requested = True
+
+    def _checkpoint(self, iteration):
+        return {
+            'model': self.model.state_dict(), 'discriminator': self.discriminator.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'discriminator_optimizer': self.discriminator_optimizer.state_dict(),
+            'amp_normalizer': {'mean': self.amp_normalizer.mean, 'var': self.amp_normalizer.var,
+                               'count': self.amp_normalizer.count},
+            'iteration': iteration, 'learning_rate': self.learning_rate,
+            'physics_backend': self.cfg['sim']['physics_engine'],
+            'reward_version': self.cfg['rewards'].get('version', 1),
+            'amp_normalizer_version': Normalizer.version,
+            'amp_joint_names': self.cfg['motion'].get('amp_joint_names'),
+            'policy_bootstrap_version': self.policy_bootstrap_version,
+            'balance_release_iteration': getattr(self.env, 'balance_release_iteration', None),
+            'curriculum_version': self.cfg.get('curriculum', {}).get('version', 1),
+            'soccer_progress': getattr(self.env, 'soccer_progress', 0.),
+            'action_scale': self.cfg['control']['action_scale'],
+        }
+
+    def _normalize_amp(self, observations):
+        return self.amp_normalizer.normalize(observations) * self.amp_mask
 
     def train(self):
         if self.rank == 0:
             self.recorder = Recorder(self.cfg)
+        if hasattr(self.env, 'set_training_iteration'):
+            self.env.set_training_iteration(self.start_iteration)
         obs, infos = self.env.reset()
         critic_obs = infos["critic_obs"]
         privileged_obs = infos["privileged_obs"]
         stacked_obs = infos["stacked_obs"]
         amp_obs = infos["amp_obs"]
-        for it in range(self.cfg["basic"]["max_iterations"]):
+        for it in range(self.start_iteration, self.cfg["basic"]["max_iterations"]):
+            if it != self.start_iteration and hasattr(self.env, 'set_training_iteration') and self.env.set_training_iteration(it):
+                # Preserve live trajectories at the handoff; only future resets
+                # gradually mix reference states. Save the standing policy first.
+                if self.rank == 0 and not self.env.balance_phase:
+                    self.recorder.save(self._checkpoint(it), it)
+                    target = os.path.join(self.recorder.model_dir, 'standing.pth')
+                    if os.path.lexists(target):
+                        os.unlink(target)
+                    os.symlink(f'model_{it}.pth', target)
+            iteration_start = time.perf_counter()
             # within horizon_length, env.step() is called with same act
             for n in range(self.cfg["runner"]["horizon_length"]):
                 self.buffer.update_data("obses", n, obs)
@@ -180,11 +310,14 @@ class Runner:
                 last_amp_obs = infos["last_amp_obs"]
                 self.amp_storage.insert(amp_obs, last_amp_obs)
                 with torch.no_grad():
-                    amp_obs = self.amp_normalizer.normalize(amp_obs)
-                    last_amp_obs = self.amp_normalizer.normalize(last_amp_obs)
+                    amp_obs = self._normalize_amp(amp_obs)
+                    last_amp_obs = self._normalize_amp(last_amp_obs)
                     amp_rew = 1 + torch.tanh(0.4 * self.discriminator(torch.cat([amp_obs, last_amp_obs], dim=-1)).squeeze(-1))
                     reward = rew.clone()
-                    reward[:, 1] += self.cfg["algorithm"]["amp_reward_coef"] * amp_rew
+                    amp_scale = self.cfg["algorithm"]["amp_reward_coef"] * getattr(self.env, 'amp_reward_scale', 1.)
+                    amp_multiplier = infos.get('amp_reward_multiplier', 1.)
+                    applied_amp = amp_scale * amp_rew * amp_multiplier
+                    reward[:, 1] += applied_amp
                 amp_obs = infos["amp_obs"]
                 self.buffer.update_data("actions", n, act)
                 self.buffer.update_data("rewards", n, reward)
@@ -194,9 +327,14 @@ class Runner:
                     "reward": reward.sum(dim=-1),
                     "success_rate": infos["success"],
                     "fall_rate": infos["fall"],
+                    'duration_s': torch.full_like(reward[:, 0], self.env.dt),
                 }
-                infos["rew_terms"].update({"amp": self.cfg["algorithm"]["amp_reward_coef"] * amp_rew})
+                for cause in ('height', 'velocity'):
+                    if f'termination_{cause}' in infos:
+                        ep_info[f'termination_{cause}_rate'] = infos[f'termination_{cause}']
+                infos["rew_terms"].update({"amp": applied_amp})
                 ep_info.update(infos["rew_terms"])
+                ep_info.update(infos.get('soccer_episode', {}))
                 if self.rank == 0:
                     self.recorder.record_episode_statistics(done, ep_info, it, n == (self.cfg["runner"]["horizon_length"] - 1))
 
@@ -225,6 +363,9 @@ class Runner:
                 advantages = (advantages - all_advantages.mean(dim=(0, 1))) / (all_advantages.std(dim=(0, 1)) + 1e-8)
 
             statistics = {}
+            rollout_seconds = time.perf_counter() - iteration_start
+            advantage_weights = torch.tensor(self.cfg['algorithm']['advantage_coef'], device=self.device)
+            advantage_weights[0] *= getattr(self.env, 'amp_reward_scale', 1.)
 
             mini_batch_size = (self.env.num_envs * self.cfg["runner"]["horizon_length"]) // self.cfg["algorithm"]["num_mini_batches"]
             indices = torch.randperm(mini_batch_size * self.cfg["algorithm"]["num_mini_batches"], requires_grad=False, device=self.device)
@@ -252,16 +393,17 @@ class Runner:
                     actor_loss = surrogate_loss(
                         old_actions_log_prob.flatten(0, 1)[batch_idx],
                         actions_log_prob,
-                        (advantages.flatten(0, 1)[batch_idx] * torch.tensor(self.cfg["algorithm"]["advantage_coef"], device=self.device)).sum(dim=-1),
+                        (advantages.flatten(0, 1)[batch_idx] * advantage_weights).sum(dim=-1),
                     )
 
                     policy_state, policy_next_state = next(amp_policy_generator)
                     expert_state, expert_next_state = next(amp_expert_generator)
                     with torch.no_grad():
-                        policy_state = self.amp_normalizer.normalize(policy_state)
-                        policy_next_state = self.amp_normalizer.normalize(policy_next_state)
-                        expert_state = self.amp_normalizer.normalize(expert_state)
-                        expert_next_state = self.amp_normalizer.normalize(expert_next_state)
+                        self.amp_normalizer.update(torch.cat((policy_state, policy_next_state, expert_state, expert_next_state), dim=0))
+                        policy_state = self._normalize_amp(policy_state)
+                        policy_next_state = self._normalize_amp(policy_next_state)
+                        expert_state = self._normalize_amp(expert_state)
+                        expert_next_state = self._normalize_amp(expert_next_state)
                     policy_d = self.discriminator(torch.cat([policy_state, policy_next_state], dim=-1))
                     expert_d = self.discriminator(torch.cat([expert_state, expert_next_state], dim=-1))
                     amp_loss = -torch.tanh(0.4 * expert_d).mean() + torch.tanh(0.4 * policy_d).mean()
@@ -308,6 +450,8 @@ class Runner:
                     )
                     self.optimizer.zero_grad()
                     self.discriminator_optimizer.zero_grad()
+                    if not torch.isfinite(loss):
+                        raise FloatingPointError(f"Non-finite training loss at iteration {it + 1}")
                     (loss / self.world_size).backward()
                     if self.world_size > 1:
                         for p in self.model.parameters():
@@ -330,9 +474,6 @@ class Runner:
                         "symmetric_loss",
                     ]:
                         statistics[key] = statistics.get(key, 0) + eval(key).item()
-
-                    self.amp_normalizer.update(policy_state)
-                    self.amp_normalizer.update(expert_state)
 
                     with torch.no_grad():
                         kl = torch.sum(
@@ -361,10 +502,38 @@ class Runner:
                 statistics[key] /= self.cfg["algorithm"]["num_learning_epochs"] * self.cfg["algorithm"]["num_mini_batches"]
 
             if self.rank == 0:
+                if hasattr(self.env, 'batch'):
+                    self.env.batch.check()
+                if torch.device(self.device).type == 'cuda':
+                    torch.cuda.synchronize(self.device)
+                    statistics['performance/cuda_peak_allocated_gib'] = torch.cuda.max_memory_allocated(self.device) / 2**30
+                    statistics['performance/cuda_reserved_gib'] = torch.cuda.memory_reserved(self.device) / 2**30
+                elapsed = time.perf_counter() - iteration_start
+                statistics['performance/env_steps_per_second'] = self.env.num_envs * self.cfg['runner']['horizon_length'] / elapsed
+                statistics['performance/rollout_seconds'] = rollout_seconds
+                statistics['performance/update_seconds'] = elapsed - rollout_seconds
+                statistics['stability/active_over_5s'] = (self.env.episode_length_buf * self.env.dt >= 5).float().mean().item()
+                statistics['stability/reset_cohort_survival_5s'] = getattr(self.env, 'survival_rate_5s', 0.)
+                statistics['stability/base_height_mean'] = self.env.base_pos[:, 2].mean().item()
+                statistics['curriculum/amp_reward_scale'] = getattr(self.env, 'amp_reward_scale', 1.)
+                statistics['curriculum/balance_phase'] = float(getattr(self.env, 'balance_phase', False))
+                statistics['curriculum/reference_init_probability'] = getattr(self.env, 'reference_init_probability', 1.)
+                if hasattr(self.env, 'near_ball_stall'):
+                    statistics['soccer/foot_ball_gap_mean'] = self.env.foot_ball_gap.mean().item()
+                    statistics['soccer/near_ball_fraction'] = self.env.near_ball_active.float().mean().item()
+                    statistics['soccer/near_ball_stall_fraction'] = (self.env.near_ball_stall > 0).float().mean().item()
+                    statistics['soccer/far_ball_stall_fraction'] = (self.env.far_ball_stall > 0).float().mean().item()
+                    statistics['soccer/amp_multiplier_mean'] = self.env.amp_reward_multiplier.mean().item()
                 self.recorder.record_statistics(statistics, it)
-                if (it + 1) % self.cfg["runner"]["save_interval"] == 0:
-                    self.recorder.save({"model": self.model.state_dict(), "discriminator": self.discriminator.state_dict()}, it + 1)
-                print("epoch: {}/{}".format(it + 1, self.cfg["basic"]["max_iterations"]))
+                if self.stop_requested or (it + 1) % self.cfg["runner"]["save_interval"] == 0 or it + 1 == self.cfg["basic"]["max_iterations"]:
+                    self.recorder.save(self._checkpoint(it + 1), it + 1)
+                print("epoch: {}/{} | {:.0f} env steps/s | actor {:.4f} | value {:.4f}".format(
+                    it + 1, self.cfg["basic"]["max_iterations"],
+                    statistics['performance/env_steps_per_second'], statistics['actor_loss'], statistics['value_loss']), flush=True)
+            if self.stop_requested:
+                break
+        if self.rank == 0:
+            self.recorder.close()
 
     def play(self):
         obs, infos = self.env.reset()

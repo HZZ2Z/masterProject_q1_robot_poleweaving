@@ -97,6 +97,7 @@ class Discriminator(torch.nn.Module):
 
 
 class Normalizer:
+    version = 2
 
     def __init__(self, input_dim, device):
         self.world_size = int(os.getenv("WORLD_SIZE", "1"))
@@ -109,8 +110,10 @@ class Normalizer:
         batch_var = torch.var(input, dim=0, unbiased=False)
         batch_count = input.shape[0] * self.world_size
         if self.world_size > 1:
+            second_moment = torch.mean(input.square(), dim=0)
             torch.distributed.all_reduce(batch_mean, op=torch.distributed.ReduceOp.AVG)
-            torch.distributed.all_reduce(batch_var, op=torch.distributed.ReduceOp.AVG)
+            torch.distributed.all_reduce(second_moment, op=torch.distributed.ReduceOp.AVG)
+            batch_var = (second_moment - batch_mean.square()).clamp_min(0)
         self.var = (
             self.var * self.count
             + batch_var * batch_count
@@ -120,4 +123,4 @@ class Normalizer:
         self.count += batch_count
 
     def normalize(self, input):
-        return torch.clamp((input - self.mean) / (self.var + 1e-4), -10.0, 10.0)
+        return torch.clamp((input - self.mean) / torch.sqrt(self.var + 1e-4), -10.0, 10.0)

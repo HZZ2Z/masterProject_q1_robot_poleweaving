@@ -5,15 +5,16 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 
-from isaacgym import gymapi, gymutil
 import sys
 import torch
-from utils.terrain import Terrain
 
 
 class BaseTask:
 
     def __init__(self, cfg):
+        global gymapi, gymutil
+        from isaacgym import gymapi, gymutil
+        from utils.terrain import Terrain
         self.cfg = cfg
         self.gym = gymapi.acquire_gym()
         self.create_sim()

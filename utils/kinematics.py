@@ -3,7 +3,7 @@ import math
 import xml.etree.ElementTree as ET
 
 import torch
-from isaacgym.torch_utils import quat_mul, quat_rotate
+from utils.torch_math import quat_mul, quat_rotate
 
 
 class ResetKinematics:
@@ -49,7 +49,7 @@ class ResetKinematics:
                 index = None if kind == 'fixed' else indices[joint.get('name')]
                 self.edges.append((joint.find('parent').get('link'), child,
                                    torch.tensor(xyz, device=device), torch.tensor(rotation, device=device),
-                                   axis / axis.norm(), index))
+                                   axis / axis.norm().clamp_min(1e-12), index))
                 pending.remove(child)
                 visited.add(child)
 

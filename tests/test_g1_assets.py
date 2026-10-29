@@ -16,7 +16,7 @@ import torch
 import yaml
 
 from envs.g1 import G1
-from play_mujoco_g1 import quat_mul as mujoco_quat_mul
+from play_mujoco import quat_mul as mujoco_quat_mul
 from utils.kinematics import ResetKinematics
 from utils.motion import Motion
 

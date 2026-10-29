@@ -5,8 +5,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 
-from isaacgym import gymtorch, gymapi
-from isaacgym.torch_utils import (
+from utils.torch_math import (
     get_axis_params,
     to_torch,
     quat_rotate_inverse,
@@ -27,6 +26,8 @@ from utils.motion import Motion
 class T1(BaseTask):
 
     def __init__(self, cfg):
+        global gymtorch, gymapi
+        from isaacgym import gymtorch, gymapi
         super().__init__(cfg)
         self._create_envs()
         self.gym.prepare_sim(self.sim)
@@ -59,6 +60,10 @@ class T1(BaseTask):
         self.num_dofs = self.gym.get_asset_dof_count(robot_asset)
         self.num_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
+        if "dof_names" in asset_cfg and list(self.dof_names) != asset_cfg["dof_names"]:
+            raise ValueError(f"Simulator joint order differs from configured policy order: {self.dof_names}")
+        if self.num_dofs != self.cfg["env"]["num_actions"]:
+            raise ValueError("Robot DoF count differs from the configured action dimension")
 
         dof_props_asset = self.gym.get_asset_dof_properties(robot_asset)
         self.dof_pos_limits = torch.zeros(self.num_dofs, 2, dtype=torch.float, device=self.device)
@@ -236,6 +241,10 @@ class T1(BaseTask):
         self.extras = {}
         self.extras["rew_terms"] = {}
 
+        self._bind_sim_buffers()
+        self._init_task_buffers()
+
+    def _bind_sim_buffers(self):
         # get gym state tensors
         actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
@@ -255,6 +264,8 @@ class T1(BaseTask):
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dofs, 2)[..., 1]
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3)  # shape: num_envs, num_bodies, xyz axis
         self.body_states = gymtorch.wrap_tensor(body_state).view(self.num_envs, -1, 13)
+
+    def _init_task_buffers(self):
         self.base_pos = self.root_states[:, 0, 0:3].clone()
         self.base_pos[:, 0:2] -= self.env_origins[:, 0:2]
         self.base_quat = self.root_states[:, 0, 3:7]
@@ -286,8 +297,8 @@ class T1(BaseTask):
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 0, 7:10])
         self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 0, 10:13])
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
-        self.pushing_forces = torch.zeros(self.num_envs, self.gym.get_env_rigid_body_count(self.envs[0]), 3, dtype=torch.float, device=self.device)
-        self.pushing_torques = torch.zeros(self.num_envs, self.gym.get_env_rigid_body_count(self.envs[0]), 3, dtype=torch.float, device=self.device)
+        self.pushing_forces = torch.zeros(self.num_envs, self.body_states.shape[1], 3, dtype=torch.float, device=self.device)
+        self.pushing_torques = torch.zeros_like(self.pushing_forces)
         self.ball_friction_forces = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.feet_roll = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.float, device=self.device)
         self.feet_pitch = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.float, device=self.device)
@@ -454,6 +465,35 @@ class T1(BaseTask):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self._refresh_task_state()
+
+        self.episode_length_buf += 1
+        self.common_step_counter += 1
+
+        self._kick_robots()
+        self._push_robots()
+        self._kick_balls()
+        self._reset_balls()
+        self._check_termination()
+        self._compute_reward()
+        self.extras["last_amp_obs"] = self._compute_amp_obs()
+
+        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+        self._reset_idx(env_ids)
+
+        self._compute_observations()
+
+        self.last_actions[:] = self.actions
+        self.last_dof_vel[:] = self.dof_vel
+        self.last_root_vel[:] = self.root_states[:, 0, 7:13]
+        self.last_feet_pos[:] = self.feet_pos
+        self.last_feet_yaw[:] = self.feet_yaw
+        self.last_base_pos[:] = self.base_pos[:, 0:2]
+        self.last_ball_pos[:] = self.ball_pos[:, 0:2]
+
+        return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
+
+    def _refresh_task_state(self):
         self.base_pos[:] = self.root_states[:, 0, 0:3]
         self.base_pos[:, 0:2] -= self.env_origins[:, 0:2]
         self.base_quat[:] = self.root_states[:, 0, 3:7]
@@ -487,31 +527,6 @@ class T1(BaseTask):
             self.head_quat[:] = camera_mount_quat
         self.camera_pos[:, 0:2] -= self.env_origins[:, 0:2]
 
-        self.episode_length_buf += 1
-        self.common_step_counter += 1
-
-        self._kick_robots()
-        self._push_robots()
-        self._kick_balls()
-        self._reset_balls()
-        self._check_termination()
-        self._compute_reward()
-        self.extras["last_amp_obs"] = self._compute_amp_obs()
-
-        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        self._reset_idx(env_ids)
-
-        self._compute_observations()
-
-        self.last_actions[:] = self.actions
-        self.last_dof_vel[:] = self.dof_vel
-        self.last_root_vel[:] = self.root_states[:, 0, 7:13]
-        self.last_feet_pos[:] = self.feet_pos
-        self.last_feet_yaw[:] = self.feet_yaw
-        self.last_base_pos[:] = self.base_pos[:, 0:2]
-        self.last_ball_pos[:] = self.ball_pos[:, 0:2]
-
-        return self.obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     def _kick_robots(self):
         """Random kick the robots. Emulates an impulse by setting a randomized base velocity."""

@@ -4,3 +4,7 @@ videos/
 .ipynb_checkpoints
 MUJOCO_LOG.TXT
 .DS_Store
+.venv*/
+.pytest_cache/
+wandb/
+checkpoints/
