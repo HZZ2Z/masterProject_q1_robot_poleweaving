@@ -172,6 +172,7 @@ def main():
     cfg['checkpoint_schema'] = 7
     cfg['survival_statistic'] = 'independent_noisy_first_episode_cohort'
     cfg['physical_state_normalization'] = 'lossless_affine_ball_motion_floors'
+    cfg['action_response_validation'] = 'three_rotating_cohorts_32_pairs_each'
     try:
         cfg['code_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         cfg['code_dirty'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode != 0
@@ -256,6 +257,7 @@ def main():
         (output / 'config.yaml').write_text(yaml.safe_dump(cfg))
         wandb_run.define_metric('iteration')
         wandb_run.define_metric('*', step_metric='iteration')
+        wandb_run.summary.update({'status':'running','reason':''})
     replay = TemporalReplay(cfg['replay_steps'], cfg['num_envs'], env.state_dim, cfg['device'])
     stopped = False
 
@@ -357,7 +359,11 @@ def main():
                 latest_rollout, gamma=cfg.get('gamma', .995), lam=cfg.get('gae_lambda', .98),
                 epochs=1 if args.smoke else cfg.get('critic_epochs', 4))
             if iteration == start+1 or iteration % cfg.get('evaluation_interval', 50) == 0:
-                action_check = validate_action_response(agent, count=4 if args.smoke else 16)
+                # Pool independent randomized worlds; a single fixed tiny
+                # cohort can freeze otherwise responsive models indefinitely.
+                seeds = (130363,) if args.smoke else tuple(
+                    seed+iteration*1000003 for seed in (130363,230363,330373))
+                action_check = validate_action_response(agent,count=4 if args.smoke else 32,seeds=seeds)
             # Basic dynamics checks permit a small proposal. Task improvement is
             # decided by paired multi-step real-physics evaluation, not by a noisy
             # one-step reward derivative (which remains a diagnostic).
@@ -443,6 +449,9 @@ def main():
                 link.symlink_to(path.name)
             if stopped:
                 break
+        if wandb_run:
+            wandb_run.summary.update({'status': 'stopped_stalled' if reason else
+                'stopped_by_signal' if stopped else 'bounded_run_finished', 'reason':reason or ''})
     finally:
         writer.close()
         if wandb_run:

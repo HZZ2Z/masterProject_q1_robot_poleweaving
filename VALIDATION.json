@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-10-30T13:07:11.874402",
+  "checked_at": "2026-10-30T13:31:20.000419",
   "status": "repair_in_progress_not_stable",
   "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
   "tests": {
-    "passed": 87,
+    "passed": 88,
     "failed": 0
   },
   "current_implementation": [
@@ -18,10 +18,10 @@
     "Preallocated rollout buffers and chunked critic evaluation bound history memory"
   ],
   "current_run": {
-    "status": "running assessed exploration stage; kicking not verified",
-    "resume_checkpoint": "logs/q1_supermimic/2026-10-30-12-46-04-229224/checkpoint_600.pt",
+    "status": "800-iteration run stopped at stalled-update watchdog; cohort repair ready to resume",
+    "resume_checkpoint": "logs/q1_supermimic/2026-10-30-13-07-51-985403/checkpoint_800.pt",
     "wandb_run_id": "qyfmtvgv",
-    "target_iteration": 800,
+    "target_iteration": 1000,
     "productive_kicking_verified": false,
     "run_directory": "logs/q1_supermimic/2026-10-30-13-07-51-985403",
     "exploration_std": 0.05,
@@ -620,5 +620,37 @@
     "actor_updates_during_warmup": 0,
     "real_recheck_survival_5s": 0.8177083333333334,
     "real_recheck_fall_fraction": 0.203125
+  },
+  "action_response_cohort_repair": {
+    "problem": "A single fixed 16-world cohort froze actor updates at the new exploration level despite acceptable multi-cohort response.",
+    "unchanged_checkpoint": "logs/q1_supermimic/2026-10-30-13-07-51-985403/checkpoint_700.pt",
+    "fixed_cohort": {
+      "cosine": 0.7426645755767822,
+      "relative_error": 0.47396111488342285
+    },
+    "fresh_192_pairs": {
+      "pairs": 192,
+      "cosine": 0.8388674855232239,
+      "relative_error": 0.3183400332927704
+    },
+    "evidence": [
+      "logs/current_response_cohort_probe.json",
+      "logs/current_response_fresh_cohorts.json"
+    ],
+    "fresh_evidence_sha256": "24eb359e3ba7a2f2702e45885045bb453ab45af85b179c356dc1cc3fae59cc26",
+    "fix": "Pool three rotating independent cohorts of 32 pairs; preserve cosine >=0.8 and relative squared error <=0.4 thresholds. No counterfactual-training candidate deployed.",
+    "gpu_resume_check": {
+      "directory": "logs/current_response_cohort_resume_check/2026-10-30-13-25-51-077758",
+      "actual_actor_updates": 2,
+      "real_policy_accepted": true,
+      "survival_5s": 0.9635416666666666,
+      "noisy_survival_5s": 0.84375,
+      "kick_rate": 0.0
+    }
+  },
+  "value_gradient_return_check": {
+    "evidence": "logs/current_value_gradient_return_probe.json",
+    "near_pairs_per_direction": 48,
+    "conclusion": "Full-objective direction mean return gain was dominated by a rare avoided fall; these samples do not establish a systematically wrong critic gradient or productive kicking. Critic retained."
   }
 }

@@ -241,9 +241,10 @@ def sample_action_pairs(agent, count=32, seed=1000003, prefix_steps=20, amplitud
 
 
 @torch.no_grad()
-def validate_action_response(agent, count=16, seed=130363):
+def validate_action_response(agent, count=16, seed=130363, *, seeds=None):
     """Held-out physical and reward response; never added to training replay."""
-    initial, actions, targets = sample_action_pairs(agent, count, seed)
+    cohorts = [sample_action_pairs(agent,count,s) for s in (seeds if seeds is not None else (seed,))]
+    initial,actions,targets = (torch.cat([cohort[i] for cohort in cohorts]) for i in range(3))
     flat = initial[:,None].expand(-1,2,-1).flatten(0,1)
     pred = agent.predict(agent.normalize(flat), actions.flatten(0,1))[0]
     predicted = (pred*agent.scale+agent.mean).reshape_as(targets)

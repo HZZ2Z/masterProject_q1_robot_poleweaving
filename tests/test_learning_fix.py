@@ -36,6 +36,28 @@ def test_unsafe_exploration_change_keeps_saved_gate():
     assert gate.noisy_best=={'survival_5s':.95}
 
 
+def test_action_response_pools_independent_cohorts_before_scoring(monkeypatch):
+    import pytest
+    from types import SimpleNamespace
+    import q1_supermimic.safety as safety
+    seen=[]
+    def pairs(agent,count,seed):
+        seen.append(seed)
+        actions=torch.zeros(count,2,22)
+        actions[:,0,0]=-1
+        actions[:,1,0]=1
+        return torch.zeros(count,1),actions,seed*actions[:,:,:1]
+    agent=SimpleNamespace(scale=torch.ones(1),mean=torch.zeros(1),
+        layout={'physical_start':0,'physical_end':1},normalize=lambda x:x,
+        predict=lambda state,action:(action[:,:1],None,None))
+    monkeypatch.setattr(safety,'sample_action_pairs',pairs)
+    result=safety.validate_action_response(agent,count=1,seeds=(1,2))
+    assert seen==[1,2]
+    assert result['model_validation/action_response_cosine']==pytest.approx(.9486833)
+    # Pooled squared error is 4/20, not the average of the two ratios (0.125).
+    assert result['model_validation/action_response_relative_error']==pytest.approx(.2)
+
+
 def rollout(states, sign=1.):
     latent = torch.zeros(1, len(states), 22)
     latent[0, :, 0] = torch.tensor([.3, -.3] * (len(states)//2))
