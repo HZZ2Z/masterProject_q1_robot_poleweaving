@@ -49,7 +49,6 @@ if existing_path.exists():
     old=ws.Workspace.from_url(old_url)
     old.sections=view.sections
     old.runset_settings=view.runset_settings
-    old.auto_generate_panels=False
     view=old
 view.save()
 view_url=run['url'].split('/runs/',1)[0]+'?'+view.url.split('?',1)[1]
