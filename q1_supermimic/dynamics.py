@@ -27,9 +27,13 @@ def integrate(model, position, displacement):
             q += 3; v += 3
         if kind in (mujoco.mjtJoint.mjJNT_FREE, mujoco.mjtJoint.mjJNT_BALL):
             angle = displacement[..., v:v+3]
-            norm = angle.norm(dim=-1, keepdim=True)
-            # sinc supplies a finite derivative at zero rotation.
-            delta = torch.cat(((norm / 2).cos(), .5 * torch.sinc(norm / (2 * torch.pi)) * angle), -1)
+            squared = angle.square().sum(-1, keepdim=True)
+            norm = squared.clamp_min(1e-12).sqrt()
+            # Polynomial branch also preserves finite second derivatives at
+            # zero, required when differentiating velocity-based task rewards.
+            cosine = torch.where(squared < 1e-8, 1 - squared / 8 + squared.square() / 384, (norm / 2).cos())
+            factor = torch.where(squared < 1e-8, .5 - squared / 48 + squared.square() / 3840, (norm / 2).sin() / norm)
+            delta = torch.cat((cosine, factor * angle), -1)
             quat = multiply(position[..., q:q+4], delta)
             parts.append(torch.nn.functional.normalize(quat, dim=-1))
         else:
