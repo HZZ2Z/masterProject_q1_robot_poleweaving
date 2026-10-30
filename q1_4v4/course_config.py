@@ -73,6 +73,8 @@ class Curriculum:
     def record(self, info):
         if info['stage'] == self.stage:
             row = {k: float(info.get(k, 0)) for k in ('stable','success','duration','progress','touch','recover','team')}
+            for key in ('fallen','goal'):
+                if key in info:row[key]=float(info[key])
             self.history.append(row)
             self.monitor.append(row)
             self.completed_total += 1
@@ -88,6 +90,9 @@ class Curriculum:
                     recovery_rate=mean('recover'), passed_windows=self.passed_windows, gate_reason=self.last_reason,
                     red_success=team_mean(0,'success'), blue_success=team_mean(1,'success'),
                     red_stability=team_mean(0,'stable'),blue_stability=team_mean(1,'stable'),
+                    fall_rate=(sum(x['fallen'] for x in self.monitor)/len(self.monitor) if self.monitor and all('fallen' in x for x in self.monitor) else None),
+                    red_goal_rate=(sum(x['goal']>0 for x in self.monitor)/len(self.monitor) if self.monitor and all('goal' in x for x in self.monitor) else None),
+                    blue_goal_rate=(sum(x['goal']<0 for x in self.monitor)/len(self.monitor) if self.monitor and all('goal' in x for x in self.monitor) else None),
                     red_samples=len(teams[0]), blue_samples=len(teams[1]),
                     red_gate_samples=len(self.history.teams[0]),blue_gate_samples=len(self.history.teams[1]))
 

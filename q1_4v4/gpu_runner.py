@@ -16,6 +16,7 @@ from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
 from .parallel_curriculum import ParallelCurriculum
 from .mixed_env import MixedCourseEnv, ended_rows
+from .telemetry import SKILL_NAMES, active_team_reward, course_metrics, macro_metrics
 
 
 def run(options):
@@ -114,7 +115,7 @@ def run(options):
     out = Path(options.output)
     out.mkdir(parents=True, exist_ok=True)
     if distributed.primary:
-        config = dict(vars(options), world_size=distributed.world_size,
+        config = dict(vars(options), world_size=distributed.world_size, per_course_metrics=True,
                       total_num_envs=options.num_envs*distributed.world_size)
         (out/'config.json').write_text(json.dumps(config, indent=2))
     writer = SummaryWriter(str(out/'tensorboard')) if distributed.primary else None
@@ -173,7 +174,7 @@ def run(options):
                 dir=str(out.resolve()), settings=wandb.Settings(init_timeout=60))
             wandb_run.config.update(dict(vars(options), world_size=distributed.world_size,
                 total_num_envs=options.num_envs*distributed.world_size,
-                reward_revision=REWARD_REVISION, curriculum_window_policy='per_team'), allow_val_change=True)
+                reward_revision=REWARD_REVISION, curriculum_window_policy='per_team', per_course_metrics=True), allow_val_change=True)
             wandb_run.define_metric('iteration')
             wandb_run.define_metric('*', step_metric='iteration')
             wandb_run.define_metric('debug/*', hidden=True)
@@ -184,7 +185,7 @@ def run(options):
             tic = time.perf_counter()
             completed = []
             raw_reward = torch.zeros(2, device=device)
-            skill_stats = torch.zeros(6,device=device)
+            skill_stats = torch.zeros(len(SKILL_NAMES),device=device)
             gait_stats = torch.zeros(len(METRIC_NAMES),device=device)
             if parallel:env.begin_rollout()
             for step in range(options.horizon):
@@ -202,8 +203,8 @@ def run(options):
                         rollout.values[step, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, agents, 1))
                     terminal_obs, terminal_state, reward, terminated, truncated, info = env.step(rollout.actions[step])
                     gait_stats += torch.stack([env.gait_metrics[k] for k in METRIC_NAMES])
-                    skill_stats += torch.stack([env.last_stats[k] for k in ('upright','height','forward','side','left','right')])
-                    raw_reward += reward.reshape(options.num_envs, 2, 4).mean(dim=(0, 2))
+                    skill_stats += torch.stack([env.last_stats[k] for k in SKILL_NAMES])
+                    raw_reward += active_team_reward(reward,env.active)
                     # Bootstrap timeout final states BEFORE resetting. No CPU value normalization.
                     _,terminal_state=policy_inputs(terminal_obs,terminal_state)
                     for t, (policy, trainer, _) in enumerate(teams):
@@ -250,9 +251,9 @@ def run(options):
                 metrics = dict(zip(metrics,averaged))
                 skill_stats = distributed.mean(skill_stats)
                 gait_stats = distributed.mean(gait_stats)
-            for stable, success, _, _, duration, progress, touch, recover, team, course_id in episodes:
+            for stable, success, goal, fallen, duration, progress, touch, recover, team, course_id in episodes:
                 curriculum.record(dict(stage=COURSES[int(course_id)],stable=stable,success=success,duration=duration,
-                                       progress=progress,touch=touch,recover=recover,team=team))
+                                       progress=progress,touch=touch,recover=recover,team=team,goal=goal,fallen=fallen))
             torch.cuda.synchronize(device)
             seconds = distributed.maximum(time.perf_counter()-tic)
             # Torch's allocator excludes Warp, so also record whole-process NVML usage.
@@ -274,14 +275,10 @@ def run(options):
                            agent_steps_per_second=8*distributed.world_size*options.num_envs*options.horizon/seconds,
                            cuda_peak_allocated_gib=torch.cuda.max_memory_allocated(device)/2**30,
                            curriculum=curriculum.metrics())
-            if distributed.primary:
-                with (out/'metrics.jsonl').open('a') as stream:
-                    enriched=dict(metrics,gait=dict(zip(METRIC_NAMES,(gait_stats/options.horizon).cpu().tolist())))
-                    stream.write(json.dumps(enriched)+'\n')
             cm = curriculum.metrics()
             gm=dict(zip(METRIC_NAMES,(gait_stats/options.horizon).cpu().tolist()))
             metrics['gait']=gm
-            ss=dict(zip(('upright','height','forward','side','left','right'),(skill_stats/options.horizon).cpu().tolist()))
+            ss=dict(zip(SKILL_NAMES,(skill_stats/options.horizon).cpu().tolist()))
             cloud = {'iteration':iteration,
                      '01_总览/课程编号':curriculum.index,'01_总览/阶段成功率':cm['success_rate'],
                      '01_总览/稳定率':cm['stable_rate'],'01_总览/回合时长_秒':cm['episode_seconds'],
@@ -309,19 +306,20 @@ def run(options):
             if parallel:
                 cloud['01_总览/已掌握课程数']=cm['mastered_count']
                 cloud['01_总览/已解锁课程数']=cm['unlocked_count']
+                cloud['01_总览/主训课程数']=len(cm['ready'])
+                cloud.update(macro_metrics(cm['courses'],cm['ready'],cm['mastered']))
                 course_gait=(distributed.mean(env.course_stat_sum)/options.horizon).cpu().tolist()
+                course_rewards=(distributed.mean(env.course_reward_sum)/options.horizon).cpu().tolist()
+                course_skills=(distributed.mean(env.course_skill_sum)/options.horizon).cpu().tolist()
                 for name,stats in cm['courses'].items():
-                    prefix='06_课程/'+name+'/'
-                    cloud.update({prefix+'成功率':stats['success_rate'],prefix+'稳定率':stats['stable_rate'],
-                                  prefix+'红队成功率':stats['red_success'],prefix+'蓝队成功率':stats['blue_success'],
-                                  prefix+'球场数':env.allocations.get(name,0)*distributed.world_size,
-                                  prefix+'连续通过窗口':stats['passed_windows'],
-                                  prefix+'已掌握':int(name in curriculum.mastered)})
-                    if name in GAIT_COURSES and name in env.allocations:
-                        values=dict(zip(METRIC_NAMES,course_gait[COURSES.index(name)]))
-                        for key,label in [('phase_match','相位匹配率'),('slip_mps','支撑滑移_mps'),
-                                          ('left_steps','左脚步数'),('right_steps','右脚步数'),('phase_lift','抬脚得分')]:
-                            cloud[prefix+label]=values[key]
+                    i=COURSES.index(name); worlds=env.allocations.get(name,0)*distributed.world_size
+                    cloud.update(course_metrics(name,stats,course_rewards[i] if worlds else (None,None),
+                        dict(zip(METRIC_NAMES,course_gait[i])),dict(zip(SKILL_NAMES,course_skills[i])),
+                        worlds,options.num_envs*distributed.world_size,name in curriculum.mastered))
+            else:
+                cloud.update(course_metrics(curriculum.stage,cm,
+                    (metrics['red/reward'],metrics['blue/reward']),gm,ss,
+                    options.num_envs*distributed.world_size,options.num_envs*distributed.world_size))
             for rank,memory in enumerate(memories):
                 cloud[f'04_性能/GPU{rank}显存_GiB']=memory
             for key,label in [('slip_mps','支撑脚滑移_mps'),('phase_match','接触相位匹配率'),('velocity_error','速度误差_mps'),
@@ -332,6 +330,9 @@ def run(options):
             for side in (('shared',) if shared else ('red','blue')):
                 for k in ('value_loss','policy_loss','dist_entropy','actor_grad_norm','critic_grad_norm','ratio','approx_kl','clip_fraction'):
                     cloud['debug/'+side+'_'+k] = metrics[side+'/'+k]
+            if distributed.primary:
+                with (out/'metrics.jsonl').open('a') as stream:
+                    stream.write(json.dumps(dict(metrics,telemetry=cloud))+'\n')
             for k, v in cloud.items():
                 if writer and isinstance(v, (float, int)):
                     writer.add_scalar(k, v, iteration)

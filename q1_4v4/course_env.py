@@ -323,7 +323,8 @@ class CourseWarpEnv(WarpSoccerEnv):
             success=stable&objective
             duration=self.steps*self.dt
         self.last_stats={'upright':upright.mean(),'height':pos[:,:,2].mean(),'forward':self.forward_kick.mean(),
-                         'side':self.side_kick.mean(),'left':self.foot_hits[:,:,0].float().mean(),
+                         'side':self.side_kick.mean(),'task_distance':(receiver_dist if self.course=='pass_receive' else ball_distance[self.rows,p]).mean(),
+                         'left':self.foot_hits[:,:,0].float().mean(),
                          'right':self.foot_hits[:,:,1].float().mean()}
         info=dict(stage=self.course,goal=base['goal'],fallen=fallen,stable=stable,success=success,
                   duration=duration,progress=self.progress,touch=self.ever_feet.any(-1),recover=recover,

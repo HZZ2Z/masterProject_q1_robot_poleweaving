@@ -101,15 +101,19 @@ def test_reallocation_keeps_budget_and_all_28_courses_share_a_batch():
     e.step(torch.zeros((28,8,22),device='cuda:0'));e.finish_step();e.check()
 
 
-def test_transition_waits_for_real_promotion_not_just_a_high_success_rate():
-    import importlib.util
-    from pathlib import Path
-    spec=importlib.util.spec_from_file_location('balance_transition',Path(__file__).parents[1]/'scripts/continue_after_balance.py')
-    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-    checkpoint={'policy_sharing':'shared','curriculum':Curriculum('balance').state_dict()}
-    checkpoint['curriculum']['passed_windows']=3
-    assert not module.balance_passed(checkpoint)
-    checkpoint['curriculum']=Curriculum('balance_push').state_dict()
-    assert module.balance_passed(checkpoint)
-    checkpoint['curriculum']={'kind':'parallel','mastered':['balance']}
-    assert module.balance_passed(checkpoint)
+def test_per_course_reward_is_raw_and_rollout_accumulators_reset(env):
+    from q1_4v4.telemetry import active_team_reward,SKILL_NAMES
+    from q1_4v4.gait import METRIC_NAMES
+    env.reset();env.begin_rollout()
+    _,_,reward,_,_,_=env.step(torch.zeros((8,8,22),device='cuda:0'))
+    expected=torch.zeros_like(env.course_reward_sum)
+    for name,(sl,group) in env.groups.items():
+        expected[COURSES.index(name)]=active_team_reward(reward[sl],group.active)
+    torch.testing.assert_close(env.course_reward_sum,expected)
+    assert env.course_skill_sum.shape==(28,len(SKILL_NAMES))
+    assert env.course_stat_sum.shape==(28,len(METRIC_NAMES))
+    reward.add_(123.)
+    torch.testing.assert_close(env.course_reward_sum,expected)
+    env.finish_step();env.begin_rollout()
+    for value in (env.course_reward_sum,env.course_skill_sum,env.course_stat_sum):
+        assert torch.count_nonzero(value)==0

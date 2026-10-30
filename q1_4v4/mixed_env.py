@@ -7,6 +7,7 @@ from .course_env import CourseWarpEnv
 from .course_config import COURSES,LOW_LEVEL,GAIT_COURSES,DURATIONS
 from .warp_env import WarpSoccerEnv
 from .gait import METRIC_NAMES
+from .telemetry import active_team_reward,SKILL_NAMES
 
 
 def ended_rows(env,terminated,truncated,info):
@@ -79,6 +80,8 @@ class MixedCourseEnv:
         for index,key in enumerate(METRIC_NAMES):
             if key in ('phase_match','velocity_error','phase_lift'):weights[:,index]*=gait_mask
         self.gait_weights=weights/weights.sum(0).clamp(min=1)
+        self.course_reward_sum=torch.zeros((len(COURSES),2),device=self.device)
+        self.course_skill_sum=torch.zeros((len(COURSES),len(SKILL_NAMES)),device=self.device)
         self.course_stat_sum=torch.zeros((len(COURSES),len(METRIC_NAMES)),device=self.device)
         self.reset()
 
@@ -109,7 +112,8 @@ class MixedCourseEnv:
     def observe(self):return self._obs
     state=WarpSoccerEnv.state
 
-    def begin_rollout(self):self.course_stat_sum.zero_()
+    def begin_rollout(self):
+        self.course_stat_sum.zero_();self.course_reward_sum.zero_();self.course_skill_sum.zero_()
 
     @property
     def gait_metrics(self):return self._gait_metrics
@@ -137,8 +141,11 @@ class MixedCourseEnv:
         gait_matrix=torch.stack([torch.stack([env.gait_metrics[k] for k in METRIC_NAMES]) for _,env in self.groups.values()])
         self.course_stat_sum.index_add_(0,self.stat_course_ids,gait_matrix)
         self._gait_metrics=dict(zip(METRIC_NAMES,(gait_matrix*self.gait_weights).sum(0).unbind()))
-        keys=('upright','height','forward','side','left','right')
+        keys=SKILL_NAMES
         skill_matrix=torch.stack([torch.stack([env.last_stats[k] for k in keys]) for _,env in self.groups.values()])
+        self.course_skill_sum.index_add_(0,self.stat_course_ids,skill_matrix)
+        reward_matrix=torch.stack([active_team_reward(reward,env.active) for reward,(_,env) in zip(rewards,self.groups.values())])
+        self.course_reward_sum.index_add_(0,self.stat_course_ids,reward_matrix)
         self._last_stats=dict(zip(keys,(skill_matrix*self.skill_weights[:,None]).sum(0).unbind()))
         return self._obs,self.state(self._obs),torch.cat(rewards),torch.cat(terminated),torch.cat(truncated),{}
 
