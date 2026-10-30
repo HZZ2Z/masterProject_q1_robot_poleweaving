@@ -103,6 +103,14 @@ def validate_checkpoint(checkpoint, env, migrate_curriculum=False):
                          'old smoke and PPO checkpoints cannot be resumed')
 
 
+def policy_stall_reason(iteration, last_applied, last_retained, budget):
+    if iteration - last_applied >= budget:
+        return f'No actor optimizer step applied for {budget} iterations'
+    if iteration - last_retained >= budget:
+        return f'No changed actor retained by real-physics evaluation for {budget} iterations'
+    return None
+
+
 def main():
     args = parser().parse_args()
     cfg = yaml.safe_load(args.config.read_text())
@@ -265,6 +273,7 @@ def main():
             save_checkpoint(output / f'checkpoint_{start}.pt', agent, env, cfg, start)
             (output / 'last.pt').symlink_to(f'checkpoint_{start}.pt')
         action_check = {}
+        last_applied = last_retained = max(cfg['actor_start_iteration'], start + cfg.get('critic_warmup_iterations', 20)) - 1
         for iteration in range(start + 1, cfg['iterations'] + 1):
             began = time.monotonic()
             if args.smoke and not checkpoint and iteration == 2:
@@ -305,10 +314,24 @@ def main():
                 actor_loss = agent.improve_model_policy(initial, cfg['imagination_horizon'],
                     cfg['exploration_std'], max_kl=cfg['policy_max_kl'], gamma=cfg['gamma'],
                     reference_state=gate.accepted_actor)
+            actor_applied = actor_enabled and agent.last_diagnostics.get('learning/update_fraction', 0.) > 0
+            if actor_applied:
+                last_applied = iteration
             evaluation = {}
             if iteration % cfg.get('evaluation_interval', 50) == 0 or iteration == cfg['iterations']:
                 evaluation = gate.check(agent, 0. if env.env.balance_phase else 1.)
                 print('Real-physics policy check: ' + json.dumps(evaluation), flush=True)
+                if evaluation['evaluation/policy_accepted']:
+                    last_retained = iteration
+            reason = None if args.smoke else policy_stall_reason(
+                iteration, last_applied, last_retained, cfg.get('max_policy_stall_iterations', 200))
+            if reason:
+                stopped = True
+                status = {'status': 'stopped_stalled', 'iteration': iteration, 'reason': reason}
+                (output / 'run_status.json').write_text(json.dumps(status, indent=2) + '\n')
+                print('Training stopped: ' + reason, flush=True)
+                if wandb_run:
+                    wandb_run.summary.update(status)
             metrics = {'iteration': iteration, 'reward/control_step': totals['control_reward'],
                        'loss/model': float(np.mean(losses)), 'loss/actor': actor_loss,
                        'loss/critic': critic_loss, 'curriculum/soccer_progress': env.env.soccer_progress,
@@ -323,7 +346,7 @@ def main():
                        'performance/env_steps_per_second': cfg['collect_steps'] * cfg['num_envs'] / (time.monotonic() - began)}
             metrics.update(model_check)
             metrics.update(action_check)
-            metrics['learning/model_policy_active'] = float(actor_enabled)
+            metrics['learning/model_policy_active'] = float(actor_applied)
             metrics.update(agent.last_diagnostics)
             metrics.update(evaluation)
             metrics['model_validation/passed'] = float(ready and response_ready)

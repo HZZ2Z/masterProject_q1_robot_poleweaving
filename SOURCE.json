@@ -39,7 +39,7 @@
         "envs/Q1.yaml": "1938d2bc38aa760dee35634b5b6243affe8ad7aa2937182c41df289c555dd991",
         "q1_supermimic/environment.py": "28e432d66a1322beedff2d54054266d8699a39dc7f009c56bb17370300d9739f",
         "q1_supermimic/learning.py": "eac43773e9f7257bf27da704981da4f0c190de49a16f9c6b4c54f4b03bcf722a",
-        "train.py": "f1ecd07ef8b5b9d4f967ae0f761172c3ca8194cd30e81403938d7605e042d41e",
+        "train.py": "f88b952d1c242cfe9fae326feacc0f6a64437c5f510f0c4f8425730c8e1c2779",
         "play.py": "d8dee47ccd8546515b2208e581a1ee9f56bc9e3155cc01b48fa7c5768b55aa17"
       }
     }
@@ -62,15 +62,16 @@
     "date": "2026-10-30",
     "method": "Analytic short-horizon model actor with real-trajectory GAE critic; velocity dynamics, integrated pose and physics-derived observations",
     "files": {
-      "train.py": "f1ecd07ef8b5b9d4f967ae0f761172c3ca8194cd30e81403938d7605e042d41e",
+      "train.py": "f88b952d1c242cfe9fae326feacc0f6a64437c5f510f0c4f8425730c8e1c2779",
       "q1_supermimic/learning.py": "eac43773e9f7257bf27da704981da4f0c190de49a16f9c6b4c54f4b03bcf722a",
-      "q1_supermimic/safety.py": "e7b67bc7a0020ec8b4772895173ef08d558fc0c17b048ac700de56e516eab0c9",
-      "configs/soccer.yaml": "eb232c0bacfb0b2eea3fbad76e8999fc395894cc2913b4a67fd91bab1dd98463"
+      "q1_supermimic/safety.py": "2e4abe814afa4258a3be96b76231fa0f63fc0a4104980edba1ccf1a5cf6f6a3d",
+      "configs/soccer.yaml": "6b85f3fce7b2f8bd6cfb08630b74348a8350a1284fd4c4fe94bec6d210f42f5c"
     },
     "adaptation_limits": [
       "Not a full upstream tracking trainer or paper reproduction",
       "No AMP discriminator",
       "Fixed visual visibility and sensor residuals within short imagination"
-    ]
+    ],
+    "runtime_status": "failed_audit_at_iteration_2300; stopped; monitoring safeguards added, learning limitations unresolved"
   }
 }

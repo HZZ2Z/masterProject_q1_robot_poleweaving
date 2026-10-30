@@ -111,6 +111,8 @@ class SafetyGate:
         self.version = 5
 
     def check(self, agent, progress=0.):
+        policy_changed = any(not torch.equal(value, self.accepted_actor[key])
+                             for key, value in agent.actor.state_dict().items())
         soccer = progress > 0
         if soccer and self.progress == 0:
             self.baseline = evaluate_actor(agent, 1., self.count, self.steps, zero=True)
@@ -164,7 +166,7 @@ class SafetyGate:
         return {**{f'evaluation/{k}': v for k,v in measured.items()},
                 **{f'evaluation/candidate_{k}': v for k,v in candidate.items()},
                 'evaluation/exploratory_survival_5s': noisy['survival_5s'] if accepted else self.noisy_best['survival_5s'],
-                'evaluation/policy_accepted': float(accepted),
+                'evaluation/policy_accepted': float(accepted and policy_changed),
                 'evaluation/soccer_best_available': float(self.soccer_best_actor is not None),
                 'evaluation/rollback_count': self.rejections,
                 **{f'evaluation/neutral_{k}': v for k,v in self.baseline.items()}}

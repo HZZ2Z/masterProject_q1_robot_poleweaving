@@ -54,11 +54,13 @@ def test_soccer_gate_prefers_task_progress_to_standing_return(monkeypatch):
                   near_kick_event_rate=.25, near_net_goal_progress_m=.02)
     moving['return'] = -1.
     monkeypatch.setattr(safety, 'evaluate_actor', lambda *a, **kw: dict(moving))
+    with torch.no_grad(): agent.actor[-1].bias.add_(.001)
     result = gate.check(agent, .2)
     assert result['evaluation/policy_accepted'] == 1
     assert gate.soccer_best_actor is not None
     saved = copy.deepcopy(gate.soccer_best_actor)
     monkeypatch.setattr(safety, 'evaluate_actor', lambda *a, **kw: dict(standing))
+    with torch.no_grad(): agent.actor[-1].bias.add_(.001)
     result = gate.check(agent, .3)
     # Safe task-score fluctuations no longer reset the learning policy.
     assert result['evaluation/policy_accepted'] == 1

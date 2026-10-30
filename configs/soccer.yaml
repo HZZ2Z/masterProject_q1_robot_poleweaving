@@ -41,3 +41,6 @@ gae_lambda: 0.98
 critic_epochs: 4
 critic_warmup_iterations: 20
 policy_max_kl: 0.01
+
+# Save and stop instead of silently collecting with a frozen/repeatedly rolled-back policy.
+max_policy_stall_iterations: 200

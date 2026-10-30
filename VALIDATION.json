@@ -123,5 +123,201 @@
     "process_memory_mib_observed": 4382,
     "torch_peak_allocated_gib": 3.8028674125671387,
     "wandb": false
+  },
+  "status": "runtime_failed_policy_frozen",
+  "runtime_audit": {
+    "checked_at": "2026-10-30T08:41:56.589861",
+    "run": "logs/q1_supermimic/2026-10-30-05-21-53-498881",
+    "stopped_at_iteration": 2300,
+    "last_applied_actor_iteration": 489,
+    "consecutive_inactive_iterations": 1811,
+    "actual_optimizer_steps": 228,
+    "gradient_probe": {
+      "dense_gradient_norm": 0.07157734781503677,
+      "terminal_value_gradient_norm": 9.023085594177246,
+      "value_to_dense_norm_ratio": 126.06063079833984,
+      "gradient_cosine": 0.08042985945940018,
+      "actor_2300_sha256": "431a90f2809131d1a84ba40301e53a9726dba3af9c6eb721590b6b151e89d9e5",
+      "actor_500_sha256": "431a90f2809131d1a84ba40301e53a9726dba3af9c6eb721590b6b151e89d9e5",
+      "identical_actor_since_500": true
+    },
+    "backend_evaluations": {
+      "checkpoint": "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/q1_supermimic/2026-10-30-05-21-53-498881/checkpoint_2300.pt",
+      "iteration": 2300,
+      "evaluations": [
+        {
+          "device": "cpu",
+          "seed": 104729,
+          "survival": 0.6171875,
+          "group_survival": [
+            0.59375,
+            0.5625,
+            0.65625
+          ],
+          "duration": 4.5206217765808105
+        },
+        {
+          "device": "cpu",
+          "seed": 204731,
+          "survival": 0.6796875,
+          "group_survival": [
+            0.71875,
+            0.65625,
+            0.671875
+          ],
+          "duration": 4.773746490478516
+        },
+        {
+          "device": "cpu",
+          "seed": 304737,
+          "survival": 0.625,
+          "group_survival": [
+            0.625,
+            0.53125,
+            0.671875
+          ],
+          "duration": 4.582027912139893
+        },
+        {
+          "device": "cuda:0",
+          "seed": 104729,
+          "survival": 0.6875,
+          "group_survival": [
+            0.53125,
+            0.6875,
+            0.765625
+          ],
+          "duration": 4.790933609008789
+        },
+        {
+          "device": "cuda:0",
+          "seed": 204731,
+          "survival": 0.6796875,
+          "group_survival": [
+            0.65625,
+            0.53125,
+            0.765625
+          ],
+          "duration": 4.786089897155762
+        },
+        {
+          "device": "cuda:0",
+          "seed": 304737,
+          "survival": 0.5546875,
+          "group_survival": [
+            0.53125,
+            0.4375,
+            0.625
+          ],
+          "duration": 4.327028274536133
+        }
+      ],
+      "action_response": [
+        {
+          "device": "cpu",
+          "all": {
+            "cosine": 0.8607126474380493,
+            "relative_error": 0.25945931673049927
+          },
+          "root_pose": {
+            "cosine": 0.8667779564857483,
+            "relative_error": 0.2677832543849945
+          },
+          "root_velocity": {
+            "cosine": 0.9142542481422424,
+            "relative_error": 0.1643710434436798
+          },
+          "smooth_reward": {
+            "cosine": 0.3655508756637573,
+            "relative_error": 1.0502506494522095
+          }
+        }
+      ]
+    },
+    "cohort_probe": {
+      "seconds": 40.0,
+      "first_cohort_survival": 0.65625,
+      "all_episode_trials_survival": 0.3102678656578064,
+      "equal_world_survival": 0.721097469329834,
+      "reported_survival": 0.3084822892965825,
+      "trials": 448.0,
+      "world_trials_min_max": [
+        1.0,
+        25.0
+      ],
+      "world_mean_resets": 2.59375
+    },
+    "findings": [
+      {
+        "severity": "P0",
+        "issue": "Model-quality hard gate froze the actor, without recovery or stop",
+        "evidence": "Actor identical at checkpoints 500 and 2300; 1811 iterations without an actor step",
+        "location": "train.py model readiness / actor_enabled"
+      },
+      {
+        "severity": "P0",
+        "issue": "State-action response accuracy does not validate the reward/value optimization direction",
+        "evidence": "32 CPU paired cases: root pose cosine 0.867, but smooth reward-response cosine 0.366 and relative squared error 1.05; terminal critic gradient norm 126x dense reward gradient in one diagnostic batch",
+        "limit": "These probes do not alone establish that every critic gradient is wrong; full return-gradient validity remains unproven"
+      },
+      {
+        "severity": "P1",
+        "issue": "Curriculum and evaluation use different survival estimands",
+        "evidence": "Same 128-world Warp policy: first-cohort survival 0.656; 40-second episode-weighted resolved-trial survival 0.310; individual worlds contribute 1 to 25 trials",
+        "limit": "Episode-weighted rate is not arithmetically incorrect; comparing it directly to equal-world first-episode acceptance is misleading"
+      },
+      {
+        "severity": "P1",
+        "issue": "Football rewards never activated",
+        "evidence": "balance_phase remains 1; task_progress is 0; no valid soccer-best checkpoint"
+      },
+      {
+        "severity": "P1",
+        "issue": "Repeated unchanged-policy evaluations were reported as newly accepted policies",
+        "fix": "policy_accepted now requires changed actor parameters"
+      },
+      {
+        "severity": "P1",
+        "issue": "Structural deviations from upstream are not validated for this task",
+        "evidence": "Local raw absolute-state dynamics and 256-wide model; 8-step actor horizon; real-GAE critic instead of upstream imagined lambda-return critic; no motion-reference tracking goal or AMP",
+        "limit": "These are risks and design differences, not individually proven causes"
+      }
+    ],
+    "protections_added": [
+      "Report actual applied optimizer steps, not merely a satisfied update gate",
+      "Require changed actor for new acceptance reporting",
+      "Save and stop after 200 iterations without applied or retained actor updates"
+    ],
+    "guard_integration_test": {
+      "passed": true,
+      "configured_budget": 1,
+      "planned_iterations": 3,
+      "stopped_iteration": 1,
+      "checkpoint_saved": true,
+      "run": "logs/audit_guard_validation/2026-10-30-08-40-17-861651"
+    },
+    "not_resolved": [
+      "Task-return gradient validity",
+      "World-model representation and training coverage",
+      "Critic gradient calibration",
+      "Aligned curriculum/evaluation survival cohorts",
+      "Productive football behavior"
+    ],
+    "next_validation_order": [
+      "Use consistent randomized reset cohorts for training/evaluation",
+      "Validate model-induced reward/return changes against paired real-physics perturbations, not just state deltas",
+      "Rework compact physical dynamics/context and critic targets; test ablations before changing safety thresholds",
+      "Require retained policy improvement on unseen seeds and productive near-ball behavior before another long run"
+    ],
+    "backend_probe_limit": "CUDA paired-seed branches were not bitwise identical; their derivative result was discarded. CPU paired derivative data only; both backend survival tests completed.",
+    "scene_hash_matches_ppo": true,
+    "references": [
+      "https://github.com/PrimebotTech/SuperMimic/blob/118338b19dcd14f768d1e7de5a48d04b78987688/src/supermimic/algorithm.py",
+      "https://mujoco.readthedocs.io/en/stable/mjwarp/index.html"
+    ],
+    "regression_tests": {
+      "passed": 71,
+      "failed": 0
+    }
   }
 }

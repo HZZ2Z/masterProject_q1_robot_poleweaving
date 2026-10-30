@@ -155,3 +155,24 @@ def test_rejected_step_reports_existing_reference_distance():
     assert agent.last_diagnostics['learning/update_fraction'] == 0
     assert agent.last_diagnostics['learning/policy_kl'] > .001
     for k,v in agent.actor.state_dict().items(): torch.testing.assert_close(v,before[k])
+
+
+def test_stall_watchdog_checks_applied_and_retained_updates():
+    from train import policy_stall_reason
+    assert policy_stall_reason(249, 49, 49, 200).startswith('No actor optimizer')
+    assert policy_stall_reason(249, 240, 49, 200).startswith('No changed actor')
+    assert policy_stall_reason(249, 240, 200, 200) is None
+    assert policy_stall_reason(1, 49, 49, 200) is None
+
+
+def test_unchanged_actor_is_not_reported_as_new_acceptance(monkeypatch):
+    import q1_supermimic.safety as safety
+    agent = toy_agent()
+    metrics = {'duration_s':6., 'return':1., 'survival_5s':1., 'fall_fraction':0.}
+    monkeypatch.setattr(safety, 'evaluate_actor', lambda *args, **kwargs: dict(metrics))
+    gate = safety.SafetyGate(agent)
+    result = gate.check(agent)
+    assert result['evaluation/policy_accepted'] == 0
+    assert result['evaluation/rollback_count'] == 0
+    with torch.no_grad(): agent.actor[-1].bias.add_(.001)
+    assert gate.check(agent)['evaluation/policy_accepted'] == 1
