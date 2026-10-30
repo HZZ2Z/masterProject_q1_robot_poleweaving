@@ -258,7 +258,7 @@ def test_football_feedback_projection_and_dense_rewards_match_real_transitions()
         torch.testing.assert_close(projected[live,p+1:p+11],target[live,p+1:p+11],atol=2e-5,rtol=2e-5)
         reward, continuation = agent.task_reward(agent.normalize(current),agent.normalize(target),action)
         names = ('survival','upright','base_height','action_rate','root_acc','stance_pose',
-                 'ball_distance','goal_distance','pos_still','near_ball_stall')
+                 'ball_distance','goal_distance','pos_still','near_ball_stall','face_ball_pitch','face_ball_yaw')
         actual = sum(e.extras['rew_terms'][name] for name in names)
         dense = reward/.1+20*(1-continuation)
         torch.testing.assert_close(dense[live],actual[live],atol=2e-5,rtol=2e-4)
@@ -266,3 +266,32 @@ def test_football_feedback_projection_and_dense_rewards_match_real_transitions()
     agent.make_optimizers()
     loss = agent.improve_model_policy(w.state(),2,.025)
     assert torch.isfinite(torch.tensor(loss))
+
+
+def test_camera_geometry_matches_physics_and_visibility_changes_in_rollouts():
+    from train import task_layout
+    from utils.torch_math import quat_mul, quat_rotate, quat_rotate_inverse
+    w = load_environment('cpu',4)
+    e = w.env
+    agent = SoccerAgent(w.state_dim,width=16,history_dim=w.history_dim)
+    agent.configure_task(task_layout(w))
+    state = w.state()
+    optical = quat_mul(e.head_quat,state.new_tensor([.5,.5,.5,.5]).expand(4,-1))
+    expected = quat_rotate_inverse(optical,e.ball_pos-e.camera_pos)
+    torch.testing.assert_close(agent.camera_ball(state),expected,atol=2e-5,rtol=2e-5)
+    b,p = agent.layout['ball_start'],agent.layout['progress_index']
+    inside = state.clone()
+    outside = state.clone()
+    inside[:,b:b+3] = e.camera_pos+quat_rotate(optical,state.new_tensor([0.,0.,1.]).expand(4,-1))
+    outside[:,b:b+3] = e.camera_pos+quat_rotate(optical,state.new_tensor([0.,2.,1.]).expand(4,-1))
+    assert agent.camera_visibility(inside).all()
+    assert not agent.camera_visibility(outside).any()
+    for current,target,visible in [(outside,inside,1.),(inside,outside,0.)]:
+        current[:,p-2] = e.dt/60  # Next observation is a fresh camera sample.
+        current[:,307] = 0       # Zero-delay case isolates geometry from the queue.
+        noise = state.new_tensor([0.,0.,.5]).expand(4,-1)
+        projected = agent.project_observations(current,target,torch.zeros(4,22),visual_noise=noise)
+        torch.testing.assert_close(projected[:,8],torch.full((4,),visible))
+        torch.testing.assert_close(projected[:,87],torch.full((4,),visible))
+        if not visible:
+            torch.testing.assert_close(projected[:,6:8],torch.zeros(4,2))

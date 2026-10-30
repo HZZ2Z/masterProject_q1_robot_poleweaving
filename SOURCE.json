@@ -38,8 +38,8 @@
         "envs/q1.py": "3799557f1a4f662f9f7957d02e1f0b3608e3c4e1da2fdb57f63e8595c3f3c1b8",
         "envs/Q1.yaml": "1938d2bc38aa760dee35634b5b6243affe8ad7aa2937182c41df289c555dd991",
         "q1_supermimic/environment.py": "9639515de605d46fa25fa1aa3593b55da319c7a31de57fdd066cb7a98ca50a0d",
-        "q1_supermimic/learning.py": "8d3e72ad08f1e23c3a7e15c4691e1bcd483570bf01b8b050eeca2c6ab82fe0d5",
-        "train.py": "7a1167852b981761bd61da3f0f1129b718c5c5bcaa9befce945c28fcb1093ce2",
+        "q1_supermimic/learning.py": "55864921cd0b0850faa1065c42e0b60eb33a930f66e342fbc740c282bb936655",
+        "train.py": "037ec5e6ff1024d464b03727903a0311a8f017b30f9576f68a42831427d19286",
         "play.py": "6fd56a4e0135c8a10af76033e9243f99566121cc9be6c137a3ebe97a7de4d5a1",
         "utils/kinematics.py": "5cd088228d16d124d300820bdd173a56001a2705991b3e27f608a0436189d24c"
       }
@@ -62,18 +62,17 @@
     "date": "2026-10-30",
     "method": "Increment-normalized physical dynamics; compact real-GAE critic; model actor with paired rotating real-physics acceptance",
     "files": {
-      "train.py": "7a1167852b981761bd61da3f0f1129b718c5c5bcaa9befce945c28fcb1093ce2",
-      "q1_supermimic/learning.py": "8d3e72ad08f1e23c3a7e15c4691e1bcd483570bf01b8b050eeca2c6ab82fe0d5",
+      "train.py": "037ec5e6ff1024d464b03727903a0311a8f017b30f9576f68a42831427d19286",
+      "q1_supermimic/learning.py": "55864921cd0b0850faa1065c42e0b60eb33a930f66e342fbc740c282bb936655",
       "q1_supermimic/safety.py": "90232c86dc73ac73a25cda15aeb246a9b1985bf56c80315494074f5fe670849f",
       "configs/soccer.yaml": "b47e3f9bfc8d4171751c234bf709318adf96c2616b820698814fd189b67bdf92",
       "utils/kinematics.py": "5cd088228d16d124d300820bdd173a56001a2705991b3e27f608a0436189d24c"
     },
     "adaptation_limits": [
       "Not a full upstream tracking trainer or paper reproduction",
-      "No AMP discriminator",
-      "Fixed visual visibility and sensor residuals within short imagination"
+      "No AMP discriminator"
     ],
-    "runtime_status": "Football curriculum opened; zero productive kicks through iteration 240. Corrected missing imagined task-context transitions; bounded continuation required.",
+    "runtime_status": "Bounded run finished at 400 with no productive kicks; camera and gaze objective corrected, visible safe-start poses under investigation.",
     "mainline": "single current implementation, under repair"
   }
 }

@@ -3,7 +3,7 @@
   "status": "repair_in_progress_not_stable",
   "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
   "tests": {
-    "passed": 82,
+    "passed": 83,
     "failed": 0
   },
   "current_implementation": [
@@ -11,13 +11,13 @@
     "Compact physical critic without noisy history or absolute field translation",
     "Latest completed five-second trial per world for curriculum",
     "Paired rotating real-physics candidate/incumbent comparison; retain critic learning on actor rejection",
-    "Advance exact football feedback from FK: near/far idle timers, hysteresis, stalls and approach anchors; reward uses post-transition feedback"
+    "Advance exact football feedback from FK: near/far idle timers, hysteresis, stalls and approach anchors; reward uses post-transition feedback",
+    "Predict camera visibility from torso FK and original optical geometry; match detection/measurement noise, delay and post-step face-ball rewards; line search reuses sensor noise"
   ],
   "current_run": {
-    "status": "bounded football continuation",
-    "resume_checkpoint": "logs/current_football_validation/2026-10-30-10-21-55-817064/checkpoint_240.pt",
-    "target_iteration": 400,
-    "live_status_file": "logs/active_validation.json",
+    "status": "finished without productive kicks",
+    "iteration": 400,
+    "checkpoint": "logs/current_feedback_validation/2026-10-30-10-35-18-988286/checkpoint_400.pt",
     "productive_kicking_verified": false
   },
   "historical_failure": {
@@ -227,8 +227,8 @@
   },
   "limits": [
     "No productive kicking or success-rate improvement has been demonstrated.",
-    "Physical model is approximate, including held visibility and sensor residuals during imagination.",
-    "This is a football adaptation, without AMP; not a full upstream tracking trainer or paper reproduction."
+    "This is a football adaptation, without AMP; not a full upstream tracking trainer or paper reproduction.",
+    "Near neutral starts are almost always outside the camera frustum; safe visible posture remains unverified."
   ],
   "historical_evidence": {
     "git_commit": "16d1960c25dd491ccca1b14e662582cb36c8a5ea",
@@ -239,5 +239,34 @@
     "https://github.com/PrimebotTech/SuperMimic",
     "https://arxiv.org/abs/1506.02438",
     "https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/"
-  ]
+  ],
+  "constraints": [
+    "Keep PPO camera/visual observations; no true ball coordinates in actor input",
+    "Fixed 25/25/50 reset mix and 10-25 cm near foot-ball gap",
+    "Acceptance requires football progress, not balance alone"
+  ],
+  "vision_audit": {
+    "near_frame_visibility": 0.00989163139462471,
+    "history_comparison": {
+      "4": {
+        "ball_estimate_error_m": 0.21834418229532965,
+        "observation_coverage": 0.025597120408172632
+      },
+      "50": {
+        "ball_estimate_error_m": 0.20281710546111587,
+        "observation_coverage": 0.21917405168511975
+      }
+    },
+    "note": "Diagnostic visible-sample averaging on surviving near worlds; not a trained policy or a guaranteed belief estimator."
+  },
+  "horizon_audit": {
+    "physical_predictions_passed": [
+      8,
+      16,
+      32
+    ],
+    "productive_kicks_all_candidates": 0,
+    "conclusion": "Longer horizon did not improve real approach or kicking; not adopted.",
+    "evidence": "logs/current_horizon_audit.json"
+  }
 }

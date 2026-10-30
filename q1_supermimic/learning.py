@@ -141,7 +141,7 @@ class SoccerAgent(nn.Module):
     def value(self, normalized):
         return self.critic(self.value_features(normalized))
 
-    def predict(self, state, action):
+    def predict(self, state, action, visual_noise=None):
         normalized_action = action / self.model_action_scale
         if self.model_indices.numel():
             features = ((self.physical_features(state*self.scale+self.mean)-self.model_mean) / self.model_scale).clamp(-20,20)
@@ -163,7 +163,7 @@ class SoccerAgent(nn.Module):
             quat = raw[..., q:q+4].clone()
             raw[..., q:q+4] = F.normalize(quat, dim=-1)
             if 'joint_velocity' in self.layout:
-                raw = self.project_observations(state*self.scale+self.mean, raw, action)
+                raw = self.project_observations(state*self.scale+self.mean, raw, action, visual_noise=visual_noise)
             if self.history_dim:
                 history = state[..., -self.history_dim:] * self.scale[-self.history_dim:] + self.mean[-self.history_dim:]
                 raw[..., -self.history_dim:] = torch.cat((history[..., self.obs_dim:], raw[..., :self.obs_dim]), -1)
@@ -199,12 +199,12 @@ class SoccerAgent(nn.Module):
         n[:,j:j+22] = current[:,j:j+22] + .5*dt*(current[:,v:v+22]+predicted[:,v:v+22])
         return n
 
-    def project_observations(self, current, predicted, action):
+    def project_observations(self, current, predicted, action, visual_noise=None):
         """Derive proprioception/privileged observations from physical state.
 
-        Visual measurements shift through the known delay queue. Visibility and
-        measurement residuals are held fixed within a short imagination; they
-        cannot become independent action-to-reward gradient shortcuts.
+        Camera geometry determines visibility; policy rollouts reuse sampled
+        detection and measurement noise across line-search candidates. Delayed
+        measurements pass through the same queue as real observations.
         """
         l, n = self.layout, predicted.clone()
         def features(raw):
@@ -237,8 +237,20 @@ class SoccerAgent(nn.Module):
         elapsed = current[:,p-2] + l['dt']/60
         visible = current[:,87:88].detach().clamp(0,1)
         queue = current[:,308:368].reshape(-1,20,3)
-        visual_noise = (queue[:,0,:2]-old_ball*visible).detach()
-        sample = torch.cat((ball*visible+visual_noise, visible), -1)
+        residual = (queue[:,0,:2]-old_ball*queue[:,0,2:3]).detach()
+        if 'camera' in l:
+            geometric = self.camera_visibility(n)[:,None]
+            if visual_noise is not None:
+                detection_probability = torch.where(geometric,
+                    (2.475-.225*ball.norm(dim=-1,keepdim=True).clamp_min(7)).clamp(0,1),
+                    .01*(ball[:,:1]>-2).float())
+                visible = (visual_noise[:,2:3] < detection_probability).float()
+                residual = visual_noise[:,:2]*(.149+.124*ball.norm(dim=-1,keepdim=True))
+            else:
+                old_geometric = self.camera_visibility(current)[:,None]
+                visible = torch.where(geometric,torch.where(old_geometric,visible,1.),
+                                      torch.where(old_geometric,0.,visible))
+        sample = torch.cat(((ball+residual)*visible, visible), -1)
         update = (torch.round(elapsed*60/l['dt']).long() % 2 == 0)[:,None]
         sample = torch.where(update, sample, queue[:,0])
         queue = torch.cat((sample[:,None],queue[:,:-1]), 1)
@@ -258,6 +270,25 @@ class SoccerAgent(nn.Module):
         if 'football_feedback' in l:
             n = self.project_task_context(current, n)
         return n
+
+    def camera_ball(self, raw):
+        """Ball coordinates in the same optical frame as the real PPO camera."""
+        l, cfg = self.layout, self.layout['camera']
+        q, r, b, j = l['root_quat'], l['root_xy'], l['ball_start'], l['joints_start']
+        root_quat = raw[:,q:q+4][:,[1,2,3,0]]
+        position, rotation = self.camera_kinematics(raw[:,j:j+22])[cfg['frame']]
+        mount_quat = quat_mul(root_quat,rotation)
+        mount_position = raw[:,r:r+3]+quat_rotate(root_quat,position)
+        camera_position = mount_position+quat_rotate(mount_quat,raw.new_tensor(cfg['position']).expand(len(raw),-1))
+        camera_quat = quat_mul(mount_quat,raw.new_tensor(cfg['rotation']).expand(len(raw),-1))
+        optical_quat = quat_mul(camera_quat,raw.new_tensor([.5,.5,.5,.5]).expand(len(raw),-1))
+        return quat_rotate_inverse(optical_quat,raw[:,b:b+3]-camera_position)
+
+    def camera_visibility(self, raw):
+        ball = self.camera_ball(raw)
+        fov = raw.new_tensor(self.layout['camera']['fov'])*torch.pi/360
+        return ((ball[:,2]>0) & (torch.atan2(ball[:,0],ball[:,2]).abs()<fov[0])
+                & (torch.atan2(ball[:,1],ball[:,2]).abs()<fov[1]))
 
     def project_task_context(self, current, predicted):
         """Advance the same football timers and approach windows as real physics."""
@@ -347,6 +378,8 @@ class SoccerAgent(nn.Module):
             from utils.kinematics import ResetKinematics
             fk = layout['foot_kinematics']
             self.foot_kinematics = ResetKinematics(fk['urdf'], fk['dof_names'], fk['frames'], self.mean.device)
+            if 'camera' in layout:
+                self.camera_kinematics = ResetKinematics(fk['urdf'],fk['dof_names'],[layout['camera']['frame']],self.mean.device)
         self.value_domain_positions = [i for i,index in enumerate(layout.get('model_feature_indices', []))
                                        if 262 <= index < 308 or index >= 390]
         if layout.get('model_feature_indices') and not self.model_indices.numel():
@@ -463,15 +496,22 @@ class SoccerAgent(nn.Module):
         reward = reward + progress*dt*(50*gain*approach + 500*forward)
         cost = 2*n[:, l['progress_index']+4] + n[:, l['progress_index']+5]
         reward = reward - progress*dt*l['stall_penalty_factor']*cost
+        if 'camera' in l:
+            camera_ball = self.camera_ball(n)
+            z = camera_ball[:,2]
+            z = torch.where(z.abs()<1e-8,z.sign()*1e-8,z)
+            reward = reward+progress*dt*(
+                l['camera']['pitch_reward_scale']*torch.atan2(camera_ball[:,1],z).square()
+                +l['camera']['yaw_reward_scale']*torch.atan2(camera_ball[:,0],z).square())
         return .1*(reward-20*(1-continuation)), continuation
 
-    def imagined_objective(self, initial, horizon, gamma=.995, noise=None):
+    def imagined_objective(self, initial, horizon, gamma=.995, noise=None, visual_noise=None):
         state = self.normalize(initial).detach()
         alive, total = state.new_ones(len(state)), state.new_zeros(len(state))
         for t in range(horizon):
             mean = self.actor(self.policy_observation(state))
             action = self.action_limit * (mean if noise is None else mean + noise[t]).tanh()
-            following, _, _ = self.predict(state, action)
+            following, _, _ = self.predict(state, action, visual_noise=None if visual_noise is None else visual_noise[t])
             reward, continuation = self.task_reward(state, following, action)
             total = total + gamma**t * alive * reward
             alive = alive * continuation
@@ -489,8 +529,10 @@ class SoccerAgent(nn.Module):
             reference_mean = (old_mean if reference_state is None else
                               torch.func.functional_call(self.actor, reference_state, (obs,)))
         noise = torch.randn(horizon, len(initial), 22, device=initial.device) * (exploration_std/float(self.action_limit))
+        visual_noise = torch.cat((torch.randn(horizon,len(initial),2,device=initial.device),
+                                  torch.rand(horizon,len(initial),1,device=initial.device)),-1)
         with frozen(self.dynamics, self.outcomes, self.critic):
-            objective = self.imagined_objective(initial, horizon, gamma=gamma, noise=noise)
+            objective = self.imagined_objective(initial, horizon, gamma=gamma, noise=noise, visual_noise=visual_noise)
             loss = -objective
             self.optimize(loss, self.actor_optimizer, parameters)
             proposed = [p.detach().clone() for p in parameters]
@@ -503,7 +545,7 @@ class SoccerAgent(nn.Module):
                     variance = 2*(exploration_std/float(self.action_limit))**2
                     kl = max(((updated_mean-anchor).square()/variance).sum(-1).mean().item()
                              for anchor in (old_mean, reference_mean))
-                    improved = self.imagined_objective(initial, horizon, gamma=gamma, noise=noise)
+                    improved = self.imagined_objective(initial, horizon, gamma=gamma, noise=noise, visual_noise=visual_noise)
                     if kl <= max_kl and improved >= objective.detach()-1e-7:
                         break
                     alpha *= .5
