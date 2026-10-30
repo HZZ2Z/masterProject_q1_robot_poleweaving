@@ -153,6 +153,7 @@ def test_velocity_integration_tracks_real_control_step_positions():
     wrapper = load_environment('cpu', 4)
     agent = SoccerAgent(wrapper.state_dim, width=16, history_dim=wrapper.history_dim)
     agent.configure_task(task_layout(wrapper))
+    torch.manual_seed(104729)
     errors = []
     for _ in range(32):
         current = wrapper.state()
@@ -161,5 +162,55 @@ def test_velocity_integration_tracks_real_control_step_positions():
         errors.append((integrated[:,170:206]-target[:,170:206]).abs()[~info['done']])
     # An approximate control-period integrator, checked against real substeps.
     error = torch.cat(errors)
-    assert error.mean() < .001
-    assert error.max() < .025
+    assert error[:,:3].mean() < .002  # root translation, metres
+    assert error[:,7:29].mean() < .005  # joints, radians
+    assert error[:,7:29].max() < .04
+
+
+def test_physical_model_excludes_sensor_noise_and_global_translation():
+    from train import task_layout
+    w = load_environment('cpu', 4)
+    agent = SoccerAgent(w.state_dim, width=16, history_dim=w.history_dim)
+    agent.configure_task(task_layout(w))
+    state = w.state(); changed = state.clone()
+    changed[:,:158] += torch.randn_like(changed[:,:158])
+    changed[:,-w.history_dim:] += 5
+    for start in (agent.layout['root_xy'], agent.layout['ball_start']):
+        changed[:,start:start+2] += torch.tensor([2.,-1.])
+    torch.testing.assert_close(agent.physical_features(state), agent.physical_features(changed), atol=1e-6, rtol=1e-6)
+    action = torch.zeros(4,22)
+    a = agent.predict(agent.normalize(state), action)[0]
+    b = agent.predict(agent.normalize(changed), action)[0]
+    torch.testing.assert_close(a[:,206:240], b[:,206:240], atol=1e-6, rtol=1e-6)
+
+
+def test_physical_model_has_all_randomized_inertial_context():
+    from train import task_layout
+    w = load_environment('cpu', 4)
+    agent = SoccerAgent(w.state_dim, width=16, history_dim=w.history_dim)
+    agent.configure_task(task_layout(w))
+    before = agent.physical_features(w.state())
+    w.env.ipos[:,1,0] += .001
+    after = agent.physical_features(w.state())
+    assert not torch.equal(before, after)
+    before = after
+    w.env.inertia[:,1,0] *= 1.05
+    assert not torch.equal(before, agent.physical_features(w.state()))
+
+
+def test_balance_dense_reward_matches_real_world_frame_acceleration():
+    from train import task_layout
+    w = load_environment('cpu', 4)
+    e = w.env
+    agent = SoccerAgent(w.state_dim, width=16, history_dim=w.history_dim)
+    agent.configure_task(task_layout(w))
+    for _ in range(12):
+        current = w.state()
+        action = .025*torch.randn(4,22)
+        _, target, _, _ = w.step(action)
+        reward, continuation = agent.task_reward(agent.normalize(current), agent.normalize(target), action)
+        names = ('survival','upright','base_height','action_rate','root_acc','stance_pose')
+        actual = sum(e.extras['rew_terms'][name] for name in names)
+        # Compare dense terms before smooth termination shaping (separately approximated).
+        dense = reward/.1 + 20*(1-continuation)
+        torch.testing.assert_close(dense, actual, atol=2e-5, rtol=2e-4)

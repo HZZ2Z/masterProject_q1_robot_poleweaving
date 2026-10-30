@@ -48,7 +48,7 @@ def test_curriculum_only_migration_rejects_reward_changes():
     import copy
     import pytest
     env = load_environment('cpu', 4)
-    saved = {'version': 5, 'state_dim': env.state_dim, 'task_signature': 'old',
+    saved = {'version': 6, 'state_dim': env.state_dim, 'task_signature': 'old',
              'environment': copy.deepcopy(env.cfg)}
     saved['environment']['curriculum']['release_active_5s_fraction'] = .8
     validate_checkpoint(saved, env, migrate_curriculum=True)
@@ -82,3 +82,30 @@ def test_old_policy_versions_cannot_enter_fresh_model_route():
     old['version'] = 4
     with pytest.raises(ValueError, match='Incompatible'):
         validate_checkpoint(old, env)
+
+
+def test_v5_missing_physical_context_is_rejected():
+    import pytest
+    env = load_environment('cpu', 2)
+    with pytest.raises(ValueError, match='Incompatible'):
+        validate_checkpoint({'version':5,'state_dim':env.state_dim,'task_signature':env.task_signature}, env)
+
+
+def test_compact_physical_model_roundtrip(tmp_path):
+    from train import build_agent, task_layout
+    env = load_environment('cpu', 4)
+    cfg = dict(width=16, model_width=32, validation_horizon=2, learning_rate=2e-4,
+               history_dim=env.history_dim, task_layout=task_layout(env), device='cpu')
+    agent = build_agent(env.state_dim, cfg)
+    agent.make_optimizers()
+    state = env.state()
+    agent.calibrate(state, torch.randn(4, 22)*.025)
+    action = torch.zeros(4, 22)
+    expected = agent.predict(agent.normalize(state), action)[0]
+    path = tmp_path/'compact.pt'
+    save_checkpoint(path, agent, env, cfg, 1)
+    saved = torch.load(path, weights_only=False)
+    other = build_agent(env.state_dim, saved['config'])
+    other.load_state_dict(saved['agent'])
+    validate_checkpoint(saved, env)
+    torch.testing.assert_close(expected, other.predict(other.normalize(state), action)[0], rtol=0, atol=0)

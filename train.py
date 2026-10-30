@@ -31,14 +31,15 @@ def parser():
     p.add_argument('--iterations', type=int)
     p.add_argument('--output', type=Path)
     p.add_argument('--checkpoint', type=Path)
-    p.add_argument('--migrate-curriculum', action='store_true', help='Allow curriculum-only changes to a v5 checkpoint')
+    p.add_argument('--migrate-curriculum', action='store_true', help='Allow curriculum-only changes to a v6 checkpoint')
     p.add_argument('--no-wandb', action='store_true')
     return p
 
 
 def build_agent(state_dim, cfg):
     agent = SoccerAgent(state_dim, width=cfg['width'], horizon=cfg['validation_horizon'],
-                        lr=cfg['learning_rate'], history_dim=cfg.get('history_dim', 0)).to(cfg['device'])
+                        lr=cfg['learning_rate'], history_dim=cfg.get('history_dim', 0),
+                        model_width=cfg.get('model_width', cfg['width'])).to(cfg['device'])
     if 'task_layout' in cfg:
         agent.configure_task(cfg['task_layout'])
     return agent
@@ -47,7 +48,14 @@ def build_agent(state_dim, cfg):
 def task_layout(env):
     e = env.env
     context_end = env.state_dim - env.history_dim
-    layout = dict(physical_start=170, physical_end=170+e.model.nq+e.model.nv,
+    friction_start = 390 + e.model.nbody
+    body_context_start = friction_start + e.friction[0].numel()
+    model_indices = (list(range(172, 308)) + list(range(368, friction_start))
+                     + [friction_start, friction_start + 3*e.model.geom('soccer_ball').id]
+                     + list(range(body_context_start, body_context_start + 6*e.model.nbody)))
+    layout = dict(model_feature_indices=model_indices, context_end=context_end,
+                              velocity_start=170+e.model.nq, velocity_end=170+e.model.nq+e.model.nv,
+                              physical_start=170, physical_end=170+e.model.nq+e.model.nv,
                               root_z=172+e.root_addr, root_xy=170+e.root_addr,
                               ball_start=170+e.ball_addr, default_start=368,
                               progress_index=context_end-16, group_index=context_end-3,
@@ -75,7 +83,7 @@ CURRICULUM_FIELDS = ('balance_release_iteration', 'soccer_progress', 'recent_suc
 
 def save_checkpoint(path, agent, env, cfg, iteration):
     optimizers = [agent.model_optimizer, agent.actor_optimizer, agent.critic_optimizer]
-    payload = {'version': 5, 'iteration': iteration, 'config': cfg,
+    payload = {'version': 6, 'iteration': iteration, 'config': cfg,
                'state_dim': agent.dim, 'task_signature': env.task_signature,
                'near_start': env.env.near_start_state(),
                'environment': env.cfg, 'agent': agent.state_dict(),
@@ -97,7 +105,7 @@ def validate_checkpoint(checkpoint, env, migrate_curriculum=False):
             raise ValueError('Curriculum migration cannot change physics, controls or rewards')
         checkpoint = dict(checkpoint, task_signature=env.task_signature)
 
-    if (checkpoint.get('version') != 5 or checkpoint.get('state_dim') != env.state_dim
+    if (checkpoint.get('version') != 6 or checkpoint.get('state_dim') != env.state_dim
             or checkpoint.get('task_signature') != env.task_signature):
         raise ValueError('Incompatible task/state schema: use a fresh run for the corrected learning objective; '
                          'old smoke and PPO checkpoints cannot be resumed')
@@ -147,7 +155,7 @@ def main():
     env = load_environment(cfg['device'], cfg['num_envs'])
     cfg['history_dim'] = env.history_dim
     cfg['task_layout'] = task_layout(env)
-    cfg['learner_version'] = 5
+    cfg['learner_version'] = 6
     try:
         cfg['code_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         cfg['code_dirty'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode != 0
@@ -170,8 +178,8 @@ def main():
         # Checkpoints contain optimizer/RNG state. Load only trusted local files.
         checkpoint = torch.load(args.checkpoint, map_location=cfg['device'], weights_only=False)
         validate_checkpoint(checkpoint, env, args.migrate_curriculum)
-        for key in ('width', 'learning_rate'):
-            cfg[key] = checkpoint['config'][key]
+        for key in ('width', 'learning_rate', 'model_width'):
+            cfg[key] = checkpoint['config'].get(key, cfg[key])
         if checkpoint['config']['exploration_std'] != cfg['exploration_std']:
             raise ValueError('Resume must preserve the exploration distribution used by the safety gate')
         start = checkpoint['iteration']

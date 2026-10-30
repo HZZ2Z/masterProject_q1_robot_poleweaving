@@ -319,5 +319,79 @@
       "passed": 71,
       "failed": 0
     }
+  },
+  "v6_physical_revision": {
+    "status": "under_validation_not_ready_for_actor",
+    "tests": {
+      "passed": 76,
+      "failed": 0
+    },
+    "changes": [
+      "Complete per-body centre of mass and inertia in privileged state",
+      "Translation-invariant physical-only velocity model inputs",
+      "Physical-state/root-velocity supervision without sensor/history losses",
+      "Detached reward/termination auxiliary heads",
+      "World-frame angular acceleration reward parity"
+    ],
+    "bounded_probe": {
+      "pid": 235247,
+      "run": "logs/v6_model_validation/2026-10-30-08-52-35-860397",
+      "iterations": 120,
+      "num_envs": 256,
+      "actor_updates": false
+    },
+    "iteration_40_response": {
+      "checkpoint": "logs/v6_model_validation/2026-10-30-08-52-35-860397/checkpoint_40.pt",
+      "iteration": 40,
+      "paired_cases_per_seed": 32,
+      "results": [
+        {
+          "seed": 130363,
+          "root_pose": {
+            "cosine": 0.6857350468635559,
+            "relative_error": 0.926413357257843
+          },
+          "physical": {
+            "cosine": 0.882086992263794,
+            "relative_error": 0.31844913959503174
+          },
+          "smooth_reward": {
+            "cosine": 0.36154240369796753,
+            "relative_error": 1.6712929010391235
+          }
+        },
+        {
+          "seed": 230363,
+          "root_pose": {
+            "cosine": 0.8186572790145874,
+            "relative_error": 0.34307652711868286
+          },
+          "physical": {
+            "cosine": 0.8669272661209106,
+            "relative_error": 0.2691511809825897
+          },
+          "smooth_reward": {
+            "cosine": -0.08688201010227203,
+            "relative_error": 3.62996768951416
+          }
+        },
+        {
+          "seed": 330373,
+          "root_pose": {
+            "cosine": 0.860038161277771,
+            "relative_error": 0.2632388174533844
+          },
+          "physical": {
+            "cosine": 0.8622162938117981,
+            "relative_error": 0.2840411961078644
+          },
+          "smooth_reward": {
+            "cosine": -0.10834599286317825,
+            "relative_error": 1.892337679862976
+          }
+        }
+      ]
+    },
+    "next": "Paired real-action supervision; objective gradient validation; critic and curriculum remain unresolved"
   }
 }

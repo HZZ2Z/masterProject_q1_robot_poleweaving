@@ -50,7 +50,7 @@ class SoccerEnvironment:
                           e.delay_steps[:, None].float() / 10,
                           e.ball_delay_steps[:, None].float() / 10,
                           e.ball_obs_buffer.flatten(1), e.default_dof_pos,
-                          e.mass, e.friction.flatten(1),
+                          e.mass, e.friction.flatten(1), e.ipos.flatten(1), e.inertia.flatten(1),
                           e.episode_length_buf[:, None].float() * e.dt / 60,
                           e.goal_cnt[:, None] / 50,
                           e.task_progress[:, None],

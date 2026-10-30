@@ -3,7 +3,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from supermimic.models import mlp, frozen
-from utils.torch_math import quat_rotate_inverse, quat_mul
+from utils.torch_math import quat_rotate_inverse, quat_mul, quat_rotate
 
 
 class TemporalReplay:
@@ -40,7 +40,7 @@ class TemporalReplay:
 
 
 class SoccerAgent(nn.Module):
-    def __init__(self, dim, obs_dim=79, width=256, horizon=4, lr=2e-4, history_dim=0):
+    def __init__(self, dim, obs_dim=79, width=256, horizon=4, lr=2e-4, history_dim=0, model_width=None):
         super().__init__()
         self.dim, self.obs_dim, self.validation_horizon = dim, obs_dim, horizon
         self.register_buffer('mean', torch.zeros(dim))
@@ -48,6 +48,10 @@ class SoccerAgent(nn.Module):
         self.register_buffer('action_limit', torch.tensor(1.))
         self.register_buffer('model_action_scale', torch.full((22,), .05))
         self.register_buffer('dynamic_mask', torch.ones(dim))
+        self.register_buffer('model_indices', torch.empty(0, dtype=torch.long))
+        self.register_buffer('model_mean', torch.empty(0))
+        self.register_buffer('model_scale', torch.empty(0))
+        self.model_width = model_width or width
         self.history_dim = history_dim
         self.layout = None
         self.last_diagnostics = {}
@@ -77,6 +81,10 @@ class SoccerAgent(nn.Module):
     def calibrate(self, states, actions=None):
         self.mean.copy_(states.mean(0))
         self.scale.copy_(states.std(0, unbiased=False).clamp_min(.1))
+        if self.model_indices.numel():
+            features = self.physical_features(states)
+            self.model_mean.copy_(features.mean(0))
+            self.model_scale.copy_(features.std(0, unbiased=False).clamp_min(.001))
         if actions is not None:
             self.model_action_scale.copy_(actions.std(0, unbiased=False).clamp(.025, .25))
 
@@ -90,9 +98,23 @@ class SoccerAgent(nn.Module):
     def act(self, state):
         return self.action_limit * self.actor(self.policy_observation(self.normalize(state))).tanh()
 
+    def physical_features(self, raw):
+        # Flat-ground dynamics is invariant to translating robot and ball together.
+        raw = raw.clone()
+        b, r = self.layout['ball_start'], self.layout['root_xy']
+        raw[..., b:b+2] = raw[..., b:b+2] - raw[..., r:r+2]
+        return raw[..., self.model_indices]
+
     def predict(self, state, action):
         normalized_action = action / self.model_action_scale
-        following = state + self.dynamic_mask * self.dynamics(torch.cat((state, normalized_action), -1))
+        if self.model_indices.numel():
+            features = ((self.physical_features(state*self.scale+self.mean)-self.model_mean) / self.model_scale).clamp(-20,20)
+            delta = self.dynamics(torch.cat((features, normalized_action), -1))
+            following = state.clone()
+            start, end = self.layout['velocity_start'], self.layout['velocity_end']
+            following[..., start:end] = state[..., start:end] + delta
+        else:
+            following = state + self.dynamic_mask * self.dynamics(torch.cat((state, normalized_action), -1))
         if self.layout is not None:
             # Previous-action observation is deterministic, not a free model output.
             raw = following * self.scale + self.mean
@@ -110,7 +132,13 @@ class SoccerAgent(nn.Module):
                 history = state[..., -self.history_dim:] * self.scale[-self.history_dim:] + self.mean[-self.history_dim:]
                 raw[..., -self.history_dim:] = torch.cat((history[..., self.obs_dim:], raw[..., :self.obs_dim]), -1)
             following = (raw - self.mean) / self.scale
-        outcomes = self.outcomes(torch.cat((state, normalized_action, following), -1))
+        if self.model_indices.numel():
+            p, end = self.layout['physical_start'], self.layout['physical_end']
+            ce = self.layout['context_end']
+            outcome_input = torch.cat((features, normalized_action, following[...,p:end], state[...,ce-18:ce]), -1)
+        else:
+            outcome_input = torch.cat((state, normalized_action, following), -1)
+        outcomes = self.outcomes(outcome_input.detach() if self.model_indices.numel() else outcome_input)
         return following, outcomes[..., 0], outcomes[..., 1]
 
     def integrate_positions(self, current, predicted):
@@ -212,9 +240,16 @@ class SoccerAgent(nn.Module):
         for t in range(actions.shape[1]):
             prediction, reward, terminal = self.predict(prediction, actions[:, t])
             error = (prediction - targets[:, t]).square()
-            loss = error.mean(-1)
-            if self.layout is not None:
-                loss = loss + error[:, self.layout['physical_start']:self.layout['physical_end']].mean(-1)
+            if self.model_indices.numel():
+                # Sensor noise and history are not physical prediction targets.
+                l = self.layout
+                loss = error[:,l['physical_start']:l['physical_end']].mean(-1)
+                v = l['root_velocity']
+                loss = loss + error[:,v:v+6].mean(-1)
+            else:
+                loss = error.mean(-1)
+                if self.layout is not None:
+                    loss = loss + error[:, self.layout['physical_start']:self.layout['physical_end']].mean(-1)
             loss = loss + F.smooth_l1_loss(reward, rewards[:, t] * .1, reduction='none')
             loss = loss + F.binary_cross_entropy_with_logits(terminal, falls[:, t], reduction='none')
             total = total + (alive * loss).sum()
@@ -227,6 +262,18 @@ class SoccerAgent(nn.Module):
         return loss.item()
 
     def configure_task(self, layout):
+        if layout.get('model_feature_indices') and not self.model_indices.numel():
+            if self.model_optimizer is not None:
+                raise RuntimeError('Configure physical model before creating optimizers')
+            device = self.mean.device
+            self.model_indices = torch.tensor(layout['model_feature_indices'], dtype=torch.long, device=device)
+            size = len(layout['model_feature_indices'])
+            self.model_mean = torch.zeros(size, device=device)
+            self.model_scale = torch.ones(size, device=device)
+            self.dynamics = mlp(size+22, (self.model_width,)*3, layout['velocity_end']-layout['velocity_start']).to(device)
+            self.outcomes = mlp(size+22+layout['physical_end']-layout['physical_start']+18, (self.model_width,)*2, 2).to(device)
+            nn.init.normal_(self.dynamics[-1].weight, std=.001)
+            nn.init.zeros_(self.dynamics[-1].bias)
         self.layout = layout
         # Keep domain parameters and curriculum context fixed in model rollouts.
         self.dynamic_mask.fill_(0)
@@ -308,7 +355,11 @@ class SoccerAgent(nn.Module):
         stall = torch.maximum(c[:, l['progress_index']+4], c[:, l['progress_index']+5]).clamp(0, 1)
         reward = (3*(1-progress*stall) - 50*(height-l['nominal_height']).square() - 5*upright)*dt
         reward = reward - dt*(action-c[:, 57:79]).square().sum(-1)
-        reward = reward - .001/dt*(n[:, v:v+6]-c[:, v:v+6]).square().sum(-1)
+        # MuJoCo free-joint angular velocity is body-local; task root_acc uses world axes.
+        old_angular = quat_rotate(c[:,q:q+4][:,[1,2,3,0]], c[:,v+3:v+6])
+        new_angular = quat_rotate(n[:,q:q+4][:,[1,2,3,0]], n[:,v+3:v+6])
+        acceleration_delta = torch.cat((n[:,v:v+3]-c[:,v:v+3], new_angular-old_angular), -1)
+        reward = reward - .001/dt*acceleration_delta.square().sum(-1)
         j, d = l['joints_start'], l['default_start']
         reward = reward - dt*(1-progress)*(n[:, j:j+22]-n[:, d:d+22]).square().mean(-1)
         root, ball = l['root_xy'], l['ball_start']

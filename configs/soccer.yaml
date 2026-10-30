@@ -10,6 +10,7 @@ model_sequence: 8
 model_batches: 8
 batch_size: 256
 width: 256
+model_width: 512
 validation_horizon: 8
 imagination_horizon: 8
 model_action_response_cosine: 0.8
