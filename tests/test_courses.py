@@ -25,6 +25,40 @@ def test_task_commands_preserve_identity():
     assert all(len(command(s))==6 for s in COURSES)
 
 
+def test_team_windows_survive_large_ordered_bursts_and_restart():
+    c=Curriculum('step_in_place')
+    for team in (0,1):
+        for _ in range(10000):
+            c.record(dict(stage=c.stage,team=team,stable=True,success=True,duration=12))
+    m=c.metrics()
+    assert m['red_samples']==m['blue_samples']==1024
+    assert m['red_stability']==m['blue_stability']==1
+    assert m['red_gate_samples']==m['blue_gate_samples']==1024
+    restored=Curriculum();restored.load_state_dict(c.state_dict())
+    assert restored.state_dict()==c.state_dict()
+    restored.stage_updates=31
+    assert not restored.advance() and restored.passed_windows==1
+    assert len(restored.history)==0
+    # A new window needs fresh observations from BOTH teams.
+    for _ in range(10000):
+        restored.record(dict(stage=restored.stage,team=1,stable=True,success=True))
+    restored.stage_updates=47
+    assert not restored.advance() and restored.passed_windows==0
+    assert restored.last_reason=='samples'
+
+
+def test_missing_team_is_unknown_and_bad_team_cannot_hide_in_average():
+    c=Curriculum()
+    for _ in range(256):c.record(dict(stage=c.stage,team=0,stable=False,success=True))
+    assert c.metrics()['blue_stability'] is None and c.metrics()['blue_samples']==0
+    for _ in range(10000):c.record(dict(stage=c.stage,team=1,stable=True,success=True))
+    c.stage_updates=31
+    assert not c.advance() and c.last_reason=='stability'
+    stage=c.stage
+    c.recertify('reward_change_recertification')
+    assert c.stage==stage and c.stage_updates==0 and len(c.monitor)==0
+
+
 @pytest.fixture(scope='module')
 def env():
     if os.environ.get('Q1_TEST_WARP')!='1': pytest.skip('Explicit CUDA opt-in')

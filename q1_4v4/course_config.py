@@ -1,5 +1,6 @@
 """Versioned curriculum gates and fixed-width task commands."""
 from collections import deque
+from itertools import zip_longest
 COURSES = ('balance','balance_push','weight_shift','step_in_place','slow_walk','move','backward','lateral',
            'velocity_track','turn','walk_turn','stop','start_stop','approach','align','kick_left','kick_right',
            'side_left','side_right','kick_recover','dribble','pass_receive','goalkeeper','duel','attack_2v1',
@@ -28,12 +29,39 @@ def command(stage):
     return v
 
 
+class TeamWindow:
+    """Bounded FIFO per team; completion order cannot evict the other team."""
+    def __init__(self, rows=()):
+        self.teams = [deque(maxlen=1024), deque(maxlen=1024)]
+        for row in rows:
+            self.append(row)
+
+    def append(self, row):
+        team = int(row['team'])
+        if team not in (0, 1):
+            raise ValueError('Curriculum team must be red (0) or blue (1)')
+        self.teams[team].append(row)
+
+    def __len__(self):
+        return sum(map(len, self.teams))
+
+    def __iter__(self):
+        for pair in zip_longest(*self.teams):
+            for row in pair:
+                if row is not None:
+                    yield row
+
+    def clear(self):
+        for team in self.teams:
+            team.clear()
+
+
 class Curriculum:
     version = 3
     def __init__(self, stage='balance'):
         self.index = COURSES.index('kick_left' if stage == 'kick' else stage)
-        self.history = deque(maxlen=2048)
-        self.monitor = deque(maxlen=2048)
+        self.history = TeamWindow()
+        self.monitor = TeamWindow()
         self.stage_updates = 0
         self.passed_windows = 0
         self.completed_total = 0
@@ -44,21 +72,24 @@ class Curriculum:
 
     def record(self, info):
         if info['stage'] == self.stage:
-            self.history.append({k: float(info.get(k, 0)) for k in ('stable','success','duration','progress','touch','recover','team')})
-            self.monitor.append(self.history[-1])
+            row = {k: float(info.get(k, 0)) for k in ('stable','success','duration','progress','touch','recover','team')}
+            self.history.append(row)
+            self.monitor.append(row)
             self.completed_total += 1
 
     def metrics(self):
         n = len(self.history)
         mean = lambda k: sum(x[k] for x in self.monitor)/max(len(self.monitor),1)
         teams = [[x for x in self.monitor if x['team']==t] for t in (0,1)]
-        team_mean = lambda t,k: sum(x[k] for x in teams[t])/max(len(teams[t]),1)
+        team_mean = lambda t,k: sum(x[k] for x in teams[t])/len(teams[t]) if teams[t] else None
         return dict(stage=self.stage, stage_index=self.index, completed=n, completed_total=self.completed_total,
                     stage_updates=self.stage_updates, stable_rate=mean('stable'), success_rate=mean('success'),
                     episode_seconds=mean('duration'), progress_m=mean('progress'), foot_touch_rate=mean('touch'),
                     recovery_rate=mean('recover'), passed_windows=self.passed_windows, gate_reason=self.last_reason,
                     red_success=team_mean(0,'success'), blue_success=team_mean(1,'success'),
-                    red_stability=team_mean(0,'stable'),blue_stability=team_mean(1,'stable'))
+                    red_stability=team_mean(0,'stable'),blue_stability=team_mean(1,'stable'),
+                    red_samples=len(teams[0]), blue_samples=len(teams[1]),
+                    red_gate_samples=len(self.history.teams[0]),blue_gate_samples=len(self.history.teams[1]))
 
     def advance(self):
         self.stage_updates += 1
@@ -74,7 +105,8 @@ class Curriculum:
         ready = self.stage_updates >= 32 and len(self.history) >= 512 and team_ready
         passed = ready and team_pass
         self.passed_windows = self.passed_windows+1 if passed else 0
-        self.last_reason = 'pass' if passed else 'samples' if not ready else 'stability' if m['stable_rate'] < .90 else 'task'
+        stable = all(sum(x['stable'] for x in group)/max(len(group),1)>=.90 for group in cohorts)
+        self.last_reason = 'pass' if passed else 'samples' if not ready else 'stability' if not stable else 'task'
         if ready: self.history.clear()
         if self.passed_windows >= 3 and self.index < len(COURSES)-1:
             self.index += 1; self.stage_updates = 0; self.history.clear(); self.monitor.clear(); self.passed_windows = 0
@@ -83,13 +115,19 @@ class Curriculum:
         return False
 
     def state_dict(self):
-        return dict(version=3,stage=self.stage,index=self.index,history=list(self.history),monitor=list(self.monitor),stage_updates=self.stage_updates,
+        return dict(version=3,window_policy='per_team',stage=self.stage,index=self.index,history=list(self.history),monitor=list(self.monitor),stage_updates=self.stage_updates,
                     passed_windows=self.passed_windows,completed_total=self.completed_total,last_reason=self.last_reason)
 
     def load_state_dict(self, state):
         if state.get('version') != 3:
             # New prerequisites must be verified; retain policy but recertify from balance.
             self.__init__('balance'); self.last_reason = 'legacy_checkpoint_recertification'; return
-        self.index = COURSES.index(state['stage']); self.history = deque(state['history'],maxlen=2048)
-        self.monitor = deque(state.get('monitor',state['history']),maxlen=2048)
+        self.index = COURSES.index(state['stage']); self.history = TeamWindow(state['history'])
+        self.monitor = TeamWindow(state.get('monitor',state['history']))
         for k in ('stage_updates','passed_windows','completed_total','last_reason'): setattr(self,k,state[k])
+
+    def recertify(self, reason):
+        """Keep the current course; collect fresh evidence under changed rewards."""
+        self.history.clear(); self.monitor.clear()
+        self.stage_updates = 0; self.passed_windows = 0; self.completed_total = 0
+        self.last_reason = reason

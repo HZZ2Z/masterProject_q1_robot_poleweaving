@@ -13,6 +13,7 @@ from .gpu_learning import GpuRollout
 from .learning import make_args, make_team, save_team, load_team
 from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES
 from .distributed import Distributed
+from .gait import METRIC_NAMES, REWARD_REVISION
 
 
 def run(options):
@@ -43,6 +44,8 @@ def run(options):
         selected = COURSES[int(options.start_course)] if options.start_course.isdigit() else options.start_course
         if selected not in COURSES: raise ValueError('Unknown start course')
         curriculum=Curriculum(selected)
+    if checkpoint and checkpoint.get('reward_version',1) != REWARD_REVISION:
+        curriculum.recertify('reward_change_recertification')
     env = CourseWarpEnv(options.num_envs, str(device), options.seed, curriculum.stage,
                         nconmax=options.nconmax, njmax=options.njmax)
     teams = [make_team(args, env, device, gpu_rollout=True) for _ in range(2)]
@@ -51,7 +54,7 @@ def run(options):
             raise ValueError('Use a Warp checkpoint for continuation; CPU legacy runs are reference-only')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
             load_team(state, policy, trainer)
-            if checkpoint.get('reward_version',1) != 3:
+            if checkpoint.get('reward_version',1) != REWARD_REVISION:
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
@@ -106,6 +109,9 @@ def run(options):
         env.episode_steps = options.episode_steps or DURATIONS[curriculum.stage]
         obs, _ = env.reset()
         rollout.obs[0].copy_(obs)
+        # Encourage renewed exploration while learning to lift from a stable stance.
+        for _, trainer, _ in teams:
+            trainer.entropy_coef = .005 if env.course=='step_in_place' else args.entropy_coef
 
     last_saved=start
 
@@ -118,7 +124,7 @@ def run(options):
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
-        payload = dict(version=4, reward_version=3, obs_dim=obs_dim, backend='warp', iteration=iteration, args=vars(args),
+        payload = dict(version=4, reward_version=REWARD_REVISION, obs_dim=obs_dim, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
                        parameter_max_difference=difference)
@@ -136,7 +142,8 @@ def run(options):
                 tags=['q1', '4v4', 'mappo', 'warp', options.job_type], config=vars(options),
                 dir=str(out.resolve()), settings=wandb.Settings(init_timeout=60))
             wandb_run.config.update(dict(vars(options), world_size=distributed.world_size,
-                total_num_envs=options.num_envs*distributed.world_size), allow_val_change=True)
+                total_num_envs=options.num_envs*distributed.world_size,
+                reward_revision=REWARD_REVISION, curriculum_window_policy='per_team'), allow_val_change=True)
             wandb_run.define_metric('iteration')
             wandb_run.define_metric('*', step_metric='iteration')
             wandb_run.define_metric('debug/*', hidden=True)
@@ -148,7 +155,7 @@ def run(options):
             completed = []
             raw_reward = torch.zeros(2, device=device)
             skill_stats = torch.zeros(6,device=device)
-            gait_stats = torch.zeros(8,device=device)
+            gait_stats = torch.zeros(len(METRIC_NAMES),device=device)
             for step in range(options.horizon):
                 obs = rollout.obs[step]
                 state = env.state(obs)
@@ -162,7 +169,7 @@ def run(options):
                         rollout.log_probs[step, :, sl].copy_(logprob.reshape(options.num_envs, 4, 1))
                         rollout.values[step, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, 4, 1))
                     terminal_obs, terminal_state, reward, terminated, truncated, info = env.step(rollout.actions[step])
-                    gait_stats += torch.stack([env.gait_metrics[k] for k in ('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact')])
+                    gait_stats += torch.stack([env.gait_metrics[k] for k in METRIC_NAMES])
                     skill_stats += torch.stack([env.last_stats[k] for k in ('upright','height','forward','side','left','right')])
                     raw_reward += reward.reshape(options.num_envs, 2, 4).mean(dim=(0, 2))
                     # Bootstrap timeout final states BEFORE resetting. No CPU value normalization.
@@ -242,10 +249,10 @@ def run(options):
                            curriculum=curriculum.metrics())
             if distributed.primary:
                 with (out/'metrics.jsonl').open('a') as stream:
-                    enriched=dict(metrics,gait=dict(zip(('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact'),(gait_stats/options.horizon).cpu().tolist())))
+                    enriched=dict(metrics,gait=dict(zip(METRIC_NAMES,(gait_stats/options.horizon).cpu().tolist())))
                     stream.write(json.dumps(enriched)+'\n')
             cm = curriculum.metrics()
-            gm=dict(zip(('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact'),(gait_stats/options.horizon).cpu().tolist()))
+            gm=dict(zip(METRIC_NAMES,(gait_stats/options.horizon).cpu().tolist()))
             metrics['gait']=gm
             ss=dict(zip(('upright','height','forward','side','left','right'),(skill_stats/options.horizon).cpu().tolist()))
             cloud = {'iteration':iteration,
@@ -256,6 +263,10 @@ def run(options):
                      '02_晋级/阶段更新次数':cm['stage_updates'],
                      '02_晋级/红队成功率':cm['red_success'],'02_晋级/蓝队成功率':cm['blue_success'],
                      '02_晋级/红队稳定率':cm['red_stability'],'02_晋级/蓝队稳定率':cm['blue_stability'],
+                     '02_晋级/红队窗口样本':cm['red_gate_samples'],'02_晋级/蓝队窗口样本':cm['blue_gate_samples'],
+                     '02_晋级/红队监测样本':cm['red_samples'],'02_晋级/蓝队监测样本':cm['blue_samples'],
+                     'debug/奖励修订':REWARD_REVISION,
+                     'debug/熵系数':teams[0][1].entropy_coef,
                      '03_技能/脚部触球率':cm['foot_touch_rate'],'03_技能/触球后恢复率':cm['recovery_rate'],
                      '03_技能/净推进_米':cm['progress_m'],
                      '03_技能/左脚触球':ss['left'],'03_技能/右脚触球':ss['right'],
@@ -272,7 +283,8 @@ def run(options):
                 cloud[f'04_性能/GPU{rank}显存_GiB']=memory
             for key,label in [('slip_mps','支撑脚滑移_mps'),('phase_match','接触相位匹配率'),('velocity_error','速度误差_mps'),
                               ('left_steps','左脚有效步数'),('right_steps','右脚有效步数'),('clearance_m','足底离地_米'),
-                              ('weight_shifts','有效重心切换'),('nonfoot_contact','非脚部着地比例')]:
+                              ('weight_shifts','有效重心切换'),('nonfoot_contact','非脚部着地比例'),
+                              ('alternations','有效交替落脚'),('phase_lift','相位抬脚得分')]:
                 cloud['05_步态/'+label]=None if key in ('phase_match','velocity_error') and env.course not in GAIT_COURSES else gm[key]
             for side in ('red','blue'):
                 for k in ('value_loss','policy_loss','dist_entropy','actor_grad_norm','critic_grad_norm','ratio','approx_kl','clip_fraction'):

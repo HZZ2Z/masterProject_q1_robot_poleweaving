@@ -4,6 +4,7 @@ import torch
 import pytest
 from q1_4v4.learning import _input_map,_expand_input,make_args,make_team,load_team
 from q1_4v4.course_config import COURSES,DURATIONS,SUCCESS
+from q1_4v4.gait import phase_lift_credit,stepping_reward
 
 
 def test_course_order_and_thresholds():
@@ -22,6 +23,30 @@ def test_migration_column_and_optimizer_layout():
     assert idx[-4:]==[1024,1025,1026,1027]
     assert idx[121]==128 and idx[115]==122
     with pytest.raises(ValueError):_input_map(100,128)
+
+
+def test_correct_phase_lifting_beats_static_stance_symmetrically():
+    expected=torch.tensor([[True,False]])
+    target=torch.full((1,2),.02)
+    healthy=torch.tensor([True]);zero=torch.zeros(1);none=torch.zeros((1,2),dtype=torch.bool)
+    def score(clearance,contact,expect=expected,landing=none,alternating=none):
+        credit=phase_lift_credit(clearance,contact,expect,target)
+        return stepping_reward(.02,credit,contact,expect,zero,zero,zero,zero,healthy,landing,alternating)
+    ground=torch.zeros((1,2));both=torch.ones((1,2),dtype=torch.bool)
+    static=score(ground,both)
+    # Add the existing upright survival component: standing must not favor suicide.
+    assert (static+.02>0).all()
+    correct=torch.tensor([[0.,.02]])
+    lifted=score(correct,expected)
+    assert (lifted>static+.05).all()
+    assert score(torch.tensor([[0.,.005]]),expected)>static
+    torch.testing.assert_close(lifted,score(correct.flip(-1),expected.flip(-1),expected.flip(-1)))
+    assert score(torch.full((1,2),.02),none)<=static
+    assert score(correct.flip(-1),expected.flip(-1))<lifted
+    # Hopping cannot receive two alternating-landing event bonuses.
+    torch.testing.assert_close(score(ground,both,landing=both,alternating=both),static)
+    landing=torch.tensor([[True,False]])
+    torch.testing.assert_close(score(ground,both,landing=landing,alternating=landing)-static,torch.tensor([.2]))
 
 
 @pytest.fixture(scope='module')

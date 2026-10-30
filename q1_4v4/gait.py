@@ -3,6 +3,35 @@ import torch
 import warp as wp
 from .course_config import GAIT_COURSES,LOW_LEVEL
 
+REWARD_REVISION = 4
+METRIC_NAMES = ('slip_mps','phase_match','velocity_error','left_steps','right_steps',
+                'clearance_m','weight_shifts','nonfoot_contact','alternations','phase_lift')
+
+
+def phase_lift_credit(clearance, contact, expected, targetheight):
+    """Dense lift progress paired with the correct supporting foot, symmetric in feet."""
+    swing = ~expected
+    progress = (clearance/targetheight.clamp(min=.005)).clamp(0,1)
+    tracking = torch.exp(-((clearance-targetheight)/.02).square())
+    support = (contact & expected).float().sum(-1)/expected.sum(-1).clamp(min=1)
+    return support*(progress*tracking*swing).sum(-1)
+
+
+def stepping_reward(dt, credit, contact, expected, linear_error, angular_error,
+                    stance_slip, crossed, healthy, landing, alternating):
+    """No standstill velocity bonus; reward real phase-conditioned leg motion."""
+    double = expected.all(-1)
+    stillness = torch.exp(-(linear_error/.1).square()-(angular_error/.2).square())
+    swing_contact = (contact & ~expected).float().sum(-1)
+    flight = ~contact.any(-1)
+    reward = dt*((2.5+.5*stillness)*credit*healthy
+        +.25*(double & contact.all(-1))-.75*swing_contact
+        -.25*stance_slip-.3*crossed-1.*flight)
+    # Only a single, correctly timed landing while upright earns an event reward.
+    valid = landing & expected & (landing.sum(-1)==1)[...,None] & healthy[...,None]
+    reward += .03*valid.sum(-1)+.17*(valid & alternating).sum(-1)
+    return reward
+
 @wp.kernel
 def clear_ground(hit:wp.array3d[int],index:wp.array3d[int]):
     w,a,f=wp.tid()
@@ -179,9 +208,11 @@ def measure(env,before_foot):
     env.gait_peak=torch.maximum(env.gait_peak,clearance)
     land=contact&~env.gait_last_contact&(env.gait_air>=.1)&(env.gait_peak>=.01)
     env.gait_landings+=land
+    alternating=torch.zeros_like(land)
     for f in (0,1):
-        event=land[:,:,f]
+        event=land[:,:,f]&(land.sum(-1)==1)
         switch=event&(env.gait_last_landing>=0)&(env.gait_last_landing!=f)
+        alternating[:,:,f]=switch
         env.gait_switches+=switch
         env.gait_last_landing=torch.where(event,f,env.gait_last_landing)
     env.gait_air=torch.where(contact,0.,env.gait_air)
@@ -224,15 +255,20 @@ def measure(env,before_foot):
     swing=~expected
     lift=torch.exp(-((clearance-targetheight)/.015).square())*swing
     stance_slip=((slip/.05).square().clamp(max=9)*contact).sum(-1)
+    credit=phase_lift_credit(clearance,contact,expected,targetheight)
     reward=env.dt*(1.2*torch.exp(-(linear_error/.10).square())+.7*torch.exp(-(angular_error/.20).square())
         +.7*(1-mismatch)+.4*lift.sum(-1)-.25*stance_slip-.3*crossed-.3*flight)
+    if c=='step_in_place':
+        healthy=(rot[:,:,2,2]>.8)&(pos[:,:,2]>.30)&(pos[:,:,2]<.52)&~env.gait_bad_contact.bool()
+        reward=stepping_reward(env.dt,credit,contact,expected,linear_error,angular_error,
+                              stance_slip,crossed,healthy,land,alternating)
     qv=env.qvel[:,env.vidx]
     reward-=env.dt*.002*((qv-env.gait_previous_velocity)/env.dt).square().mean(-1).clamp(max=25)
     env.gait_previous_velocity.copy_(qv)
     # Small pose prior on the upper body; legs remain free to execute the gait.
     reward-=env.dt*.1*(env.qpos[:,env.qidx][:,:,12:]-env.neutral[12:]).square().mean(-1)
     objective=quality&velocity_ok
-    if c=='step_in_place':objective=quality&(env.gait_landings.amin(-1)>=4)&(norm(pos[:,:,:2]-env.start_positions[:,:,:2])<.25)
+    if c=='step_in_place':objective=quality&(env.gait_landings.amin(-1)>=4)&(env.gait_switches>=7)&(norm(pos[:,:,:2]-env.start_positions[:,:,:2])<.25)
     if c=='slow_walk':objective&=env.gait_landings.sum(-1)>=6
     if c=='walk_turn':objective&=env.gait_yaw_error/env.gait_samples.clamp(min=1)<=.15
     if c=='start_stop':
@@ -262,5 +298,6 @@ def measure(env,before_foot):
     env.gait_metrics={'slip_mps':slipmean.mean(),'phase_match':ratio.mean(),
         'velocity_error':(env.gait_error/env.gait_samples.clamp(min=1)).mean(),
         'left_steps':env.gait_landings[:,:,0].mean(),'right_steps':env.gait_landings[:,:,1].mean(),
-        'nonfoot_contact':(env.gait_nonfoot>0).float().mean(),'clearance_m':clearance.mean(),'weight_shifts':env.gait_weight_count.mean()}
+        'nonfoot_contact':(env.gait_nonfoot>0).float().mean(),'clearance_m':clearance.mean(),'weight_shifts':env.gait_weight_count.mean(),
+        'alternations':env.gait_switches.mean(),'phase_lift':credit.mean()}
     return reward,objective,quality
