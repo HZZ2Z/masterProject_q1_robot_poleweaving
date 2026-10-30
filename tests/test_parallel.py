@@ -117,3 +117,30 @@ def test_per_course_reward_is_raw_and_rollout_accumulators_reset(env):
     env.finish_step();env.begin_rollout()
     for value in (env.course_reward_sum,env.course_skill_sum,env.course_stat_sum):
         assert torch.count_nonzero(value)==0
+
+
+def test_reallocation_releases_physical_memory_before_building_new_scenes(monkeypatch):
+    if os.environ.get('Q1_TEST_WARP')!='1':pytest.skip('Explicit CUDA opt-in')
+    import gc,weakref
+    import q1_4v4.mixed_env as module
+    torch.cuda.synchronize();gc.collect();torch.cuda.empty_cache()
+    cold_free=torch.cuda.mem_get_info()[0]
+    e=module.MixedCourseEnv(256,'cuda:0',71,
+        {'balance':13,'balance_push':13,'weight_shift':204,'step_in_place':26})
+    action=torch.zeros((256,8,22),device='cuda:0')
+    e.step(action);e.finish_step();torch.cuda.synchronize()
+    old_free=torch.cuda.mem_get_info()[0]
+    refs=[weakref.ref(group) for _,group in e.groups.values()]
+    original=module.CourseWarpEnv
+    measured=[]
+    def construct(*args,**kwargs):
+        if not measured:
+            assert not any(r() is not None for r in refs)
+            free=torch.cuda.mem_get_info()[0];measured.append(free)
+            # Includes Warp-owned buffers, which Torch's allocator counters omit.
+            assert free-old_free >= .75*(cold_free-old_free)
+        return original(*args,**kwargs)
+    monkeypatch.setattr(module,'CourseWarpEnv',construct)
+    e.configure({'balance':9,'balance_push':9,'weight_shift':9,'step_in_place':203,'slow_walk':13,'turn':13})
+    e.step(action);e.finish_step();e.check()
+    assert len(measured)==1 and sum(e.allocations.values())==256

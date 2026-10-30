@@ -142,3 +142,12 @@
 对抗课每个回合分别提供红蓝两条结果记录，成功需要本队有效脚触球且向正确方向进球；团队配合课还允许本队至少两人触球并净推进≥1米。对方进球不计为本队成功，双方稳定性按本队参与者计算。进球事件总数不重复计数。
 
 首次加载旧单球任务权重时保留模型、优化器及全局迭代，重新认证受影响的13–27课；已通过的0–12课保留。后续同一任务语义的续训正常恢复课程统计。
+
+
+## 课程晋级时的显存回收与恢复
+
+晋级重建场景前，先停止场景工作线程，释放旧场景和CUDA Graph，等待异步释放完成，再调用CUDA驱动的 `cuDeviceGraphMemTrim` 回收独立的Graph显存缓存。`torch.cuda.empty_cache()` 只处理PyTorch缓存，不能替代该操作；回收只在配额变化时执行，不进入控制步循环。原理见[NVIDIA CUDA Graph显存说明](https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html#physical-memory-footprint)。
+
+课程认证完成后、重建前，立即将已完成的模型更新和新课程状态原子写入 `last.pt`；重建成功后按原保存间隔再次记录新场景的随机状态。即使重建失败，也可保留晋级进度。
+
+`scripts/smoke_transition.py` 专用于独立输出目录中的单轮晋级重建测试，强制要求 `--job-type smoke --no-wandb --iterations 1`。它模拟课程通过以触发真实场景重建，不能作为课程能力认证，其输出不得用于正式续训。

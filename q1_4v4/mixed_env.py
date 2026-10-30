@@ -8,6 +8,7 @@ from .course_config import COURSES,LOW_LEVEL,GAIT_COURSES,DURATIONS
 from .warp_env import WarpSoccerEnv
 from .gait import METRIC_NAMES
 from .telemetry import active_team_reward,SKILL_NAMES
+from .cuda_memory import trim_graph_memory
 
 
 def ended_rows(env,terminated,truncated,info):
@@ -52,8 +53,21 @@ class MixedCourseEnv:
         assert sum(allocations.values())==self.count and all(n>0 for n in allocations.values())
         torch.cuda.synchronize(self.device)
         rng={name:env.generator.get_state() for name,(_,env) in self.groups.items()}
-        if hasattr(self,'executor'):self.executor.shutdown(wait=True)
-        self._pending=[];self.groups.clear();gc.collect();torch.cuda.empty_cache()
+        if hasattr(self,'executor'):
+            self.executor.shutdown(wait=True)
+            del self.executor
+        self._pending=[];self.groups.clear()
+        # Graph destruction queues Warp's async frees. Synchronizing only BEFORE
+        # collection leaves the old allocation live while the next graph warms up.
+        gc.collect()
+        if rng:wp.synchronize_device(str(self.device))
+        torch.cuda.synchronize(self.device)
+        torch.cuda.empty_cache()
+        # Interop array finalizers may release more owners during the first pass.
+        gc.collect()
+        if rng:
+            wp.synchronize_device(str(self.device))
+            trim_graph_memory(self.device)
         self.allocations=dict(allocations)
         common=torch.cuda.Stream(device=self.device);common.wait_stream(torch.cuda.current_stream(self.device))
         offset=0

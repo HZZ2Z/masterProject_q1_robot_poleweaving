@@ -360,6 +360,8 @@ def run(options):
                     curriculum.load_state_dict(old)
                     save(iteration, 'stage_'+curriculum.stage+'.pt')
                     curriculum.load_state_dict(promoted)
+                # Commit the new gates and completed update before risky scene rebuilding.
+                save(iteration)
                 reset_stage()
             else:
                 rollout.obs[0].copy_(rollout.obs[-1])
