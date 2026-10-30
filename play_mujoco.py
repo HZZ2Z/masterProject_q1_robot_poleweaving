@@ -340,7 +340,7 @@ class SoccerPlayer:
         obs[13 + 2 * n:13 + 3 * n] = self.actions
         return obs
 
-    def step(self, auto_reset=True):
+    def step(self, auto_reset=True, on_episode_end=None):
         if self.task == 'Q1':
             if self.control_steps and self.physics_steps % self.decimation == 0:
                 cause = self._q1_episode_end()
@@ -349,10 +349,14 @@ class SoccerPlayer:
                         return cause
                     attribute = {'fall': 'falls', 'goal': 'goals', 'out': 'outs', 'timeout': 'timeouts'}[cause]
                     setattr(self, attribute, getattr(self, attribute) + 1)
+                    if on_episode_end is not None:
+                        on_episode_end(cause)
                     self.reset_robot()
                     print(f'Goal: {self.goals}, Out: {self.outs}, Fall: {self.falls}, Timeout: {self.timeouts}', flush=True)
         elif self.data.sensor('position').data[2] < self.cfg['rewards']['terminate_height']:
             self.falls += 1
+            if on_episode_end is not None:
+                on_episode_end('fall')
             self.reset_robot()
             print(f'Goal: {self.goals}, Out: {self.outs}, Fall: {self.falls}', flush=True)
         else:
@@ -360,8 +364,12 @@ class SoccerPlayer:
             if ball[0] < -7 or ball[0] > 7 or abs(ball[1]) > 4.5:
                 if ball[0] > 7 and abs(ball[1]) < 1.3:
                     self.goals += 1
+                    cause = 'goal'
                 else:
                     self.outs += 1
+                    cause = 'out'
+                if on_episode_end is not None:
+                    on_episode_end(cause)
                 self.reset_ball()
                 self.history[:] = 0
                 self.control_steps = 0
@@ -386,34 +394,63 @@ class SoccerPlayer:
 
 
 def run(checkpoint=None, headless=False, steps=None, seed=42, reset_mode='reference', task='Q1',
-        show_frustum=True, frustum_range=2.5):
+        show_frustum=True, frustum_range=2.5, out_video=None):
     sim = SoccerPlayer(checkpoint, seed, reset_mode, task)
     limit = steps if steps is not None else (5000 if headless else None)
-    if headless:
-        for _ in range(limit):
-            sim.step()
-    else:
-        visible = [show_frustum]
-        def key_callback(key):
-            if key in (ord('F'), ord('f')):
-                visible[0] = not visible[0]
-        with mujoco.viewer.launch_passive(sim.model, sim.data, key_callback=key_callback) as viewer:
-            viewer.cam.distance = 5
-            viewer.cam.elevation = -20
-            count = 0
-            while viewer.is_running() and (limit is None or count < limit):
-                start = time.time()
-                sim.step()
-                viewer.cam.lookat[:] = sim.data.sensor('position').data
-                with viewer.lock():
-                    viewer.user_scn.ngeom = 0
-                    if visible[0]:
-                        draw_camera_frustum(viewer.user_scn, sim.model, sim.data, sim.cfg, frustum_range)
-                viewer.sync()
-                count += 1
-                remaining = sim.model.opt.timestep - (time.time() - start)
-                if remaining > 0:
-                    time.sleep(remaining)
+    visible = [show_frustum]
+    recorder = None
+    if out_video is not None:
+        from utils.episode_video import EpisodeVideoRecorder
+        def decorate(scene):
+            if visible[0]:
+                draw_camera_frustum(scene, sim.model, sim.data, sim.cfg, frustum_range)
+        recorder = EpisodeVideoRecorder(sim, out_video, draw_scene=decorate)
+    on_episode_end = recorder.finish_episode if recorder is not None else None
+    end_cause = 'interrupted'
+    try:
+        if headless:
+            if recorder is not None:
+                recorder.capture()
+            for _ in range(limit):
+                sim.step(on_episode_end=on_episode_end)
+                if recorder is not None:
+                    recorder.capture()
+        else:
+            def key_callback(key):
+                if key in (ord('F'), ord('f')):
+                    visible[0] = not visible[0]
+            with mujoco.viewer.launch_passive(sim.model, sim.data, key_callback=key_callback) as viewer:
+                viewer.cam.distance = 5
+                viewer.cam.elevation = -20
+                if recorder is not None:
+                    with viewer.lock():
+                        recorder.set_camera(viewer.cam)
+                    recorder.capture()
+                count = 0
+                while viewer.is_running() and (limit is None or count < limit):
+                    start = time.time()
+                    if recorder is not None:
+                        with viewer.lock():
+                            recorder.set_camera(viewer.cam)
+                    sim.step(on_episode_end=on_episode_end)
+                    viewer.cam.lookat[:] = sim.data.sensor('position').data
+                    with viewer.lock():
+                        viewer.user_scn.ngeom = 0
+                        if visible[0]:
+                            draw_camera_frustum(viewer.user_scn, sim.model, sim.data, sim.cfg, frustum_range)
+                    viewer.sync()
+                    if recorder is not None:
+                        recorder.capture()
+                    count += 1
+                    remaining = sim.model.opt.timestep - (time.time() - start)
+                    if remaining > 0:
+                        time.sleep(remaining)
+        end_cause = 'stopped'
+    except KeyboardInterrupt:
+        print('Playback interrupted; saving the current episode.', flush=True)
+    finally:
+        if recorder is not None:
+            recorder.close(end_cause)
     print(f'Steps: {sim.total_steps}, Goals: {sim.goals}, Out: {sim.outs}, Falls: {sim.falls}')
     return sim
 
@@ -465,6 +502,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--task', choices=('Q1', 'G1', 'T1'), default='Q1')
     parser.add_argument('--checkpoint', help='Task checkpoint; defaults to latest in its log directory')
+    parser.add_argument('--out-video', type=Path, help='save each episode as an MP4 in this directory')
     parser.add_argument('--headless', action='store_true', help='run without a viewer')
     parser.add_argument('--steps', type=int, help='number of MuJoCo physics steps to run')
     parser.add_argument('--seed', type=int, default=42)
@@ -477,12 +515,14 @@ def main():
     if args.frustum_range <= 0:
         parser.error('--frustum-range must be positive')
     if args.initial_state:
+        if args.out_video is not None:
+            parser.error('--out-video records policy episodes and cannot be used with --initial-state')
         if args.task != 'Q1' or args.headless:
             parser.error('--initial-state requires --task Q1 and a graphical display')
         view_initial_state(args.seed, args.reset_mode, not args.no_frustum, args.frustum_range)
         return
     run(args.checkpoint, args.headless, args.steps, args.seed, args.reset_mode, args.task,
-        not args.no_frustum, args.frustum_range)
+        not args.no_frustum, args.frustum_range, args.out_video)
 
 
 if __name__ == '__main__':

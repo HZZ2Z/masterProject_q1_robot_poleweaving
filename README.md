@@ -4,19 +4,112 @@
 
 参考论文：[Learning Vision-Driven Reactive Soccer Skills for Humanoid Robots](https://humanoid-kick.github.io/)。这份 Q1 适配尚未完成策略收敛验证，也不提供可直接控制真机的策略。
 
-## 环境
+## Quick Start
+
+本项目对应 Q1 的 PPO + AMP 训练、MuJoCo 回放和 MP4 录制。机器人资源和参考动作已包含在仓库，无需 Isaac Gym。**训练日志、checkpoint 和录像不随代码发布**；回放需提供自己的 Q1 checkpoint，不能直接使用本文作者机器上的日志路径。
+
+### 1. 克隆与安装（Conda）
+
+GPU 训练需要 Linux、NVIDIA GPU 和兼容 CUDA 12.8 的驱动。已验证的本机环境为 RTX 5090 / 32GB、驱动 595.99.02。无 GPU 可用 CPU 做小规模检查或回放。
 
 ```bash
-conda activate q1-kick
-cd /home/kemove/workspace/Q1Robot/q1-humanoid-kick
-```
+git clone git@github.com:MohismLab/Q1-Robot-Soccer.git
+cd Q1-Robot-Soccer
 
-重建环境：
-
-```bash
 conda env create -f environment.yml
 conda activate q1-kick
+
+python -c "import torch, mujoco; print('Torch:', torch.__version__, 'MuJoCo:', mujoco.__version__, 'CUDA:', torch.cuda.is_available())"
 ```
+
+后续所有 `python` 命令都在仓库根目录、`q1-kick` 环境中执行。若出现 `No module named mujoco`，先检查终端是否仍在 `(base)` 环境。Linux 精简系统若缺少渲染库，可安装：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libegl1 libgl1 libglfw3 libosmesa6
+```
+
+### 2. 小规模检查与训练
+
+先跑 2 轮验证依赖、资产和 GPU 后端；这只检查流程，不代表策略已学会踢球：
+
+```bash
+python train.py --task Q1 --headless --device cuda:0 \
+  --num_envs 8 --max_iterations 2 --save_path logs/q1_smoke --no_wandb
+```
+
+CPU 检查将 `--device cuda:0` 改为 `--device cpu`，并加 `--num_threads 2`。正式训练可逐步扩大环境数；当前本机配置为 4096 环境，显存预算为单个训练进程占总显存的 50%：
+
+```bash
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+python train.py --task Q1 --headless --device cuda:0 \
+  --num_envs 4096 --save_path logs/q1 --no_wandb
+```
+
+日志输出到 `logs/q1/logs/<时间>/`，权重位于该目录的 `nn/` 下，包含 `last.pth` 和 `best.pth`。首次 GPU 运行会编译 Warp 内核。需要 W&B 时先执行 `wandb login`，再去掉 `--no_wandb`；本地 TensorBoard 查看方式见下文。
+
+### 3. 回放和每回合录像
+
+用实际的 checkpoint 路径替换 `CHECKPOINT`；新克隆的仓库中没有预训练权重。
+
+```bash
+CHECKPOINT="logs/q1/logs/<你的训练时间>/nn/best.pth"
+
+# 有窗口：边回放边按回合保存 MP4。
+python play_mujoco.py --task Q1 --checkpoint "$CHECKPOINT" \
+  --out-video "$PWD/video"
+
+# 无窗口：运行 5000 个物理步，结束时也保存当前未完成回合。
+MUJOCO_GL=egl python play_mujoco.py --task Q1 --checkpoint "$CHECKPOINT" \
+  --headless --steps 5000 --out-video "$PWD/video"
+
+# 固定场景评估。
+python evaluate_q1.py --checkpoint "$CHECKPOINT" \
+  --output logs/q1/evaluations/result.json
+```
+
+录像默认 1280×720、50 FPS；每回合一个文件，名称包含启动时间、回合编号及 `goal/out/fall/timeout`。关闭窗口或达到步数上限保存 `stopped.mp4`，Ctrl+C 保存 `interrupted.mp4`。正在编码的文件以 `.partial.mp4` 结尾，结束后自动重命名。省略 `--out-video` 时不录像。
+
+### 4. Docker（GPU 训练与无头录像）
+
+宿主机需安装 Docker、NVIDIA 驱动和 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)，使 `docker run --gpus all` 可用。镜像基于 PyTorch 2.9.0 / CUDA 12.8，默认使用 EGL 无头渲染和禁用 W&B；宿主机无需另装 Conda。
+
+```bash
+docker build -t q1-robot-soccer:local .
+mkdir -p logs video
+
+# GPU 冒烟检查；以宿主用户写日志，避免生成 root 所有的文件。
+docker run --rm --gpus all --ipc=host \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/logs:/workspace/logs" \
+  q1-robot-soccer:local \
+  python train.py --task Q1 --headless --device cuda:0 \
+    --num_envs 8 --max_iterations 2 --save_path logs/q1_smoke --no_wandb
+
+# 正式训练：按显存容量调整 --num_envs。
+docker run --rm --gpus all --ipc=host \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/logs:/workspace/logs" \
+  q1-robot-soccer:local \
+  python train.py --task Q1 --headless --device cuda:0 \
+    --num_envs 4096 --save_path logs/q1 --no_wandb
+
+# 使用已挂载 logs 中的权重，录像写回宿主机 video/。
+CHECKPOINT="logs/q1/logs/<你的训练时间>/nn/best.pth"
+docker run --rm --gpus all --ipc=host \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/logs:/workspace/logs:ro" \
+  -v "$PWD/video:/workspace/video" \
+  q1-robot-soccer:local \
+  python play_mujoco.py --task Q1 --checkpoint "$CHECKPOINT" \
+    --headless --steps 5000 --out-video /workspace/video
+```
+
+`logs/`、`video/`、权重和本机凭据通过 `.dockerignore` 排除，运行时挂载所需目录。若权重不在 `logs/` 中，请另行挂载其所在目录。无 NVIDIA GPU 时可省略 `--gpus all`、训练指定 `--device cpu`；软件渲染录像同时覆盖 `-e MUJOCO_GL=osmesa -e PYOPENGL_PLATFORM=osmesa`。Docker 默认不打开桌面窗口，交互式回放推荐使用上面的本机 Conda 命令。
+
+容器启用 W&B 时，给 `docker run` 增加 `-e WANDB_MODE=online -e WANDB_API_KEY`，在宿主环境设置 `WANDB_API_KEY`，并去掉训练命令的 `--no_wandb`；使用自定义 W&B 服务时还需传入 `-e WANDB_BASE_URL`。凭据仅在运行时传入。
+
+## 环境与实现
 
 Python 3.11、PyTorch 2.9.0 / CUDA 12.8、MuJoCo 3.17.0、mujoco-warp 3.17.0、warp-lang 1.18.0。GPU 训练通过 Torch/Warp 共享 CUDA stream 和零拷贝状态，并用 CUDA Graph 执行物理。`--device cpu` 使用原生 MuJoCo Batch 作测试与预览参考；`--num_threads` 只影响 CPU 参考后端。首次运行会编译 Warp 内核。W&B 与本地 TensorBoard 每轮实时记录。
 
@@ -79,6 +172,16 @@ python play_mujoco.py --task Q1 --initial-state  # 冻结的训练初始状态�
 ```
 
 在训练机器的浏览器打开 http://127.0.0.1:6006/，查看 Scalars 下的 `reward`、`success_rate`、`fall_rate`、各项 loss 和 `performance/env_steps_per_second`。TensorBoard 是独立服务，关闭网页不会停止训练。若训练进程早于 best/last 功能升级启动，可用 `python -m utils.recorder --watch-run logs/q1/logs/<时间>` 为该进程的存档建立索引，无需重启训练；后续新启动的训练直接在保存时更新索引。
+
+使用 `--out-video <目录>` 时，每个回合分别流式保存为 MP4（1280×720、50 FPS），目录自动创建。例如：
+
+```bash
+python play_mujoco.py --task Q1 \
+  --checkpoint "$CHECKPOINT" \
+  --out-video "$PWD/video"
+```
+
+文件名包含启动时间、回合编号和结束原因（`goal`、`out`、`fall`、`timeout`）。终止画面在重置前写入；关闭窗口或达到 `--steps` 上限时，当前未完成回合保存为 `stopped.mp4`，Ctrl+C 时为 `interrupted.mp4`。编码中的临时文件以 `.partial.mp4` 结尾，完成后重命名，不覆盖之前启动的录像。录像跟随回放视角及 F 键视锥开关；也支持 `--headless`，无显示环境可设置 `MUJOCO_GL=egl`。
 
 回放默认显示蓝色半透明相机视锥，使用与策略观测完全相同的相机姿态和 FOV；按 **F** 切换显示，`--no-frustum` 默认隐藏，`--frustum-range 2.5` 指定绘制长度（只是可视化长度，不是相机量程限制）。冻结初始状态也显示视锥。球场采用明亮天空、草地、完整边线与中圈；球门增加圆管门框和网格外观，足球采用可重新生成的黑白五/六边形立方体纹理。装饰几何不参与碰撞，原有球门碰撞范围保留。`scripts/prepare_q1.py` 统一生成场景与纹理。
 

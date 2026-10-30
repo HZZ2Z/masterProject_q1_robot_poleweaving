@@ -969,3 +969,25 @@ def test_gpu_memory_budget_counts_training_pid_only(monkeypatch):
         return SimpleNamespace(stdout='456, 12000\n123, 11000\n789, 2000\n')
     monkeypatch.setattr(physics.subprocess, 'run', query)
     assert physics.process_gpu_memory('cuda:0') == 11000 * 1024**2
+
+
+def test_replay_episode_callback_observes_terminal_scene_before_reset(q1_player):
+    p=q1_player
+    p.control_steps=3001
+    p.physics_steps=p.decimation
+    p.data.time=42.
+    terminal=p.data.qpos.copy()
+    seen=[]
+    p.step(on_episode_end=lambda cause: seen.append((cause,p.data.time,p.data.qpos.copy())))
+    assert len(seen)==1 and seen[0][0]=='timeout' and seen[0][1]==42.
+    np.testing.assert_array_equal(seen[0][2],terminal)
+    assert p.data.time==pytest.approx(p.model.opt.timestep)
+
+
+def test_replay_terminal_probe_does_not_finish_recording(q1_player):
+    p=q1_player
+    p.control_steps=3001
+    p.physics_steps=p.decimation
+    seen=[]
+    assert p.step(auto_reset=False,on_episode_end=seen.append)=='timeout'
+    assert seen==[]
