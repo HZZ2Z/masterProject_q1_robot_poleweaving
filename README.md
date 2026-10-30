@@ -28,6 +28,7 @@ G1 的成果首先是参考动作跟踪。其方法是采集真实仿真转移�
 - `q1_supermimic/objectives.py`：可微存活加权回报、固定 lambda-return 目标、冻结参数但保留输入梯度。
 - `q1_supermimic/networks.py`：参考/视觉编码器与共享动作解码器。输入拼接不在网络内读取仿真真值。
 - `q1_supermimic/replay.py`：有界连续序列回放；保存执行动作和重置前状态，区分终止与超时。
+- `q1_supermimic/robot.py`：按关节名和传动映射建立 PD 控制、关节/扭矩限位与动作缩放，控制频率 50 Hz；提供短时 Warp 站立检查。
 - `q1_supermimic/physics.py`：独立 MuJoCo Warp 后端及短步长原生 MuJoCo 对照检查。
 - `resources/q1_description/`：保留机器人与球场资产及来源信息。相邻 PPO 项目不修改、不动态导入。
 
@@ -42,6 +43,8 @@ env -u PYTHONHOME -u PYTHONPATH -u LD_LIBRARY_PATH \
   /home/kemove/miniconda3/envs/q1-kick/bin/python -m q1_supermimic.physics
 ```
 
-本次底层检查：8 项单元测试通过；4 个 Warp 世界运行 20 个物理步，与原生 MuJoCo 的最大 qpos 差为 `6.13e-08`。该对照是短时自由落体检查，不是接触、站稳或踢球验收。
+当前底层检查：10 项单元测试通过（含原生 MuJoCo 5 秒中立姿态控制）；4 个 Warp 世界运行 20 个物理步，与原生 MuJoCo 的最大 qpos 差为 `6.13e-08`。该对照是短时自由落体检查，不是接触、站稳或踢球验收。
 
 共享 GPU 仍按约半卡总显存预算安排。Torch 分配限制不覆盖 Warp；启动真实训练前须同时核对进程总显存，不能只看 Torch 分配量。目标 W&B 项目为 `mohismlab-robotics/q1-humanoid-kick-SuperMimic`，凭据只从环境或本机认证读取。
+
+Warp 接触控制检查：16 个相同初态世界保持中立姿态 5 秒，16/16 根节点高度始终超过 0.3 m，最低 0.4120 m。未加入扰动和随机化，只验证控制与物理后端；不证明策略学会平衡或踢球。复现：使用同一清理环境变量的 Python 命令，模块改为 `q1_supermimic.robot`。
