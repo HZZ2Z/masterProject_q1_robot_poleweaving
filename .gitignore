@@ -1,0 +1,16 @@
+__pycache__/
+logs/
+videos/
+video/
+.ipynb_checkpoints
+MUJOCO_LOG.TXT
+.DS_Store
+.venv*/
+.pytest_cache/
+wandb/
+checkpoints/
+
+# Local credentials and environment overrides
+.env
+.env.*
+.netrc
