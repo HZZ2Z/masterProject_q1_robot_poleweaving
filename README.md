@@ -1,6 +1,6 @@
 # Q1 Robot Soccer
 
-启元 PrimeBot Q1 V3 踢球训练与回放，基于 humanoid-kick 适配，使用 MuJoCo Warp、PyTorch、PPO + AMP，无需 Isaac Gym。
+启元 PrimeBot Q1 V3 踢球训练与回放，使用 MuJoCo Warp、PyTorch、PPO + AMP，无需 Isaac Gym。
 
 ## Quick Start
 
