@@ -53,7 +53,7 @@ def task_layout(env):
     model_indices = (list(range(172, 308)) + list(range(368, friction_start))
                      + [friction_start, friction_start + 3*e.model.geom('soccer_ball').id]
                      + list(range(body_context_start, body_context_start + 6*e.model.nbody)))
-    layout = dict(model_feature_indices=model_indices, context_end=context_end,
+    layout = dict(model_feature_indices=model_indices, context_end=context_end, policy_absolute_joints=True,
                               foot_kinematics=dict(urdf=e.cfg['asset']['file'], dof_names=e.dof_names,
                                                    frames=e.cfg['asset']['foot_names']),
                               football_feedback={key:e.cfg['rewards'][key] for key in (
@@ -166,7 +166,7 @@ def main():
     cfg['history_dim'] = env.history_dim
     cfg['task_layout'] = task_layout(env)
     cfg['checkpoint_schema'] = 7
-    cfg['survival_statistic'] = 'equal_world_latest_completed_trial'
+    cfg['survival_statistic'] = 'independent_noisy_first_episode_cohort'
     try:
         cfg['code_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         cfg['code_dirty'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode != 0
@@ -248,9 +248,15 @@ def main():
         nonlocal state, latest_rollout
         totals = dict(control_reward=0., episodes=0., falls=0., successes=0.)
         feedback = None
-        on_policy = []
+        on_policy = None
+        if record_policy:
+            if latest_rollout is None or latest_rollout[0].shape[0] != steps:
+                shapes = ((env.state_dim,), (22,), (env.state_dim,), (), (), ())
+                latest_rollout = tuple(torch.empty((steps,cfg['num_envs'],*shape),device=cfg['device'])
+                                       for shape in shapes)
+            on_policy = latest_rollout
         with torch.no_grad():
-            for _ in range(steps):
+            for step_index in range(steps):
                 noise = cfg['exploration_std'] + cfg.get('exploration_progress_scale', .03) * env.env.soccer_progress
                 mean = agent.actor(agent.policy_observation(agent.normalize(state)))
                 latent = mean + noise / agent.action_limit * torch.randn(
@@ -259,7 +265,8 @@ def main():
                 following, target, reward, info = env.step(action)
                 replay.add(state, action, target, reward, info['done'], info['fall'])
                 if record_policy:
-                    on_policy.append((state, action, target, reward, info['done'].float(), info['terminated'].float()))
+                    for buffer,value in zip(on_policy,(state,action,target,reward,info['done'],info['terminated'])):
+                        buffer[step_index].copy_(value)
                 state = following
                 values = torch.stack(list(info['metrics'].values()))
                 feedback = values if feedback is None else feedback + values
@@ -271,8 +278,6 @@ def main():
                 totals['successes'] += info['success'].sum().item()
         totals.update(dict(zip(info['metrics'], (feedback / steps).cpu().tolist())))
         totals.update(env.episode_metrics.drain(env.env.dt))
-        if record_policy:
-            latest_rollout = tuple(torch.stack([transition[i] for transition in on_policy], 0) for i in range(6))
         return totals
 
     try:
@@ -288,9 +293,11 @@ def main():
         if checkpoint and checkpoint.get('safety'):
             gate.load_state_dict(checkpoint['safety'])
         agent.safety_gate = gate
+        env.env.survival_rate_5s = gate.noisy_best['survival_5s']
         print('Real-physics neutral baseline: ' + json.dumps(gate.baseline), flush=True)
         if args.migrate_curriculum and not args.smoke:
             initial_evaluation = gate.check(agent, 0. if env.env.balance_phase else 1.)
+            env.env.survival_rate_5s = initial_evaluation['evaluation/exploratory_survival_5s']
             print('Migrated policy evaluation: ' + json.dumps(initial_evaluation), flush=True)
             save_checkpoint(output / f'checkpoint_{start}.pt', agent, env, cfg, start)
             (output / 'last.pt').symlink_to(f'checkpoint_{start}.pt')
@@ -343,6 +350,7 @@ def main():
             evaluation = {}
             if iteration % cfg.get('evaluation_interval', 50) == 0 or iteration == cfg['iterations']:
                 evaluation = gate.check(agent, 0. if env.env.balance_phase else 1.)
+                env.env.survival_rate_5s = evaluation['evaluation/exploratory_survival_5s']
                 print('Real-physics policy check: ' + json.dumps(evaluation), flush=True)
                 if evaluation['evaluation/policy_accepted']:
                     last_retained = iteration

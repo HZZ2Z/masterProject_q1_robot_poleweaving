@@ -23,8 +23,8 @@ def test_history_advances_once_and_does_not_cross_resets():
     _, terminal, _, info = wrapper.step(torch.zeros(2, 22))
     assert info['done'][0]
     torch.testing.assert_close(wrapper.history[1, :-1], before[1, 1:])
-    torch.testing.assert_close(wrapper.history[0], wrapper.env.obs_buf[0].expand(4, -1))
-    torch.testing.assert_close(terminal[0, -wrapper.history_dim:].reshape(4, -1)[:-1], before[0, 1:])
+    torch.testing.assert_close(wrapper.history[0], wrapper.env.obs_buf[0].expand(wrapper.history.shape[1], -1))
+    torch.testing.assert_close(terminal[0, -wrapper.history_dim:].reshape(wrapper.history.shape[1], -1)[:-1], before[0, 1:])
 
 
 def test_autoregressive_loss_never_crosses_reset():
@@ -111,7 +111,7 @@ def test_policy_history_contains_no_privileged_state_and_model_shifts_it():
                                agent.policy_observation(agent.normalize(corrupt)))
     following, _, _ = agent.predict(agent.normalize(state), torch.zeros(2, 22))
     raw = following*agent.scale+agent.mean
-    history = raw[:, -wrapper.history_dim:].reshape(2, 4, 79)
+    history = raw[:, -wrapper.history_dim:].reshape(2, wrapper.history.shape[1], 79)
     torch.testing.assert_close(history[:, :-1], wrapper.history[:, 1:])
     torch.testing.assert_close(history[:, -1], raw[:, :79])
 
@@ -295,3 +295,20 @@ def test_camera_geometry_matches_physics_and_visibility_changes_in_rollouts():
         torch.testing.assert_close(projected[:,87],torch.full((4,),visible))
         if not visible:
             torch.testing.assert_close(projected[:,6:8],torch.zeros(4,2))
+
+
+def test_policy_uses_encoder_angles_and_visual_history_without_true_ball_state():
+    from train import task_layout
+    w = load_environment('cpu',8)
+    agent = SoccerAgent(w.state_dim,width=16,history_dim=w.history_dim)
+    agent.configure_task(task_layout(w))
+    state = w.state()
+    agent.calibrate(state)
+    observation = agent.policy_observation(agent.normalize(state))
+    expected = w.env.obs_buf[:,13:35]/w.cfg['normalization']['dof_pos']+w.env.default_dof_pos
+    torch.testing.assert_close(observation[:,13:35],expected)
+    changed = state.clone()
+    changed[:,79:368] += 10  # All privileged ball, pose, velocity and camera queue data.
+    changed[:,390:-w.history_dim] += 10  # Physical parameters and curriculum labels.
+    torch.testing.assert_close(agent.policy_observation(agent.normalize(changed)),observation)
+    assert w.history.shape[1] == w.cfg['runner']['num_stack'] == 50

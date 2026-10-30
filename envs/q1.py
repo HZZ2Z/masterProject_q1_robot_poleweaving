@@ -139,7 +139,6 @@ class Q1(T1):
             for group, count in enumerate(counts):
                 self.reset_group[shuffled[start:start + count]] = group
                 start += count
-        self._survival_checked = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.near_ball_idle_s = torch.zeros(self.num_envs, device=self.device)
         self.near_ball_active = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.far_ball_idle_s = torch.zeros_like(self.near_ball_idle_s)
@@ -150,12 +149,37 @@ class Q1(T1):
         self.approach_anchor_ball = torch.zeros_like(self.approach_anchor_base)
         self.amp_reward_multiplier = torch.ones_like(self.near_ball_idle_s)
         self.near_start_episode = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        neutral_fk = ResetKinematics(cfg['asset']['file'], self.dof_names, cfg['asset']['foot_names'], self.device)
-        neutral = neutral_fk(self.default_dof_pos)
-        self.neutral_feet_pos = torch.stack([neutral[n][0] for n in cfg['asset']['foot_names']], dim=1)
-        self.neutral_feet_quat = torch.stack([neutral[n][1] for n in cfg['asset']['foot_names']], dim=1)
-        self._survival_latest_pass = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        self._survival_seen = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.near_reset_pitch = torch.zeros(self.num_envs, device=self.device)
+        self.near_reset_height = torch.full((self.num_envs,), cfg['init_state']['pos'][2], device=self.device)
+        stance = cfg.get('curriculum', {}).get('near_start', {}).get('visible_stance')
+        near = self.reset_group == 2
+        if stance and self._mixed_resets():
+            defaults = cfg['init_state']['default_joint_angles']
+            for name, angle in stance['joint_angles'].items():
+                index = self.dof_names.index(name)
+                # Keep the same calibration-offset randomization as other groups.
+                offset = self.default_dof_pos[:,index]-defaults.get(name,defaults['default'])
+                self.default_dof_pos[near,index] = angle+offset[near]
+            self.near_reset_pitch[near] = stance['root_pitch']
+        reset_fk = ResetKinematics(cfg['asset']['file'], self.dof_names, cfg['asset']['foot_names'], self.device)
+        feet = reset_fk(self.default_dof_pos)
+        positions = torch.stack([feet[n][0] for n in cfg['asset']['foot_names']],dim=1)
+        rotations = torch.stack([feet[n][1] for n in cfg['asset']['foot_names']],dim=1)
+        pitch_quat = quat_from_euler_xyz(torch.zeros_like(self.near_reset_pitch), self.near_reset_pitch,
+                                        torch.zeros_like(self.near_reset_pitch))
+        pitched = pitch_quat[:,None].expand(-1,2,-1).reshape(-1,4)
+        self.reset_feet_pos = quat_rotate(pitched,positions.reshape(-1,3)).reshape(self.num_envs,2,3)
+        self.reset_feet_quat = quat_mul(pitched,rotations.reshape(-1,4)).reshape(self.num_envs,2,4)
+        if stance and self._mixed_resets():
+            import itertools
+            low, high = self._tensor(cfg['asset']['foot_collision_bounds'])
+            corners = torch.stack([torch.stack([high[i] if side[i] else low[i] for i in range(3)])
+                                   for side in itertools.product((0,1),repeat=3)])
+            rotated = quat_rotate(self.reset_feet_quat[:,:,None].expand(-1,-1,8,-1).reshape(-1,4),
+                                  corners.expand(self.num_envs,2,-1,-1).reshape(-1,3)).reshape(self.num_envs,2,8,3)
+            lowest = (rotated+self.reset_feet_pos[:,:,None])[:,:,:,2].amin((1,2))
+            self.near_reset_height[near] = -lowest[near]+.001
+        # Supplied by independent first-episode evaluation, never reset-frequency statistics.
         self.survival_rate_5s = 0.
         self._prepare_reward_function()
         self.motion_sampler = Motion(cfg, self.device)
@@ -272,7 +296,6 @@ class Q1(T1):
         self.last_actions[env_ids] = 0
         self.last_dof_targets[env_ids] = self.dof_pos[env_ids]
         self.episode_length_buf[env_ids] = 0
-        self._survival_checked[env_ids] = False
         self.near_ball_idle_s[env_ids] = 0
         self.near_ball_active[env_ids] = False
         self.far_ball_idle_s[env_ids] = 0
@@ -358,7 +381,7 @@ class Q1(T1):
         self._full_start_trial_mass = state.get('full_trial_mass', 0.)
 
     def _reset_near_start(self, ids):
-        """Neutral, collision-free last-step practice, mixed with full-field resets."""
+        """Stable, camera-visible last-step practice with the fixed reset mixture."""
         if self._mixed_resets():
             self.near_start_episode[ids] = self.reset_group[ids] == 2
         else:
@@ -375,12 +398,12 @@ class Q1(T1):
         yaw = torch.atan2(target[:, 1], target[:, 0]) + (torch.rand(count, device=self.device) * 2 - 1) * np.deg2rad(spread)
         quat = quat_from_euler_xyz(torch.zeros_like(yaw), torch.zeros_like(yaw), yaw)
         foot = torch.randint(2, (count,), device=self.device)
-        foot_offset = quat_rotate(quat, self.neutral_feet_pos[selected, foot])
-        foot_quat = quat_mul(quat, self.neutral_feet_quat[selected, foot])
+        foot_offset = quat_rotate(quat, self.reset_feet_pos[selected, foot])
+        foot_quat = quat_mul(quat, self.reset_feet_quat[selected, foot])
         low_gap, high_gap = cfg['gap_range']
         high_gap += progress * (cfg['final_gap_max'] - high_gap)
         gap = low_gap + torch.rand(count, device=self.device) * (high_gap - low_gap)
-        height = self.cfg['init_state']['pos'][2]
+        height = self.near_reset_height[selected]
         top = self.cfg['asset']['foot_collision_bounds'][1]
         vertical = (ball[:, 2] - height - foot_offset[:, 2] - top[2]).clamp_min(0)
         horizontal = ((gap + self.cfg['rewards']['ball_radius']).square() - vertical.square()).clamp_min(0).sqrt()
@@ -396,11 +419,11 @@ class Q1(T1):
             upper = torch.full_like(lower, 1.5)
             bounds_low = self._tensor(self.cfg['asset']['foot_collision_bounds'][0])
             bounds_high = self._tensor(self.cfg['asset']['foot_collision_bounds'][1])
-            feet_q = self.neutral_feet_quat[selected].flatten(0, 1)
+            feet_q = self.reset_feet_quat[selected].flatten(0, 1)
             for _ in range(20):
                 distance = (lower + upper) * .5
                 center = torch.stack((distance, torch.zeros_like(distance), ball[:, 2] - height), -1)
-                relative = center[:, None] - self.neutral_feet_pos[selected]
+                relative = center[:, None] - self.reset_feet_pos[selected]
                 local = quat_rotate_inverse(feet_q, relative.flatten(0, 1)).view(count, 2, 3)
                 closest = local.clamp(min=bounds_low, max=bounds_high)
                 measured = (local - closest).norm(dim=-1).amin(-1) - self.cfg['rewards']['ball_radius']
@@ -410,6 +433,8 @@ class Q1(T1):
             forward = torch.stack((distance, torch.zeros_like(distance), torch.zeros_like(distance)), -1)
             self.qpos[selected, a:a + 2] = ball[:, :2] - quat_rotate(quat, forward)[:, :2]
         self.qpos[selected, a + 2] = height
+        pitch = self.near_reset_pitch[selected]
+        quat = quat_mul(quat,quat_from_euler_xyz(torch.zeros_like(pitch),pitch,torch.zeros_like(pitch)))
         self.qpos[(selected[:, None], [a + 3, a + 4, a + 5, a + 6])] = quat[:, [3, 0, 1, 2]]
         self.qpos[(selected[:, None], self.pos_addrs)] = self.default_dof_pos[selected]
         self.qvel[selected] = 0
@@ -539,20 +564,6 @@ class Q1(T1):
     def _reward_upright(self):
         return self.projected_gravity[:, :2].square().sum(-1)
 
-    def _record_survival_trials(self):
-        reached = self.episode_length_buf * self.dt >= 5
-        resolved = (reached | self.reset_buf) & ~self._survival_checked
-        n = int(resolved.sum())
-        if n:
-            passed = (reached & ~self.extras['fall'].bool()) | self.extras['success'].bool()
-            # One latest completed trial per world. Averaging over past trials
-            # keeps fast early failures around for many 60-second successful
-            # episodes, delaying the curriculum after the policy improves.
-            self._survival_latest_pass[resolved] = passed[resolved]
-            self._survival_seen[resolved] = True
-            self.survival_rate_5s = self._survival_latest_pass[self._survival_seen].float().mean().item()
-            self._survival_checked[resolved] = True
-
     def _reward_base_height(self):
         return (self.base_pos[:, 2] - self.cfg['init_state']['pos'][2]).square()
 
@@ -679,7 +690,6 @@ class Q1(T1):
         self.common_step_counter += 1
         self._check_termination()
         self._record_near_start_trials()
-        self._record_survival_trials()
         if self.reset_buf.any():
             rate = self.extras['success'][self.reset_buf].mean().item()
             self.recent_success_rate = .95 * self.recent_success_rate + .05 * rate

@@ -1,23 +1,24 @@
 {
-  "checked_at": "2026-10-30T10:36:32.887078",
+  "checked_at": "2026-10-30T11:34:33.784076",
   "status": "repair_in_progress_not_stable",
   "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
   "tests": {
-    "passed": 83,
+    "passed": 82,
     "failed": 0
   },
   "current_implementation": [
     "Normalize dynamics by one-step velocity increments",
     "Compact physical critic without noisy history or absolute field translation",
-    "Latest completed five-second trial per world for curriculum",
     "Paired rotating real-physics candidate/incumbent comparison; retain critic learning on actor rejection",
     "Advance exact football feedback from FK: near/far idle timers, hysteresis, stalls and approach anchors; reward uses post-transition feedback",
-    "Predict camera visibility from torso FK and original optical geometry; match detection/measurement noise, delay and post-step face-ball rewards; line search reuses sensor noise"
+    "Predict camera visibility from torso FK and original optical geometry; match detection/measurement noise, delay and post-step face-ball rewards; line search reuses sensor noise",
+    "Near group uses a validated visible stance and zero-action hold; field/disk groups retain original neutral stance",
+    "Actor retains PPO visual constraints and 50-frame history; uses known control references only to reconstruct encoder angles",
+    "Curriculum gate uses independent noisy first-episode evaluation, not reset-frequency or latest-per-world statistics",
+    "Preallocated rollout buffers and chunked critic evaluation bound history memory"
   ],
   "current_run": {
-    "status": "finished without productive kicks",
-    "iteration": 400,
-    "checkpoint": "logs/current_feedback_validation/2026-10-30-10-35-18-988286/checkpoint_400.pt",
+    "status": "preparing fresh bounded training after reset and observation changes",
     "productive_kicking_verified": false
   },
   "historical_failure": {
@@ -48,22 +49,9 @@
     "interpretation": "Balance improvement only; not football acceptance."
   },
   "curriculum_statistics": {
-    "reason": "Current checkpoint 100 achieved 69.14% and 67.58% fresh Warp survival; stale eight-trial per-world history reported only 60.64% by iteration 130. Keep 65% threshold and use latest completed trial per world.",
-    "fresh_warp_results": [
-      {
-        "seed": 42,
-        "count": 256,
-        "first_cohort_survival_5s": 0.69140625,
-        "reset_trial_ema": 0.69140625
-      },
-      {
-        "seed": 710041,
-        "count": 256,
-        "first_cohort_survival_5s": 0.67578125,
-        "reset_trial_ema": 0.67578125
-      }
-    ],
-    "threshold_unchanged": 0.65
+    "statistic": "independent_noisy_first_episode_cohort",
+    "threshold": 0.65,
+    "reason": "Physical parameters are resampled on every reset. Latest-per-world outcomes still carry episode-length selection bias; training reset statistics no longer control release."
   },
   "football_context_audit": {
     "uses_exact_next_physical_state": true,
@@ -227,8 +215,7 @@
   },
   "limits": [
     "No productive kicking or success-rate improvement has been demonstrated.",
-    "This is a football adaptation, without AMP; not a full upstream tracking trainer or paper reproduction.",
-    "Near neutral starts are almost always outside the camera frustum; safe visible posture remains unverified."
+    "This is a football adaptation, without AMP; not a full upstream tracking trainer or paper reproduction."
   ],
   "historical_evidence": {
     "git_commit": "16d1960c25dd491ccca1b14e662582cb36c8a5ea",
@@ -321,5 +308,79 @@
       }
     ],
     "scope": "Constant-pose hold only. Not yet integrated into reset/control pipeline and not a kicking-policy result."
+  },
+  "integrated_reset_audit": {
+    "backend": "MuJoCo Warp",
+    "noise_std": 0.025,
+    "results": [
+      {
+        "seed": 2210053,
+        "num_envs": 256,
+        "group_counts": [
+          64,
+          64,
+          128
+        ],
+        "near_initial_gap_range": [
+          0.10235842317342758,
+          0.24969536066055298
+        ],
+        "near_initial_geometry_visible": 1.0,
+        "first_episode_survival_12s_by_group": [
+          0.46875,
+          0.53125,
+          0.9375
+        ],
+        "near_visible_fraction": 0.8502075672149658,
+        "history": {
+          "4": {
+            "ball_estimate_error_m": 0.18175005452199416,
+            "coverage": 0.9920935177543418
+          },
+          "50": {
+            "ball_estimate_error_m": 0.05473876950415698,
+            "coverage": 0.9981851179673321
+          }
+        }
+      },
+      {
+        "seed": 2310067,
+        "num_envs": 256,
+        "group_counts": [
+          64,
+          64,
+          128
+        ],
+        "near_initial_gap_range": [
+          0.10226654261350632,
+          0.2499222457408905
+        ],
+        "near_initial_geometry_visible": 1.0,
+        "first_episode_survival_12s_by_group": [
+          0.59375,
+          0.484375,
+          0.9375
+        ],
+        "near_visible_fraction": 0.8442701101303101,
+        "history": {
+          "4": {
+            "ball_estimate_error_m": 0.1803294285048138,
+            "coverage": 0.9921832453533872
+          },
+          "50": {
+            "ball_estimate_error_m": 0.05527192204513333,
+            "coverage": 0.9981851179673321
+          }
+        }
+      }
+    ]
+  },
+  "memory_check": {
+    "num_envs": 1024,
+    "iterations": 2,
+    "peak_torch_allocated_gib": 7.74086,
+    "peak_torch_reserved_gib": 8.171875,
+    "run": "logs/current_memory_check/2026-10-30-11-24-22-816422",
+    "includes_native_policy_evaluation": true
   }
 }

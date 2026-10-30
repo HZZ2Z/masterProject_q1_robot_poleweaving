@@ -28,7 +28,7 @@ class SoccerEnvironment:
         self.env.transition_callback = self._capture
         self.env.set_training_iteration(0)
         self.env.reset()
-        self.history = self.env.obs_buf[:, None].repeat(1, 4, 1)
+        self.history = self.env.obs_buf[:, None].repeat(1, self.cfg['runner']['num_stack'], 1)
         self.history_dim = self.history.shape[1] * self.history.shape[2]
         self.observation_dim = self.env.num_obs
         self.state_dim = self.state().shape[-1]
@@ -44,7 +44,7 @@ class SoccerEnvironment:
     def state(self):
         e = self.env
         # Privileged dynamics inputs include actual ball/root state and delayed
-        # PD targets. The actor receives only observations and the appended observation history.
+        # PD targets. The actor uses observations/history plus the known control neutral pose to reconstruct encoder angles.
         return torch.cat((e.obs_buf, e.critic_obs_buf, e.qpos, e.qvel,
                           e.last_dof_targets, e.pd_kp / 80, e.pd_kd / 3,
                           e.delay_steps[:, None].float() / 10,

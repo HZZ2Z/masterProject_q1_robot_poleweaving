@@ -39,7 +39,7 @@ def evaluate_actor(agent, progress=0., count=32, steps=300, seed=104729, zero=Fa
             if zero:
                 action = torch.zeros(count, 22)
             else:
-                obs = agent.policy_observation(((state-mean)/scale).clamp(-20,20))
+                obs = agent.policy_observation(((state-mean)/scale).clamp(-20,20), mean=mean, scale=scale)
                 action = limit * actor(obs).tanh()
             if noise_std:
                 latent = torch.atanh((action/limit).clamp(-.999999, .999999))
@@ -197,7 +197,7 @@ def sample_action_pairs(agent, count=32, seed=1000003, prefix_steps=20, amplitud
     direction /= direction.norm(dim=-1, keepdim=True).clamp_min(1e-6)
     targets, actions, initials = [], [], []
     def act(state):
-        return float(agent.action_limit)*actor(agent.policy_observation(((state-mean)/scale).clamp(-20,20))).tanh()
+        return float(agent.action_limit)*actor(agent.policy_observation(((state-mean)/scale).clamp(-20,20), mean=mean, scale=scale)).tanh()
     with torch.random.fork_rng(devices=[]):
         for sign in (-1., 1.):
             torch.random.default_generator.manual_seed(seed)

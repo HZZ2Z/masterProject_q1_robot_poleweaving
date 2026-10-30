@@ -35,11 +35,11 @@
         "local W&B/save destination"
       ],
       "local_sha256": {
-        "envs/q1.py": "3799557f1a4f662f9f7957d02e1f0b3608e3c4e1da2fdb57f63e8595c3f3c1b8",
-        "envs/Q1.yaml": "1938d2bc38aa760dee35634b5b6243affe8ad7aa2937182c41df289c555dd991",
-        "q1_supermimic/environment.py": "9639515de605d46fa25fa1aa3593b55da319c7a31de57fdd066cb7a98ca50a0d",
-        "q1_supermimic/learning.py": "55864921cd0b0850faa1065c42e0b60eb33a930f66e342fbc740c282bb936655",
-        "train.py": "037ec5e6ff1024d464b03727903a0311a8f017b30f9576f68a42831427d19286",
+        "envs/q1.py": "0e844a7847b071512d6e3a8f3c4e113948115810af8ed2f175e8115c363eedf2",
+        "envs/Q1.yaml": "c88682f8285e06ca70e034a23fb8c099a1a42df7ec3fc63d6f1f474f6195037d",
+        "q1_supermimic/environment.py": "5a88d495084d3eebf12959a228303f8d990b3a1ea4a163e18bac4991d6d26a5e",
+        "q1_supermimic/learning.py": "79488b0abfbd4ae9bbf1847b826b2bbd4b7c03c93fd131c2409b23e1056ef6b3",
+        "train.py": "d7126c260e4e7434061d591d4c39fd839dfdbe2f520647e5606ec0075cd10965",
         "play.py": "6fd56a4e0135c8a10af76033e9243f99566121cc9be6c137a3ebe97a7de4d5a1",
         "utils/kinematics.py": "5cd088228d16d124d300820bdd173a56001a2705991b3e27f608a0436189d24c"
       }
@@ -60,19 +60,22 @@
   ],
   "corrected_learning": {
     "date": "2026-10-30",
-    "method": "Increment-normalized physical dynamics; compact real-GAE critic; model actor with paired rotating real-physics acceptance",
+    "method": "Physical model actor with matched camera observations, compact real-GAE critic, visible reset stances and independent noisy-cohort curriculum gate",
     "files": {
-      "train.py": "037ec5e6ff1024d464b03727903a0311a8f017b30f9576f68a42831427d19286",
-      "q1_supermimic/learning.py": "55864921cd0b0850faa1065c42e0b60eb33a930f66e342fbc740c282bb936655",
-      "q1_supermimic/safety.py": "90232c86dc73ac73a25cda15aeb246a9b1985bf56c80315494074f5fe670849f",
-      "configs/soccer.yaml": "b47e3f9bfc8d4171751c234bf709318adf96c2616b820698814fd189b67bdf92",
-      "utils/kinematics.py": "5cd088228d16d124d300820bdd173a56001a2705991b3e27f608a0436189d24c"
+      "train.py": "d7126c260e4e7434061d591d4c39fd839dfdbe2f520647e5606ec0075cd10965",
+      "q1_supermimic/learning.py": "79488b0abfbd4ae9bbf1847b826b2bbd4b7c03c93fd131c2409b23e1056ef6b3",
+      "q1_supermimic/safety.py": "93710975268ac7114f214d3ebbd8f40f481b833ae457140f70a8835ea49948bd",
+      "configs/soccer.yaml": "c7630e6cb96045222cc0c1fd42179f5a740fd325edaee0dfefca73476ba4e7c3",
+      "utils/kinematics.py": "5cd088228d16d124d300820bdd173a56001a2705991b3e27f608a0436189d24c",
+      "q1_supermimic/environment.py": "5a88d495084d3eebf12959a228303f8d990b3a1ea4a163e18bac4991d6d26a5e",
+      "envs/q1.py": "0e844a7847b071512d6e3a8f3c4e113948115810af8ed2f175e8115c363eedf2",
+      "envs/Q1.yaml": "c88682f8285e06ca70e034a23fb8c099a1a42df7ec3fc63d6f1f474f6195037d"
     },
     "adaptation_limits": [
       "Not a full upstream tracking trainer or paper reproduction",
       "No AMP discriminator"
     ],
-    "runtime_status": "Bounded run finished at 400 with no productive kicks; camera and gaze objective corrected, visible safe-start poses under investigation.",
+    "runtime_status": "Visible near starts and 50-frame visual history integrated and checked; fresh football learning pending. No productive kicking claim.",
     "mainline": "single current implementation, under repair"
   }
 }

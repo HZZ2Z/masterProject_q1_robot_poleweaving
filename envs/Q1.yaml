@@ -488,6 +488,16 @@ curriculum:
     initial_fraction: 0.5
     final_fraction: 0.50
     gap_range: [0.10, 0.25]
+    # Stable camera-visible stance, validated under randomized physics and noise.
+    visible_stance:
+      root_pitch: 0.45
+      joint_angles:
+        left_hip_pitch_joint: -1.05
+        right_hip_pitch_joint: -1.05
+        left_knee_joint: 0.9
+        right_knee_joint: 0.9
+        left_ankle_pitch_joint: -0.3
+        right_ankle_pitch_joint: -0.3
     final_gap_max: 0.25
     yaw_error_degrees: 0.0
     final_yaw_error_degrees: 0.0
@@ -497,7 +507,7 @@ curriculum:
     adjust_interval_iterations: 100
     progress_step: 0.1
   policy_bootstrap_version: 1
-  balance_until_iteration: 100
+  balance_until_iteration: 0
   soccer_transition_iterations: 500
   release_active_5s_fraction: 0.65
   near_first_until_progress: 0.35

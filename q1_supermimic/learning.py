@@ -98,9 +98,25 @@ class SoccerAgent(nn.Module):
     def normalize(self, state):
         return ((state - self.mean) / self.scale).clamp(-20, 20)
 
-    def policy_observation(self, normalized):
+    def policy_observation(self, normalized, mean=None, scale=None):
+        mean = self.mean if mean is None else mean
+        scale = self.scale if scale is None else scale
         obs = normalized[..., :self.obs_dim]
-        return torch.cat((obs, normalized[..., -self.history_dim:]), -1) if self.history_dim else obs
+        history = normalized[..., -self.history_dim:] if self.history_dim else None
+        if self.layout and self.layout.get('policy_absolute_joints'):
+            # Encoder angles plus the known commanded neutral pose, never ball
+            # ground truth. Absolute proprioception distinguishes reset stances.
+            defaults = normalized[...,368:390]*scale[368:390]+mean[368:390]
+            factor = self.layout['normalization']['dof_pos']
+            obs = obs.clone()
+            obs[...,13:35] = (normalized[...,13:35]*scale[13:35]+mean[13:35])/factor+defaults
+            if history is not None:
+                raw = history*scale[-self.history_dim:]+mean[-self.history_dim:]
+                raw = raw.reshape(*raw.shape[:-1],-1,self.obs_dim)
+                history = history.clone().reshape_as(raw)
+                history[...,13:35] = raw[...,13:35]/factor+defaults.unsqueeze(-2)
+                history = history.flatten(-2)
+        return torch.cat((obs,history),-1) if history is not None else obs
 
     def act(self, state):
         return self.action_limit * self.actor(self.policy_observation(self.normalize(state))).tanh()
@@ -443,12 +459,15 @@ class SoccerAgent(nn.Module):
     def fit_real_values(self, rollout, gamma=.995, lam=.98, epochs=4):
         states, _, targets, rewards, dones, terminated = rollout
         with torch.no_grad():
-            flat = self.normalize(states.flatten(0, 1))
-            values = self.value(flat).squeeze(-1).reshape(rewards.shape)
-            next_values = self.value(self.normalize(targets.flatten(0, 1))).squeeze(-1).reshape(rewards.shape)
+            flat = states.flatten(0,1)
+            # Long visual histories need not be normalized in one giant tensor.
+            values = torch.cat([self.value(self.normalize(part)).squeeze(-1)
+                                for part in flat.split(2048)]).reshape(rewards.shape)
+            next_values = torch.cat([self.value(self.normalize(part)).squeeze(-1)
+                                     for part in targets.flatten(0,1).split(2048)]).reshape(rewards.shape)
             _, returns = real_gae(rewards * .1, values, next_values, dones, terminated, gamma, lam)
             ids = torch.randperm(len(flat), device=flat.device)[:8192]
-            x, target = flat[ids], returns.flatten()[ids]
+            x, target = self.normalize(flat[ids]), returns.flatten()[ids]
             before = (self.value(x).squeeze(-1) - target).square().mean()
         losses = []
         for _ in range(epochs):

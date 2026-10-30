@@ -348,25 +348,6 @@ def test_simultaneous_goal_and_fall_is_not_a_success_or_timeout(cfg):
     assert not env.time_out_buf.any()
 
 
-def test_five_second_cohort_counts_failures_and_does_not_double_count(cfg):
-    env = Q1(cfg)
-    env.reset()
-    env.reset_buf[:] = False
-    env.reset_buf[0] = True
-    env.episode_length_buf[:] = torch.tensor([10, 250, 20, 250])
-    env.extras['fall'] = torch.tensor([1., 0., 0., 0.])
-    env.extras['success'] = torch.zeros(4)
-    env._record_survival_trials()
-    assert env.survival_rate_5s == pytest.approx(2 / 3)
-    before = env._survival_seen.clone()
-    env._record_survival_trials()
-    torch.testing.assert_close(env._survival_seen, before)
-    env.cfg['curriculum'] = {'balance_until_iteration': 0, 'release_active_5s_fraction': .8,
-                             'use_cohort_gate': True}
-    env.episode_length_buf[:] = 300
-    env.set_training_iteration(1)
-    assert env.balance_phase  # Long-lived survivors cannot hide failed reset trials.
-
 
 def test_curriculum_observes_a_window_before_changing_difficulty(cfg):
     cfg['curriculum'] = {'balance_until_iteration': 0, 'release_active_5s_fraction': .8,
@@ -691,38 +672,19 @@ def test_near_start_gpu_reset_geometry(cfg):
 
 
 
-def test_survival_curriculum_does_not_overweight_repeatedly_failing_worlds(cfg):
-    env = Q1(cfg); env.reset()
-    env.episode_length_buf[:] = torch.tensor([250,250,10,10])
-    env.reset_buf[:] = torch.tensor([False,False,True,True])
-    env.extras['fall'] = torch.tensor([0.,0.,1.,1.])
-    env.extras['success'] = torch.zeros(4)
-    env._record_survival_trials()
-    assert env.survival_rate_5s == pytest.approx(.5)
-    for _ in range(20):
-        env._survival_checked[2:] = False
-        env._record_survival_trials()
-    assert env.survival_rate_5s == pytest.approx(.5)
 
 
-def test_survival_curriculum_tracks_recovery_without_old_failure_mass(cfg):
+
+def test_training_resets_cannot_change_independent_curriculum_evaluation(cfg):
+    cfg['curriculum'].update(balance_until_iteration=0,cohort_only_gate=True,release_active_5s_fraction=.65)
     env = Q1(cfg); env.reset()
-    env.episode_length_buf[:] = 10
-    env.reset_buf[:] = True
-    env.extras['fall'] = torch.ones(4)
-    env.extras['success'] = torch.zeros(4)
-    for _ in range(20):
-        env._survival_checked[:] = False
-        env._record_survival_trials()
-    assert env.survival_rate_5s == 0.
-    # Three worlds now survive a complete trial; the fourth still falls.
-    env._survival_checked[:] = False
-    env.episode_length_buf[:3] = 250
-    env.reset_buf[:3] = False
-    env.extras['fall'][:3] = 0.
-    env._record_survival_trials()
-    assert env.survival_rate_5s == pytest.approx(.75)
-    # Continuing the same successful episode is not another trial.
-    env.extras['fall'][:3] = 1.
-    env._record_survival_trials()
-    assert env.survival_rate_5s == pytest.approx(.75)
+    env.survival_rate_5s = .6
+    env.set_training_iteration(1)
+    assert env.balance_phase
+    for _ in range(4):
+        env.qpos[:,env.root_addr+2] = .05
+        env.step(torch.zeros(4,22))
+    assert env.survival_rate_5s == .6
+    env.survival_rate_5s = .75  # Trainer has measured a new independent noisy cohort.
+    env.set_training_iteration(2)
+    assert not env.balance_phase
