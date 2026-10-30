@@ -55,3 +55,16 @@ def test_resume_layout_is_explicit_and_cannot_silently_drop_a_team():
     assert not policy_sharing(SimpleNamespace(policy_sharing=None),{'teams':[{},{}]})
     with pytest.raises(ValueError,match='start without'):
         policy_sharing(SimpleNamespace(policy_sharing='shared'),{'teams':[{},{}]})
+
+
+def test_ppo_uses_participants_at_each_step_before_rally_reset():
+    rollout=GpuRollout(2,1,'cpu',obs_dim=128)
+    rollout.active.zero_();rollout.active[0,0,1]=True;rollout.active[1,0,6]=True
+    for a in range(8):rollout.actions[:,:,a,0]=a
+    samples=[]
+    def update(sample):
+        samples.append(sample)
+        return (*[torch.tensor(0.) for _ in range(5)],torch.ones((len(sample[0]),1)))
+    trainer=SimpleNamespace(value_normalizer=DeviceValueNorm('cpu'),ppo_update=update,clip_param=.2)
+    rollout.update(None,trainer,make_args(1,2,1),active=rollout.active)
+    assert sorted(torch.cat([s[4][:,0] for s in samples]).tolist())==[1.,6.]

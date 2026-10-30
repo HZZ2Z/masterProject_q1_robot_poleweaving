@@ -62,7 +62,7 @@ def test_mixed_low_level_and_football_terminal_masks_and_evidence(env):
         next_obs,records=env.finish_step()
     assert obs.shape==(8,8,128) and state.shape==(8,8,1028)
     assert term.shape==trunc.shape==(8,8)
-    assert len(records)==50  # 6 low-level worlds x 8 robots + 2 football rallies.
+    assert len(records)==52  # 48 low-level samples + 2 rallies x 2 team outcomes.
     assert set(records[:,-1].cpu().tolist())=={0.,2.,3.,23.}
     assert all(torch.isfinite(x).all() for x in (next_obs,reward,terminal))
     assert torch.all(next_obs[:,:,-2]==0)  # Every timeout reset independently.
@@ -92,7 +92,7 @@ def test_reallocation_keeps_budget_and_all_28_courses_share_a_batch():
     for _ in range(4):
         obs,state,reward,term,trunc,_=e.step(torch.zeros((28,8,22),device='cuda:0'))
         _,rows=e.finish_step()
-    assert len(rows)==13*8+15
+    assert len(rows)==13*8+10+5*2
     assert set(rows[:,-1].cpu().tolist())==set(float(i) for i in range(28))
     assert torch.isfinite(reward).all()
     e.check()

@@ -66,6 +66,7 @@ class GpuRollout:
         self.log_probs = zeros(horizon, count, 8, 1)
         self.values = zeros(horizon+1, count, 8, 1)  # unnormalized at collection time
         self.rewards = zeros(horizon, count, 8, 1)
+        self.active = torch.ones((horizon,count,8),device=device,dtype=torch.bool)
         self.masks = torch.ones((horizon, count, 8, 1), device=device)
         self.returns = zeros(horizon, count, 8, 1)
 
@@ -81,7 +82,9 @@ class GpuRollout:
         agents = 8 if shared else 4
         sl = slice(None) if shared else slice(team*4, team*4+4)
         adv = self.returns[:, :, sl]-self.values[:-1, :, sl]
-        valid = torch.ones_like(adv,dtype=torch.bool) if active is None else active[:,sl][None,:,:,None].expand_as(adv)
+        if active is None:valid=torch.ones_like(adv,dtype=torch.bool)
+        elif active.ndim==3:valid=active[:,:,sl,None].expand_as(adv)
+        else:valid=active[:,sl][None,:,:,None].expand_as(adv)
         selected_adv=adv[valid]
         if self.course_ids is not None:
             adv=normalize_by_course(adv,valid,self.course_ids)

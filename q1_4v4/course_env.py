@@ -2,7 +2,7 @@
 import torch
 import warp as wp
 from .warp_env import WarpSoccerEnv
-from .course_config import COURSES, LOW_LEVEL, KICKS, FAMILIES, AMPLITUDE, command, GAIT_COURSES
+from .course_config import COURSES, LOW_LEVEL, KICKS, FAMILIES, AMPLITUDE, command, GAIT_COURSES, CONTESTS
 from . import gait
 
 
@@ -42,6 +42,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.side_kick = torch.zeros_like(self.forward_kick)
         self.contact_at = torch.full_like(self.agent_steps,-1)
         self.progress = torch.zeros(count,device=self.device)
+        self.team_progress = torch.zeros((count,2),device=self.device)
         self.received = torch.zeros(count,device=self.device,dtype=torch.bool)
         self.aligned = torch.zeros(count,device=self.device,dtype=torch.bool)
         self.active = torch.ones((count,8),device=self.device,dtype=torch.bool)
@@ -83,42 +84,90 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.course = stage; self.stage = FAMILIES[stage]
         self.course_amplitude = AMPLITUDE[stage]
         self.active.fill_(True)
-        allowed = {'duel':[2,6], 'attack_2v1':[2,3,6], 'game_2v2':[2,3,6,7],
-                   'pass_receive':[2,3,6,7], 'goalkeeper':[0,4]}.get(stage)
-        if allowed:
-            self.active.zero_(); self.active[:,allowed] = True
+
+    def _participants(self, ids):
+        """One ball drill per world; identities are resampled only at rally reset."""
+        n=len(ids)
+        if self.course in LOW_LEVEL:return
+        if self.course not in CONTESTS:
+            # Randomized balanced identity assignment across a reset batch.
+            p=(torch.arange(n,device=self.device)+torch.randint(8,(),device=self.device,generator=self.generator))%8
+            p=(p%2)*4+p//2  # interleave teams even for small world batches
+            p=p[torch.randperm(n,device=self.device,generator=self.generator)]
+            if self.course=='goalkeeper':p=(p//4)*4
+            self.practice[ids]=p
+        p=self.practice[ids];team=p//4
+        mask=torch.zeros((n,8),device=self.device,dtype=torch.bool)
+        rows=torch.arange(n,device=self.device)
+        if self.course in ('teamplay','match'):mask.fill_(True)
+        elif self.course in ('duel','attack_2v1','game_2v2'):
+            mask[:,[2,6]]=True
+            if self.course=='attack_2v1':mask[rows,team*4+3]=True
+            if self.course=='game_2v2':mask[:,[3,7]]=True
+        else:
+            mask[rows,p]=True
+            if self.course=='pass_receive':mask[rows,team*4+(p%4+1)%4]=True
+        self.active[ids]=mask
+        # Park unused bodies outside the playable region; their falls cannot end a drill.
+        w,a=(~mask).nonzero(as_tuple=True);world=ids[w]
+        self.qpos[world,self.rootq[a]]=0.
+        self.qpos[world,self.rootq[a]+1]=7.+a.float()*.7
+        self.qvel[world[:,None],self.rootv[a,None]+torch.arange(6,device=self.device)]=0
+        self.qvel[world[:,None],self.vidx[a]]=0
 
     def reset(self, ids=None):
         result = super().reset(ids)
         if not self.ready: return result
         ids = self.rows if ids is None else ids
+        self._participants(ids)
+        self.team_progress[ids]=0
         self.agent_steps[ids] = 0; self.ever_feet[ids] = False; self.contact_at[ids] = -1
         self.forward_total[ids] = 0; self.side_total[ids] = 0; self.control_steps[ids] = 0; self.hold_steps[ids] = 0
         self.progress[ids] = 0; self.received[ids] = False; self.aligned[ids] = False
         self.heading[ids] = torch.where(self.sign>0,0.,torch.pi)
         self._targets(ids)
-        if self.course in KICKS or self.course in ('align','dribble','pass_receive'):
-            p = self.practice[ids]; sign = self.sign[p]
-            self.qpos[ids,self.ballq] = sign*2.
-            self.qpos[ids,self.ballq+1] = 0
-            self.qpos[ids,self.rootq[p]] = sign*(2.-(.8 if self.course == 'align' else .32))
-            self.qpos[ids,self.rootq[p]+1] = -.10 if self.course.endswith('left') else .10
+        p=self.practice[ids];sign=self.sign[p];n=len(ids)
+        if self.course in CONTESTS:
+            # Symmetric midfield kickoff; the sampled reporting identity has no spawn advantage.
+            formation=self.tensor([[-5.8,0],[-3.8,0],[-1.8,-1.5],[-1.8,1.5]]).repeat(2,1)*self.sign[:,None]
+            positions=formation[None]+self.uniform((n,8,2),-.08,.08)
+            w,a=self.active[ids].nonzero(as_tuple=True)
+            self.qpos[ids[w],self.rootq[a]]=positions[w,a,0]
+            self.qpos[ids[w],self.rootq[a]+1]=positions[w,a,1]
+            self.qpos[ids,self.ballq:self.ballq+2]=self.uniform((n,2),-.2,.2)
+        elif self.course=='goalkeeper':
+            self.qpos[ids,self.ballq]=-sign*self.uniform((n,),2.8,4.5)
+            self.qpos[ids,self.ballq+1]=self.uniform((n,),-.8,.8)
+            speed=self.uniform((n,),1.,2.5)
+            self.qvel[ids,self.ballv]=-sign*speed
+            target_y=self.uniform((n,),-.9,.9)
+            flight=(6.-self.qpos[ids,self.ballq].abs())/speed
+            self.qvel[ids,self.ballv+1]=(target_y-self.qpos[ids,self.ballq+1])/flight
+            self.qpos[ids,self.rootq[p]]=-sign*self.uniform((n,),5.6,6.)
+            self.qpos[ids,self.rootq[p]+1]=self.uniform((n,),-.25,.25)
+        elif self.course not in LOW_LEVEL:
+            ball_xy=torch.stack((self.uniform((n,),-3.5,3.5),self.uniform((n,),-2.3,2.3)),-1)
+            self.qpos[ids,self.ballq:self.ballq+2]=ball_xy
+            distance=self.uniform((n,),.8,1.3) if self.course=='approach' else self.uniform((n,),.65,.95) if self.course=='align' else self.uniform((n,),.29,.36)
+            foot_offset=-.1 if self.course.endswith('left') else .1
+            if self.course.startswith('side_'):foot_offset=-foot_offset
+            lateral=sign*(self.uniform((n,),-.12,.12) if self.course in ('approach','align') else self.uniform((n,),-.02,.02)+foot_offset)
+            self.qpos[ids,self.rootq[p]]=ball_xy[:,0]-sign*distance
+            self.qpos[ids,self.rootq[p]+1]=ball_xy[:,1]+lateral
+            yaw=torch.where(p<4,0.,torch.pi)
             if self.course.startswith('side_'):
-                yaw = torch.where(p<4,0.,torch.pi) + (torch.pi/2 if self.course=='side_left' else -torch.pi/2)
-                self.qpos[ids,self.rootq[p]+3] = torch.cos(yaw/2)
-                self.qpos[ids,self.rootq[p]+6] = torch.sin(yaw/2)
-            if self.course == 'align':
-                yaw = torch.where(p<4,0.,torch.pi)+self.uniform((len(ids),),-.9,.9)
-                self.qpos[ids,self.rootq[p]+3] = torch.cos(yaw/2);self.qpos[ids,self.rootq[p]+6] = torch.sin(yaw/2)
-        if self.course == 'pass_receive':
-            receiver = self.practice[ids]+1
-            self.qpos[ids,self.rootq[receiver]] = self.ball[ids,0]+self.sign[receiver]*2
-            self.qpos[ids,self.rootq[receiver]+1] = .6
-        if self.course == 'goalkeeper':
-            sign = torch.where(self.practice[ids]<4,1.,-1.)
-            self.qpos[ids,self.ballq] = -sign*3.5
-            self.qpos[ids,self.ballq+1] = self.uniform((len(ids),),-.8,.8)
-            self.qvel[ids,self.ballv] = -sign*self.uniform((len(ids),),1.,2.)
+                yaw+=-torch.pi/2 if self.course=='side_left' else torch.pi/2
+            spread=.6 if self.course=='approach' else .9 if self.course=='align' else .08
+            yaw+=self.uniform((n,),-spread,spread)
+            self.qpos[ids,self.rootq[p]+3]=torch.cos(yaw/2)
+            self.qpos[ids,self.rootq[p]+6]=torch.sin(yaw/2)
+            if self.course=='pass_receive':
+                receiver=(p//4)*4+(p%4+1)%4
+                self.qpos[ids,self.rootq[receiver]]=ball_xy[:,0]+sign*self.uniform((n,),1.5,2.5)
+                self.qpos[ids,self.rootq[receiver]+1]=ball_xy[:,1]+self.uniform((n,),-.7,.7)
+                receiver_yaw=torch.where(p<4,torch.pi,0.)+self.uniform((n,),-.2,.2)
+                self.qpos[ids,self.rootq[receiver]+3]=torch.cos(receiver_yaw/2)
+                self.qpos[ids,self.rootq[receiver]+6]=torch.sin(receiver_yaw/2)
         self.start_ball[ids] = self.ball[ids]
         self.start_positions[ids] = self.qpos[ids][:,self.rootq[:,None]+torch.arange(3,device=self.device)]
         self.foot_hits[ids] = 0
@@ -262,7 +311,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         selected=0 if self.course.endswith('left') else 1
         designated=self.ever_feet[self.rows,p,selected]
         recover=practice_contact&((self.agent_steps[self.rows,p]-self.contact_at[self.rows,p])*self.dt>=1.5)&~fallen[self.rows,p]
-        receiver=p+1
+        receiver=(p//4)*4+(p%4+1)%4
         receiver_dist=norm(self.ball[:,:2]-pos[self.rows,receiver,:2])
         receiver_touch=self.ever_feet[self.rows,receiver].any(-1)
         self.received |= self.foot_hits[self.rows,receiver].any(-1)&practice_contact&(
@@ -281,7 +330,11 @@ class CourseWarpEnv(WarpSoccerEnv):
             designated &= self.side_total[self.rows,p,selected] > self.forward_total[self.rows,p,selected]
         elif self.course in ('kick_left','kick_right'):
             designated &= self.forward_total[self.rows,p,selected] > self.side_total[self.rows,p,selected]
-        touched_goal=(base['goal']!=0)&self.ever_feet.any(dim=(1,2))
+        team_touch=(self.ever_feet.any(-1)&self.active).reshape(self.count,2,4).any(-1)
+        team_delta=(self.ball[:,0]-self.start_ball[:,0])[:,None]*self.tensor([1.,-1.])
+        self.team_progress=torch.maximum(self.team_progress,torch.where(team_touch,team_delta,0.))
+        scoring=(base['goal'][:,None]*self.tensor([1.,-1.])>0)&team_touch
+        touched_goal=(base['goal']!=0)&team_touch.any(-1)
         if self.course=='goalkeeper':
             keeper=torch.where(p<4,0,4)
             objective=self.ever_feet[self.rows,keeper].any(-1)&(base['goal']==0)&(self.ball[:,0].abs()<6.9)
@@ -292,10 +345,7 @@ class CourseWarpEnv(WarpSoccerEnv):
                 'side_left':designated&(self.progress>=.3),'side_right':designated&(self.progress>=.3),
                 'kick_recover':(self.progress>=.3)&recover&(self.gait_landings[self.rows,p].sum(-1)>=2),
                 'dribble':(self.progress>=1.5)&(self.control_steps*self.dt>=2.),
-                'pass_receive':self.received&(self.control_steps>=25),
-                'duel':touched_goal,'attack_2v1':touched_goal,'game_2v2':touched_goal,
-                'teamplay':touched_goal|((self.progress>=1.)&((self.ever_feet.any(-1)&(torch.arange(8,device=self.device)[None]//4==p[:,None]//4)).sum(-1)>=2)),
-                'match':touched_goal}.get(self.course,torch.zeros(self.count,device=self.device,dtype=torch.bool))
+                'pass_receive':self.received&(self.control_steps>=25)}.get(self.course,torch.zeros(self.count,device=self.device,dtype=torch.bool))
         if self.course=='pass_receive':
             caught=self.received&(receiver_dist<.5)&(ball_speed<.6)
             self.control_steps=torch.where(caught,self.control_steps+1,0)
@@ -309,6 +359,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         elif self.course=='approach':
             objective &= gait_quality[self.rows,p]
         reward -= 5*(fallen|outside)
+        reward*=self.active
         if self.course in LOW_LEVEL:
             terminated=fallen|outside
             truncated=(self.agent_steps>=self.episode_steps)&~terminated
@@ -322,12 +373,25 @@ class CourseWarpEnv(WarpSoccerEnv):
             stable=~active_fall&~(outside&self.active).any(-1)&((self.steps*self.dt>=5.)|touched_goal)
             success=stable&objective
             duration=self.steps*self.dt
-        self.last_stats={'upright':upright.mean(),'height':pos[:,:,2].mean(),'forward':self.forward_kick.mean(),
-                         'side':self.side_kick.mean(),'task_distance':(receiver_dist if self.course=='pass_receive' else ball_distance[self.rows,p]).mean(),
-                         'left':self.foot_hits[:,:,0].float().mean(),
-                         'right':self.foot_hits[:,:,1].float().mean()}
+        active_mean=lambda x:(x*self.active).sum()/self.active.sum().clamp(min=1)
+        self.last_stats={'upright':active_mean(upright),'height':active_mean(pos[:,:,2]),'forward':active_mean(self.forward_kick),
+                         'side':active_mean(self.side_kick),'task_distance':(receiver_dist if self.course=='pass_receive' else ball_distance[self.rows,p]).mean(),
+                         'left':active_mean(self.foot_hits[:,:,0].float()),
+                         'right':active_mean(self.foot_hits[:,:,1].float())}
         info=dict(stage=self.course,goal=base['goal'],fallen=fallen,stable=stable,success=success,
                   duration=duration,progress=self.progress,touch=self.ever_feet.any(-1),recover=recover,
                   out=base['out'])
+        if self.course in CONTESTS:
+            team_fall=(fallen&self.active).reshape(self.count,2,4).any(-1)
+            team_out=(outside&self.active).reshape(self.count,2,4).any(-1)
+            team_stable=~team_fall&~team_out&((self.steps[:,None]*self.dt>=5.)|touched_goal[:,None])
+            objective=scoring
+            if self.course=='teamplay':
+                contacts=(self.ever_feet.any(-1)&self.active).reshape(self.count,2,4).sum(-1)
+                objective=scoring|((self.team_progress>=1.)&(contacts>=2))
+            info.update(stable=team_stable.any(-1),success=(team_stable&objective).any(-1),
+                        team_stable=team_stable,team_success=team_stable&objective,
+                        team_fallen=team_fall,team_progress=self.team_progress,
+                        team_touch=team_touch)
         obs=self.observe()
         return obs,self.state(obs),reward[:,:,None],terminated,truncated,info

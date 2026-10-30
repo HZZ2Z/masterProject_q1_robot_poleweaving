@@ -105,3 +105,72 @@ def test_both_foot_contacts_and_body_exclusion(env,side):
     assert env.foot_hits[0,2,f]==1
     assert not env.foot_hits[1].any()
     assert env.forward_kick[1].sum()==0 and env.side_kick[1].sum()==0
+
+
+@pytest.mark.parametrize('course',COURSES[13:])
+def test_single_ball_participants_and_task_relative_random_spawns(env,course):
+    env.configure(course);env.reset()
+    expected=2 if course in ('pass_receive','duel') else 3 if course=='attack_2v1' else 4 if course=='game_2v2' else 8 if course in ('teamplay','match') else 1
+    assert (env.active.sum(-1)==expected).all()
+    positions=env.qpos[:,env.rootq[:,None]+torch.arange(3,device=env.device)]
+    assert (positions[~env.active][:,1]>6).all()
+    assert (positions[env.active][:,:2].abs()<env.tensor([7.7,4.7])).all()
+    first=env.ball.clone();first_robot=positions[env.rows,env.practice].clone()
+    if course in ('duel','attack_2v1','game_2v2','teamplay','match'):
+        assert (first[:,:2].abs()<=.2).all()
+    elif course!='goalkeeper':
+        assert (first[:,:2].abs()<=env.tensor([3.5,2.3])).all()
+        distance=torch.linalg.vector_norm(first_robot[:,:2]-first[:,:2],dim=-1)
+        assert (distance>.28).all() and (distance<1.4).all()
+    if course=='pass_receive':
+        receiver=(env.practice//4)*4+(env.practice%4+1)%4
+        assert (receiver//4==env.practice//4).all()
+        assert env.active[env.rows,receiver].all()
+    env.reset()
+    assert not torch.equal(first,env.ball)
+    positions=env.qpos[:,env.rootq[:,None]+torch.arange(3,device=env.device)]
+    assert not torch.equal(first_robot,positions[env.rows,env.practice])
+    _,_,reward,_,_,_=env.step(torch.zeros((4,8,22),device=env.device))
+    assert not reward.squeeze(-1)[~env.active].any()
+    env.check()
+
+
+def test_inactive_falls_do_not_end_a_solo_drill(env):
+    env.configure('kick_left');env.reset()
+    inactive=(env.practice+1)%8
+    env.qpos[env.rows,env.rootq[inactive]+2]=.1
+    env.forward()
+    _,_,_,done,_,_=env.step(torch.zeros((4,8,22),device=env.device))
+    assert not done.any()
+
+
+def test_contested_goals_have_separate_winner_and_loser_evidence(env):
+    from q1_4v4.mixed_env import ended_rows
+    env.configure('duel');env.reset();env.episode_steps=1000;env.steps[:]=300
+    env.ever_feet[:,2,0]=True;env.ever_feet[:,6,0]=True
+    env.qpos[:2,env.ballq:env.ballq+3]=env.tensor([[7.05,0,.11],[-7.05,0,.11]])
+    env.qvel[:2,env.ballv]=env.tensor([10.,-10.]);env.forward()
+    _,_,_,term,trunc,info=env.step(torch.zeros((4,8,22),device=env.device))
+    assert info['team_success'][:2].tolist()==[[True,False],[False,True]]
+    rows,_=ended_rows(env,term,trunc,info)
+    assert rows.shape==(4,10) and rows[:,8].tolist()==[0,1,0,1]
+    assert rows[:,1].tolist()==[1,0,0,1]
+
+
+@pytest.mark.parametrize('course',['kick_left','kick_right','side_left','side_right'])
+def test_designated_foot_spawn_is_correct_in_both_teams(env,course):
+    env.configure(course)
+    seen=set()
+    for _ in range(4):
+        env.reset();p=env.practice;seen.update((p//4).tolist())
+        position=env.qpos[env.rows[:,None],env.rootq[p,None]+torch.arange(2,device=env.device)]
+        q=env.qpos[env.rows[:,None],env.rootq[p,None]+torch.arange(3,7,device=env.device)]
+        yaw=2*torch.atan2(q[:,3],q[:,0])
+        delta=env.ball[:,:2]-position
+        local_x=delta[:,0]*torch.cos(yaw)+delta[:,1]*torch.sin(yaw)
+        local_y=-delta[:,0]*torch.sin(yaw)+delta[:,1]*torch.cos(yaw)
+        assert ((local_y>0) if course.endswith('left') else (local_y<0)).all()
+        if course.startswith('side_'):
+            assert (local_y.abs()>.25).all() and (local_x.abs()<.16).all()
+        else:assert (local_x>.25).all()
+    assert seen=={0,1}

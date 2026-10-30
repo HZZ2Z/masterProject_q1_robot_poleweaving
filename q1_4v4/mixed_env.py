@@ -20,6 +20,13 @@ def ended_rows(env,terminated,truncated,info):
             torch.zeros_like(info['stable'][w,a]),info['fallen'][w,a],info['duration'][w,a],
             torch.zeros_like(info['duration'][w,a]),info['touch'][w,a],
             torch.zeros_like(info['stable'][w,a]),a//4),-1).float()
+    elif 'team_success' in info:
+        # Each contested rally supplies independent red AND blue evidence.
+        w=ids[:,0].repeat_interleave(2)
+        t=torch.arange(2,device=env.device).repeat(len(ids))
+        rows=torch.stack((info['team_stable'][w,t],info['team_success'][w,t],info['goal'][w],
+            info['team_fallen'][w,t],info['duration'][w],info['team_progress'][w,t],
+            info['team_touch'][w,t],torch.zeros_like(info['duration'][w]),t),-1).float()
     else:
         w=ids[:,0]
         rows=torch.stack((info['stable'][w],info['success'][w],info['goal'][w],
@@ -107,6 +114,7 @@ class MixedCourseEnv:
         torch.cuda.set_stream(self.torch_stream)
         self._obs=torch.cat(observations)
         self._pending=[]
+        self.active=torch.cat([env.active for _,env in self.groups.values()])
         return self._obs,self.state(self._obs)
 
     def observe(self):return self._obs
@@ -162,6 +170,7 @@ class MixedCourseEnv:
                 self.torch_stream.wait_stream(env.torch_stream)
                 next_obs[sl]=reset_obs
         self._obs=next_obs;self._pending=[]
+        self.active=torch.cat([env.active for _,env in self.groups.values()])
         return next_obs,torch.cat(records) if records else torch.empty((0,10),device=self.device)
 
     def check(self):

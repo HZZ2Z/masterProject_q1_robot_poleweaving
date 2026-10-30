@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
 from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity
-from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES
+from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
 from .parallel_curriculum import ParallelCurriculum
@@ -51,6 +51,14 @@ def run(options):
         curriculum=Curriculum(selected)
     if checkpoint and checkpoint.get('reward_version',1) != REWARD_REVISION:
         curriculum.recertify('reward_change_recertification')
+    if checkpoint and checkpoint.get('ball_task_revision',0)!=BALL_TASK_REVISION:
+        if parallel:
+            for name,c in curriculum.courses.items():
+                if name not in LOW_LEVEL:
+                    c.recertify('single_ball_task_recertification')
+                    curriculum.mastered.discard(name)
+        elif curriculum.stage not in LOW_LEVEL:
+            curriculum.recertify('single_ball_task_recertification')
     shared = policy_sharing(options, checkpoint)
     groups = [slice(None)] if shared else [slice(0,4),slice(4,8)]
     agents = 8 if shared else 4
@@ -115,7 +123,7 @@ def run(options):
     out = Path(options.output)
     out.mkdir(parents=True, exist_ok=True)
     if distributed.primary:
-        config = dict(vars(options), world_size=distributed.world_size, per_course_metrics=True,
+        config = dict(vars(options), world_size=distributed.world_size, per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION,
                       total_num_envs=options.num_envs*distributed.world_size)
         (out/'config.json').write_text(json.dumps(config, indent=2))
     writer = SummaryWriter(str(out/'tensorboard')) if distributed.primary else None
@@ -154,7 +162,7 @@ def run(options):
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
-        payload = dict(version=4, reward_version=REWARD_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
+        payload = dict(version=4, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
                        policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
@@ -174,7 +182,7 @@ def run(options):
                 dir=str(out.resolve()), settings=wandb.Settings(init_timeout=60))
             wandb_run.config.update(dict(vars(options), world_size=distributed.world_size,
                 total_num_envs=options.num_envs*distributed.world_size,
-                reward_revision=REWARD_REVISION, curriculum_window_policy='per_team', per_course_metrics=True), allow_val_change=True)
+                reward_revision=REWARD_REVISION, curriculum_window_policy='per_team', per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION), allow_val_change=True)
             wandb_run.define_metric('iteration')
             wandb_run.define_metric('*', step_metric='iteration')
             wandb_run.define_metric('debug/*', hidden=True)
@@ -189,6 +197,7 @@ def run(options):
             gait_stats = torch.zeros(len(METRIC_NAMES),device=device)
             if parallel:env.begin_rollout()
             for step in range(options.horizon):
+                rollout.active[step].copy_(env.active)
                 obs = rollout.obs[step]
                 state = env.state(obs)
                 with torch.no_grad():
@@ -237,7 +246,7 @@ def run(options):
             metrics = {}
             for t, (_, trainer, _) in enumerate(teams):
                 trainer.prep_training()
-                stats = rollout.update(None if shared else t, trainer, args, active=env.active)
+                stats = rollout.update(None if shared else t, trainer, args, active=rollout.active)
                 prefix = 'shared' if shared else ('red','blue')[t]
                 metrics.update({f'{prefix}/{k}': v for k, v in stats.items()})
             for t,side in enumerate(('red','blue')):
@@ -269,7 +278,7 @@ def run(options):
                            policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode,
                            world_size=distributed.world_size, total_num_envs=options.num_envs*distributed.world_size,
                            gpu_total_used_gib=sum(memories), gpu_worker_used_gib=memories,
-                           episodes=len(episodes), goals=sum(bool(x[2]) for x in episodes),
+                           episodes=len(episodes), goals=sum((.5 if COURSES[int(x[9])] in CONTESTS else 1) for x in episodes if x[2]),
                            falls=sum(bool(x[3]) for x in episodes),
                            env_steps_per_second=distributed.world_size*options.num_envs*options.horizon/seconds,
                            agent_steps_per_second=8*distributed.world_size*options.num_envs*options.horizon/seconds,
