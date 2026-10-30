@@ -466,5 +466,80 @@
       }
     },
     "conclusion": "Bounded offline candidate updates replacing near root approach with foot approach did not improve actual kicking; not adopted. This does not establish the outcome of retraining the critic with a changed reward."
+  },
+  "contact_coverage_probe": {
+    "evidence": "logs/current_coherent_exploration_probe.json",
+    "sha256": "7e15bcacee1d3db999be64ecef085254740167811e8325a79401243a88582f6a",
+    "near_trials_per_setting": 192,
+    "single_leg_noise_hold_s": 0.2,
+    "results": {
+      "0.0": {
+        "survival_5s": 0.96875,
+        "fall_fraction": 0.03125,
+        "kick_rate": 0.0,
+        "contact_gap_rate": 0.0
+      },
+      "0.1": {
+        "survival_5s": 0.057291666666666664,
+        "fall_fraction": 0.9947916666666666,
+        "kick_rate": 0.0,
+        "contact_gap_rate": 0.0
+      },
+      "0.2": {
+        "survival_5s": 0.026041666666666668,
+        "fall_fraction": 1.0,
+        "kick_rate": 0.03125,
+        "contact_gap_rate": 0.06770833333333333
+      },
+      "0.35": {
+        "survival_5s": 0.0,
+        "fall_fraction": 1.0,
+        "kick_rate": 0.057291666666666664,
+        "contact_gap_rate": 0.18229166666666666
+      }
+    },
+    "conclusion": "Coherent leg exploration reaches contact but destroys survival. It is not an accepted policy or safe exploration setting; not adopted.",
+    "research_context": "https://ojs.aaai.org/index.php/AAAI/article/view/29139",
+    "research_scope": "Temporal correlation is a research motivation only; this diagnostic uses held leg noise, not the paper algorithm."
+  },
+  "swing_support_probe": {
+    "results": {
+      "swing_recovery": {
+        "evidence": "logs/current_swing_recovery_probe.json",
+        "sha256": "5f2279a79f4d1c3ae14c08ea2956365dd0cd62d0db7f5b99be4746c4b9912a03",
+        "near_trials": 768,
+        "kick_and_survive_count": 0,
+        "mean_survival_5s": 0.015625
+      },
+      "feedback_swing": {
+        "evidence": "logs/current_feedback_swing_probe.json",
+        "sha256": "c722f5d2e2417858cedf0bca85978b57ec6dd1c48251458ad46b06d6d6799657",
+        "near_trials": 768,
+        "kick_and_survive_count": 0,
+        "mean_survival_5s": 0.18880208333333334
+      },
+      "extending_swing": {
+        "evidence": "logs/current_extending_swing_probe.json",
+        "sha256": "152ba7caa172d426e01882e0777df531cca218a2306a006c1cfcd1136c34ee16",
+        "near_trials": 768,
+        "kick_and_survive_count": 0,
+        "mean_survival_5s": 0.12890625
+      },
+      "ik_swing": {
+        "evidence": "logs/current_ik_swing_probe.json",
+        "sha256": "c4ace9c4322054308b820c3352a0e58c8907307057240d0cecc8c7ab80f0f5b7",
+        "near_trials": 768,
+        "kick_and_survive_count": 0,
+        "mean_survival_5s": 0.0
+      },
+      "supported_swing": {
+        "evidence": "logs/current_supported_swing_probe.json",
+        "sha256": "159e0ab13121a44c1823e8bb2b7bc6ae1f0e76a99167402e01e6ecc01133e031",
+        "near_trials": 768,
+        "kick_and_survive_count": 0,
+        "mean_survival_5s": 0.0
+      }
+    },
+    "conclusion": "All scripted exploration candidates failed to produce a kick surviving the 8-second trial. These are controller/data-coverage diagnostics, not learned-policy performance. No candidate adopted."
   }
 }
