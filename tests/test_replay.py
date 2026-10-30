@@ -41,3 +41,15 @@ def test_never_invent_windows_across_resets():
         append(replay, t, boundary=True)
     with pytest.raises(ValueError, match="No contiguous"):
         replay.sample(4, length=2)
+
+
+def test_invalid_post_terminal_states_cannot_seed_any_window():
+    replay = Replay(5)
+    for t in range(5):
+        replay.append(state=torch.full((1,1),float(t)),next_state=torch.full((1,1),float(t+1)),
+                      action=torch.zeros(1,1),context=torch.zeros(1,0),
+                      boundary=torch.tensor([t>=1]),terminated=torch.tensor([t>=1]),
+                      valid=torch.tensor([t<=1]))
+    batch = replay.sample(40,length=1)
+    assert batch['state'].max() <= 1
+    assert replay.sample(10,length=2)['state'][0].eq(0).all()

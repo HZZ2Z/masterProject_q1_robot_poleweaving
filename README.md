@@ -1,6 +1,6 @@
 # Q1 SuperMimic
 
-正在从头重建。旧训练系统已移除，当前没有可用的踢球训练入口，也没有已验收的踢球策略。
+正在从头重建。旧训练系统已移除，当前只有站立动作预训练入口，尚无可用的踢球训练入口，也没有已验收的踢球策略。
 旧代码保存在 Git 分支 `archive/before-rebuild-20261030`（`736548f`）；旧日志与权重留在忽略目录 `logs/`，不作为新实现的训练结果。
 
 ## 查阅原始方法后的决定
@@ -43,7 +43,7 @@ env -u PYTHONHOME -u PYTHONPATH -u LD_LIBRARY_PATH \
   /home/kemove/miniconda3/envs/q1-kick/bin/python -m q1_supermimic.physics
 ```
 
-当前底层检查：17 项单元测试通过（含原生 MuJoCo 5 秒中立姿态控制）；4 个 Warp 世界运行 20 个物理步，与原生 MuJoCo 的最大 qpos 差为 `6.13e-08`。该对照是短时自由落体检查，不是接触、站稳或踢球验收。
+当前底层检查：18 项单元测试通过（含原生 MuJoCo 5 秒中立姿态控制）；4 个 Warp 世界运行 20 个物理步，与原生 MuJoCo 的最大 qpos 差为 `6.13e-08`。该对照是短时自由落体检查，不是接触、站稳或踢球验收。
 
 共享 GPU 仍按约半卡总显存预算安排。Torch 分配限制不覆盖 Warp；启动真实训练前须同时核对进程总显存，不能只看 Torch 分配量。目标 W&B 项目为 `mohismlab-robotics/q1-humanoid-kick-SuperMimic`，凭据只从环境或本机认证读取。
 
@@ -60,3 +60,17 @@ Warp 接触控制检查：16 个相同初态世界保持中立姿态 5 秒，16/
 `observations.py` 定义动作跟踪接口的 72 维本体观测（关节位置/速度、IMU 角速度、重力、上次动作），不包含球状态或全局位置。54 维参考目标只用于训练接口，与最终视觉目标分开。`learner.py` 已接通自回归想象策略更新、存活加权回报、固定 lambda-return critic 目标及参数冻结；需要外部传入真实历史、参考序列和仿真上下文。当前接口尚未加入传感器噪声、critic 分批拟合、采集调度和检查点恢复，不能称为完整训练器。
 
 32 步更新连通检查使用 2 个样本、10 帧历史及未来 10 帧静态参考，小网络/未训练世界模型，仅验证数值与梯度：想象回报 0.16294、策略梯度范数 0.07885、critic 损失 2.86192，均有限。该结果不是实际控制性能。17 项测试还确认策略/critic 更新、模型不被更新及本体输入隔离。
+
+已增加 `train.py` 有界动作预训练入口：独立 Warp 采集 → 连续 8 步模型拟合 → 32 步策略/critic 更新 → 原生 MuJoCo 评估 → 原子保存检查点。当前参考仅为中立站立，16 个仿真环境，小网络和有限批次用于实现检查；它不是视觉踢球环境，不涉及改变踢球起点配比。检查点保留三组网络/优化器、连续回放、Torch/CUDA 和采集随机状态。恢复训练通过 `--resume` 指定检查点，`--iterations` 表示追加次数。模型窗口和策略起点过滤首次终止后的无效状态，终止转移本身仍可监督。
+
+短训练验收尚未通过：早期两次更新试跑中，想象回报上升但原生 4 回合评估摔倒率升至 0.5。加入采集无效状态过滤后，从头一次更新再恢复一次的流程检查成功；另外三个种子、共 12 个 5 秒回合均未摔倒，但候选关节 MSE 约 0.000527，仍高于初始中立 PD 控制的约 0.000437。不能认定跟踪进步，更不能认定踢球进步。`last.pt` 是审计候选，元数据 `deployment_accepted=false`，没有发布 best。
+
+```bash
+# 有界动作预训练流程检查；当前只训练站立：
+env -u PYTHONHOME -u PYTHONPATH -u LD_LIBRARY_PATH \
+ /home/kemove/miniconda3/envs/q1-kick/bin/python train.py --iterations 2
+# 继续一个更新，恢复同一检查点：
+env -u PYTHONHOME -u PYTHONPATH -u LD_LIBRARY_PATH \
+ /home/kemove/miniconda3/envs/q1-kick/bin/python train.py --iterations 1 \
+ --resume logs/motor_pretraining/last.pt
+```

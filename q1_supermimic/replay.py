@@ -51,6 +51,8 @@ class Replay:
         # A boundary on the LAST transition is valid: its terminal next state
         # is supervised. A boundary earlier in the window breaks continuity.
         allowed = ~self.storage["boundary"][indices[:, :-1]].bool().any(dim=1)
+        if "valid" in self.storage:
+            allowed = allowed & self.storage["valid"][indices].bool().all(dim=1)
         candidates = allowed.nonzero()
         if not len(candidates):
             raise ValueError("No contiguous replay windows; collect more transitions")
