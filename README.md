@@ -62,6 +62,17 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4 ./scripts/python.sh -m torch.distributed.run \
 
 ## 课程
 
+课程0单独通过后，可从刚保存的共享策略checkpoint切换到并行课程：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4 ./scripts/python.sh -m torch.distributed.run \
+  --standalone --nproc_per_node=5 train_distributed.py --curriculum-mode parallel \
+  --checkpoint logs/train/last.pt --num-envs 4096 --horizon 128 --epochs 5 \
+  --nconmax 1536 --njmax 6144 --learning-rate 0.0001 --output logs/parallel
+```
+
+主训练80%、复习10%、下一层探索10%，前置关系、整数分配及独立门控见 `CURRICULUM.md`。现有actor/critic输入尺寸不变，恢复权重和优化器，不从头训练。串行课程0未通过的checkpoint会被拒绝切换；后续并行checkpoint默认按并行模式恢复。
+
 28 阶段按重心转移、交替踏步、低速步行、全向移动、启停、足球技能和逐级对抗组织。完整清单见 CURRICULUM.md。
 
 红蓝分别要求稳定率≥90%和各自任务成功率。每阶段至少更新 32 次，每 16 次检查一次；每个独立窗口至少 512 个已结束回合，红蓝各至少 256 个，分别满足稳定率和任务成功率后，连续通过三个窗口才晋级。基础运动阶段各机器人独立重置，足球阶段按参与者的整场回合重置。

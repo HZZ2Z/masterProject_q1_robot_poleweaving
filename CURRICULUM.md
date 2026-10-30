@@ -11,6 +11,46 @@
 - 基础阶段按机器人独立重置；足球阶段按参与者整场重置。失败回合计入分母。
 - 稳定要求参与者未倒/越界，存活≥5秒；真实脚触球后的进球可提前结束。步态任务需要整个回合的质量统计，不能仅凭到达目标晋级。
 
+## 并行课程调度
+
+课程0仍单独训练，必须按原门控完成后，才能切换到 `--curriculum-mode parallel` 并从最新checkpoint续训。共享actor、critic、优化器、ValueNorm和全局迭代全部保留。
+
+- 主训练占80%：在前置课程全部通过、尚未掌握的课程间均匀分配。
+- 复习占10%：在已掌握课程间均匀分配，防止遗忘。
+- 探索占10%：只探索前置技能已掌握或正在主训练的下一层课程，不提前认证；前置课通过、正式解锁时清空该课旧探索窗口，重新积累门控证据。
+- 没有复习/探索对象时，其配额返还主训练；按最大余数分配整数球场，每个参与课程至少1场，总场数保持不变。
+- 课程0通过后的初始分配约为：站立10%、抗扰动40%、重心转移40%、原地踏步10%。每卡4096场对应410/1638/1638/410场。
+- 各课程分别维护红蓝窗口、成功率、稳定率、更新次数和连续通过窗口，不能互相借用样本。毕业标准保持原门限。
+- 各球场分组独立物理、回合时长和重置；每张卡先合并所有课程的观测，再用同一个共享策略采样和更新。优势按课程跨卡归一化，避免奖励尺度大的任务主导学习；ValueNorm仍为共享的一套。
+- 解锁造成配额变化时，在一次PPO更新结束后重新建立场景分组并重置仿真；上一轮收益已按未结束状态完成价值自举，不把调度重置伪报成成功或失败。网络与优化器不重置。
+- checkpoint保存已掌握课程、各课门控、分配及每卡各课程随机状态。整体曲线展示当前关注课程，各课曲线放在 `06_课程/<课程名>/`；课程编号不再代表所有场景运行同一任务。
+- 共享策略的熵系数按各课程有效参与者比例加权：原地踏步0.005、其余0.001。
+
+前置关系如下，按行解锁，可并行的分支不必相互等待：
+
+|课程|必须已掌握的前置技能|
+|---|---|
+|balance_push、weight_shift|balance|
+|step_in_place|weight_shift|
+|slow_walk、turn|step_in_place|
+|move、backward、lateral、stop|slow_walk|
+|velocity_track|move、backward、lateral|
+|walk_turn|slow_walk、turn|
+|start_stop|slow_walk、stop|
+|approach|move、turn|
+|align|approach|
+|kick_left、kick_right|align、weight_shift|
+|side_left / side_right|kick_left / kick_right|
+|kick_recover|kick_left、kick_right|
+|dribble|approach、kick_left、kick_right、stop|
+|pass_receive|dribble|
+|goalkeeper|lateral、stop、kick_left、kick_right|
+|duel|dribble、kick_recover|
+|attack_2v1|duel、pass_receive|
+|game_2v2|attack_2v1、goalkeeper|
+|teamplay|game_2v2、pass_receive|
+|match|teamplay、goalkeeper；最终课程持续训练|
+
 ## 课程清单
 
 |编号|课程代码|任务完成门限|任务成功率|回合上限|
@@ -66,3 +106,9 @@
 对抗课程目前仍使用同步自博弈数据晋级；固定对手、身份交换和更严格的胜率评估是后续独立评估工作，当前不宣称已实现。没有倒地自主起身、手部扑救或完整裁判规则。步态质量按训练统计门控，不替代真实机器人验证。
 
 参考：[周期步态奖励](https://arxiv.org/abs/2011.01387)、[Humanoid-Gym原始实现](https://github.com/roboterax/humanoid-gym)、[Legged Gym](https://github.com/leggedrobotics/legged_gym)。本项目按Q1足底几何、MuJoCo接触状态独立实现；未直接照搬其他机器人的关节索引或高度偏置。
+
+## 课程0完成后的自动切换
+
+`scripts/continue_after_balance.py` 只在当前共享策略checkpoint已经离开 `balance` 后触发，成功率瞬间超过95%或仅通过一个窗口都不会触发。切换前复查硬件与网络，向五个训练worker发送SIGTERM，等当前更新完成和最新checkpoint保存，再部署已测试代码。
+
+自动流程先做五卡短测，通过后从原任务最终checkpoint正式续训，保留原W&B run。正式场景数优先保持每卡4096；只有发生显存不足时才依次尝试3072、2048，仍使用五卡。其他启动失败会恢复串行续训，避免任务静默停止。切换状态和错误记录在工作目录 `artifacts/parallel_transition.json`。该流程不删除正在学习的共享权重。

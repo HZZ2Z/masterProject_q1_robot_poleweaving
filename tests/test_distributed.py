@@ -5,7 +5,7 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from q1_4v4.distributed import Distributed, moments
-from q1_4v4.gpu_learning import DeviceValueNorm
+from q1_4v4.gpu_learning import DeviceValueNorm,normalize_by_course
 
 
 def worker(rank, store):
@@ -17,6 +17,11 @@ def worker(rank, store):
     mean,var=moments(values)
     torch.testing.assert_close(mean,torch.tensor(2.))
     torch.testing.assert_close(var,torch.tensor(2.))
+    course_ids=torch.tensor([1,2] if rank==0 else [1,2,2])
+    advantage=values.reshape(1,-1,1,1)
+    normalized=normalize_by_course(advantage,torch.ones_like(advantage,dtype=torch.bool),course_ids)
+    means=torch.tensor([1.,8/3]);std=torch.tensor([1.,(14/9)**.5])
+    torch.testing.assert_close(normalized.flatten(),(values-means[course_ids-1])/(std[course_ids-1]+1e-5))
     normalizer=DeviceValueNorm('cpu');normalizer.update(values[:,None])
     torch.testing.assert_close(normalizer.running_mean,torch.tensor([.00002]))
     torch.testing.assert_close(normalizer.running_mean_sq,torch.tensor([.00006]))

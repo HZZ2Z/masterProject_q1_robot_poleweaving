@@ -14,6 +14,8 @@ from .learning import make_args, make_team, save_team, load_team, policy_sharing
 from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
+from .parallel_curriculum import ParallelCurriculum
+from .mixed_env import MixedCourseEnv, ended_rows
 
 
 def run(options):
@@ -32,14 +34,16 @@ def run(options):
     if options.learning_rate is not None:
         if options.learning_rate<=0:raise ValueError('learning-rate must be positive')
         args.lr=args.critic_lr=options.learning_rate
-    curriculum = Curriculum(options.stage)
-    checkpoint = None
+    checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
+    options.curriculum_mode = getattr(options,'curriculum_mode',None) or (checkpoint.get('curriculum_mode','serial') if checkpoint else 'serial')
+    parallel = options.curriculum_mode=='parallel'
+    curriculum = ParallelCurriculum() if parallel else Curriculum(options.stage)
     start = 0
-    if options.checkpoint:
-        checkpoint = torch.load(options.checkpoint, map_location=device, weights_only=False)
+    if checkpoint:
         curriculum.load_state_dict(checkpoint['curriculum'])
         start = checkpoint['iteration']
     if options.start_course is not None:
+        if parallel:raise ValueError('--start-course is only for serial curricula')
         if not options.checkpoint: raise ValueError('--start-course requires --checkpoint')
         selected = COURSES[int(options.start_course)] if options.start_course.isdigit() else options.start_course
         if selected not in COURSES: raise ValueError('Unknown start course')
@@ -49,8 +53,13 @@ def run(options):
     shared = policy_sharing(options, checkpoint)
     groups = [slice(None)] if shared else [slice(0,4),slice(4,8)]
     agents = 8 if shared else 4
-    env = CourseWarpEnv(options.num_envs, str(device), options.seed, curriculum.stage,
-                        nconmax=options.nconmax, njmax=options.njmax)
+    if parallel:
+        if not shared:raise ValueError('Parallel curricula require a shared policy')
+        env = MixedCourseEnv(options.num_envs,str(device),options.seed,curriculum.allocation(options.num_envs),
+                             nconmax=options.nconmax,njmax=options.njmax,episode_steps=options.episode_steps)
+    else:
+        env = CourseWarpEnv(options.num_envs, str(device), options.seed, curriculum.stage,
+                            nconmax=options.nconmax, njmax=options.njmax)
     teams = [make_team(args, env, device, gpu_rollout=True,shared=shared) for _ in groups]
     if checkpoint:
         if checkpoint.get('backend') != 'warp':
@@ -81,6 +90,9 @@ def run(options):
         torch.manual_seed(seed)
         env.generator.manual_seed(seed)
         np.random.seed(seed)
+    if parallel:
+        saved_rng=state.get('course_rng',{}) if checkpoint and (len(states)==distributed.world_size or distributed.primary) else {}
+        env.restore_course_rng(saved_rng)
     for policy, _, _ in teams:
         distributed.attach(policy)
     if options.learning_rate is not None:
@@ -117,13 +129,17 @@ def run(options):
     signal.signal(signal.SIGTERM, stop_handler)
 
     def reset_stage():
-        env.configure(curriculum.stage)
-        env.episode_steps = options.episode_steps or DURATIONS[curriculum.stage]
+        if parallel:
+            env.configure(curriculum.allocation(options.num_envs))
+            rollout.course_ids=env.course_ids
+        else:
+            env.configure(curriculum.stage)
+            env.episode_steps = options.episode_steps or DURATIONS[curriculum.stage]
         obs, _ = env.reset()
         rollout.obs[0].copy_(obs)
         # Encourage renewed exploration while learning to lift from a stable stance.
         for _, trainer, _ in teams:
-            trainer.entropy_coef = .005 if env.course=='step_in_place' else args.entropy_coef
+            trainer.entropy_coef = env.entropy_coef if parallel else .005 if env.course=='step_in_place' else args.entropy_coef
 
     last_saved=start
 
@@ -131,13 +147,14 @@ def run(options):
         nonlocal last_saved
         rng = dict(torch_rng=torch.get_rng_state(), cuda_rng=torch.cuda.get_rng_state_all(),
                    env_rng=env.generator.get_state(), numpy_rng=np.random.get_state())
+        if parallel:rng['course_rng']=env.course_rng()
         rank_rng = distributed.objects(rng)
         difference = distributed.check_parameters(teams)
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
         payload = dict(version=4, reward_version=REWARD_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
-                       policy_sharing=options.policy_sharing, backend='warp', iteration=iteration, args=vars(args),
+                       policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
                        parameter_max_difference=difference)
@@ -169,6 +186,7 @@ def run(options):
             raw_reward = torch.zeros(2, device=device)
             skill_stats = torch.zeros(6,device=device)
             gait_stats = torch.zeros(len(METRIC_NAMES),device=device)
+            if parallel:env.begin_rollout()
             for step in range(options.horizon):
                 obs = rollout.obs[step]
                 state = env.state(obs)
@@ -191,30 +209,20 @@ def run(options):
                     for t, (policy, trainer, _) in enumerate(teams):
                         sl = groups[t]
                         value = policy.get_values(terminal_state[:, sl].reshape(-1, state_dim), rnn, ones)
-                        timeout_mask = truncated[:,sl,None] if env.course in LOW_LEVEL else truncated[:,None,None]
+                        timeout_mask = truncated[:,sl,None] if truncated.ndim==2 else truncated[:,None,None]
                         reward[:, sl] += args.gamma*trainer.value_normalizer.denormalize(value).reshape(options.num_envs, agents, 1)*timeout_mask
                     rollout.rewards[step].copy_(reward)
                     done = terminated | truncated
-                    low = env.course in LOW_LEVEL
-                    terminal_mask = done if low else done[:,None].expand(-1,8)
+                    terminal_mask = done if done.ndim==2 else done[:,None].expand(-1,8)
                     rollout.masks[step].copy_((~terminal_mask)[:,:,None])
-                    # Compact ended episodes only. Full observations/actions never leave CUDA.
-                    ids = done.nonzero()
-                    if ids.numel():
-                        if low:
-                            w,a = ids[:,0],ids[:,1]
-                            ended = torch.stack((info['stable'][w,a],info['success'][w,a],
-                                torch.zeros_like(info['stable'][w,a]),info['fallen'][w,a],info['duration'][w,a],
-                                torch.zeros_like(info['duration'][w,a]),info['touch'][w,a],
-                                torch.zeros_like(info['stable'][w,a]),a//4), -1).float()
-                            terminal_obs,_ = env.reset_agents(ids)
-                        else:
-                            w = ids[:,0]
-                            ended = torch.stack((info['stable'][w],info['success'][w],info['goal'][w],
-                                (info['fallen'][w]&env.active[w]).any(-1),info['duration'][w],info['progress'][w],
-                                info['touch'][w].any(-1),info['recover'][w],env.practice[w]//4),-1).float()
-                            terminal_obs,_ = env.reset(w)
-                        completed.append(ended)
+                    if parallel:
+                        terminal_obs,ended=env.finish_step()
+                        if len(ended):completed.append(ended)
+                    else:
+                        ended,ids=ended_rows(env,terminated,truncated,info)
+                        if len(ended):
+                            terminal_obs,_=env.reset_agents(ids) if env.course in LOW_LEVEL else env.reset(ids[:,0])
+                            completed.append(ended)
                     rollout.obs[step+1].copy_(terminal_obs)
             env.check()  # Includes overflow accumulated during all substeps, before any optimizer update.
             with torch.no_grad():
@@ -235,15 +243,15 @@ def run(options):
                 metrics[f'{side}/reward'] = (raw_reward[t]/options.horizon).item()
             if not all(np.isfinite(x) for x in metrics.values()):
                 raise FloatingPointError('Nonfinite MAPPO update')
-            local_episodes = torch.cat(completed) if completed else torch.empty((0,9),device=device)
+            local_episodes = torch.cat(completed) if completed else torch.empty((0,10),device=device)
             episodes = distributed.rows(local_episodes).cpu().tolist()
             if distributed.world_size > 1:
                 averaged = distributed.mean(torch.tensor(list(metrics.values()),device=device)).cpu().tolist()
                 metrics = dict(zip(metrics,averaged))
                 skill_stats = distributed.mean(skill_stats)
                 gait_stats = distributed.mean(gait_stats)
-            for stable, success, _, _, duration, progress, touch, recover, team in episodes:
-                curriculum.record(dict(stage=env.course,stable=stable,success=success,duration=duration,
+            for stable, success, _, _, duration, progress, touch, recover, team, course_id in episodes:
+                curriculum.record(dict(stage=COURSES[int(course_id)],stable=stable,success=success,duration=duration,
                                        progress=progress,touch=touch,recover=recover,team=team))
             torch.cuda.synchronize(device)
             seconds = distributed.maximum(time.perf_counter()-tic)
@@ -257,7 +265,7 @@ def run(options):
             memories = distributed.objects(metrics.get('gpu_process_used_gib',0.))
             metrics['gpu_process_used_gib'] = max(memories)
             metrics.update(iteration=iteration, seconds=seconds, backend='warp',
-                           policy_sharing=options.policy_sharing,
+                           policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode,
                            world_size=distributed.world_size, total_num_envs=options.num_envs*distributed.world_size,
                            gpu_total_used_gib=sum(memories), gpu_worker_used_gib=memories,
                            episodes=len(episodes), goals=sum(bool(x[2]) for x in episodes),
@@ -297,14 +305,30 @@ def run(options):
                      '04_性能/GPU数量':distributed.world_size,
                      '04_性能/并行球场总数':options.num_envs*distributed.world_size,
                      '04_性能/GPU总显存_GiB':sum(memories),
-                     '阶段名称':env.course,'晋级状态':cm['gate_reason']}
+                     '阶段名称':curriculum.stage,'晋级状态':cm['gate_reason']}
+            if parallel:
+                cloud['01_总览/已掌握课程数']=cm['mastered_count']
+                cloud['01_总览/已解锁课程数']=cm['unlocked_count']
+                course_gait=(distributed.mean(env.course_stat_sum)/options.horizon).cpu().tolist()
+                for name,stats in cm['courses'].items():
+                    prefix='06_课程/'+name+'/'
+                    cloud.update({prefix+'成功率':stats['success_rate'],prefix+'稳定率':stats['stable_rate'],
+                                  prefix+'红队成功率':stats['red_success'],prefix+'蓝队成功率':stats['blue_success'],
+                                  prefix+'球场数':env.allocations.get(name,0)*distributed.world_size,
+                                  prefix+'连续通过窗口':stats['passed_windows'],
+                                  prefix+'已掌握':int(name in curriculum.mastered)})
+                    if name in GAIT_COURSES and name in env.allocations:
+                        values=dict(zip(METRIC_NAMES,course_gait[COURSES.index(name)]))
+                        for key,label in [('phase_match','相位匹配率'),('slip_mps','支撑滑移_mps'),
+                                          ('left_steps','左脚步数'),('right_steps','右脚步数'),('phase_lift','抬脚得分')]:
+                            cloud[prefix+label]=values[key]
             for rank,memory in enumerate(memories):
                 cloud[f'04_性能/GPU{rank}显存_GiB']=memory
             for key,label in [('slip_mps','支撑脚滑移_mps'),('phase_match','接触相位匹配率'),('velocity_error','速度误差_mps'),
                               ('left_steps','左脚有效步数'),('right_steps','右脚有效步数'),('clearance_m','足底离地_米'),
                               ('weight_shifts','有效重心切换'),('nonfoot_contact','非脚部着地比例'),
                               ('alternations','有效交替落脚'),('phase_lift','相位抬脚得分')]:
-                cloud['05_步态/'+label]=None if key in ('phase_match','velocity_error') and env.course not in GAIT_COURSES else gm[key]
+                cloud['05_步态/'+label]=None if key in ('phase_match','velocity_error') and not (any(s in GAIT_COURSES for s in env.allocations) if parallel else env.course in GAIT_COURSES) else gm[key]
             for side in (('shared',) if shared else ('red','blue')):
                 for k in ('value_loss','policy_loss','dist_entropy','actor_grad_norm','critic_grad_norm','ratio','approx_kl','clip_fraction'):
                     cloud['debug/'+side+'_'+k] = metrics[side+'/'+k]
@@ -318,10 +342,14 @@ def run(options):
             stop = bool(distributed.maximum(int(stop)))
             old = curriculum.state_dict()
             if curriculum.advance():
-                promoted = curriculum.state_dict()
-                curriculum.load_state_dict(old)
-                save(iteration, 'stage_'+curriculum.stage+'.pt')
-                curriculum.load_state_dict(promoted)
+                if parallel:
+                    for name in COURSES:
+                        if name in curriculum.mastered-set(old['mastered']):save(iteration,'stage_'+name+'.pt')
+                else:
+                    promoted = curriculum.state_dict()
+                    curriculum.load_state_dict(old)
+                    save(iteration, 'stage_'+curriculum.stage+'.pt')
+                    curriculum.load_state_dict(promoted)
                 reset_stage()
             else:
                 rollout.obs[0].copy_(rollout.obs[-1])
@@ -333,9 +361,11 @@ def run(options):
     except BaseException as error:
         diagnostic={'error':str(error),'iteration':iteration,'last_completed_iteration':last_saved,'course':env.course}
         try:
-            import warp as wp
-            diagnostic['latched_flags']=wp.to_torch(env.failure).cpu().tolist()
-            diagnostic['overflow_flags']=wp.to_torch(env.data.overflow).cpu().tolist()
+            if parallel:diagnostic['groups']=env.diagnostics()
+            else:
+                import warp as wp
+                diagnostic['latched_flags']=wp.to_torch(env.failure).cpu().tolist()
+                diagnostic['overflow_flags']=wp.to_torch(env.data.overflow).cpu().tolist()
         except Exception as secondary: diagnostic['diagnostic_error']=str(secondary)
         failure_name = 'physics_failure.json' if distributed.primary else f'physics_failure_rank{distributed.rank}.json'
         (out/failure_name).write_text(json.dumps(diagnostic,indent=2))

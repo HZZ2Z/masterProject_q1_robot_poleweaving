@@ -91,7 +91,7 @@ class Curriculum:
                     red_samples=len(teams[0]), blue_samples=len(teams[1]),
                     red_gate_samples=len(self.history.teams[0]),blue_gate_samples=len(self.history.teams[1]))
 
-    def advance(self):
+    def advance(self, promote=True):
         self.stage_updates += 1
         if self.stage_updates % 16: return False
         m = self.metrics()
@@ -108,6 +108,8 @@ class Curriculum:
         stable = all(sum(x['stable'] for x in group)/max(len(group),1)>=.90 for group in cohorts)
         self.last_reason = 'pass' if passed else 'samples' if not ready else 'stability' if not stable else 'task'
         if ready: self.history.clear()
+        if self.passed_windows >= 3 and not promote:
+            return True
         if self.passed_windows >= 3 and self.index < len(COURSES)-1:
             self.index += 1; self.stage_updates = 0; self.history.clear(); self.monitor.clear(); self.passed_windows = 0
             self.completed_total = 0; self.last_reason = 'collecting'

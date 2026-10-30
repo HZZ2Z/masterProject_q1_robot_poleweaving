@@ -1,8 +1,25 @@
 """GPU-resident rollout/GAE using the official MAPPO ppo_update implementation."""
 import torch
+import torch.distributed as dist
 from torch import nn
 from .distributed import enabled, moments
 from .learning import with_team_identity
+
+
+def normalize_by_course(adv,valid,course_ids):
+    """Global moments per task prevent reward scale from dominating other courses."""
+    ids=course_ids[None,:,None,None].expand_as(adv)
+    selected=adv[valid].double(); labels=ids[valid]
+    stats=torch.zeros((28,3),device=adv.device,dtype=torch.float64)
+    stats[:,0].scatter_add_(0,labels,selected)
+    stats[:,1].scatter_add_(0,labels,selected.square())
+    stats[:,2].scatter_add_(0,labels,torch.ones_like(selected))
+    if enabled():dist.all_reduce(stats)
+    mean=stats[:,0]/stats[:,2].clamp(min=1)
+    variance=(stats[:,1]/stats[:,2].clamp(min=1)-mean.square()).clamp(min=0)
+    center=mean.to(adv.dtype)[course_ids][None,:,None,None]
+    scale=variance.to(adv.dtype)[course_ids][None,:,None,None].sqrt()+1e-5
+    return (adv-center)/scale
 
 
 class DeviceValueNorm(nn.Module):
@@ -41,6 +58,7 @@ class DeviceValueNorm(nn.Module):
 class GpuRollout:
     def __init__(self, horizon, count, device, obs_dim=121):
         self.horizon, self.count, self.device = horizon, count, device
+        self.course_ids=None
         zeros = lambda *shape: torch.zeros(shape, device=device)
         # Central critic inputs reconstructed per minibatch: don't store 8 copies of global state.
         self.obs = zeros(horizon+1, count, 8, obs_dim)
@@ -65,7 +83,9 @@ class GpuRollout:
         adv = self.returns[:, :, sl]-self.values[:-1, :, sl]
         valid = torch.ones_like(adv,dtype=torch.bool) if active is None else active[:,sl][None,:,:,None].expand_as(adv)
         selected_adv=adv[valid]
-        if enabled():
+        if self.course_ids is not None:
+            adv=normalize_by_course(adv,valid,self.course_ids)
+        elif enabled():
             mean, variance = moments(selected_adv)
             adv = (adv-mean)/(variance.sqrt()+1e-5)
         else:

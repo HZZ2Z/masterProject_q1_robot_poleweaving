@@ -1,8 +1,11 @@
 """Create an intentional W&B view rather than an automatically generated chart wall."""
 import json
+import sys
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import wandb_workspaces.workspaces as ws
 from wandb_workspaces.reports.v2 import LinePlot
+from q1_4v4.course_config import COURSES
 
 root=Path(__file__).resolve().parents[1]
 meta=json.loads((root/'logs/active_training.json').read_text())
@@ -14,7 +17,8 @@ def chart(title,*metrics):
 view=ws.Workspace(entity='mohismlab-robotics',project='q1-humanoid-kick-4v4',name='Q1 4v4 训练总览',
     auto_generate_panels=False,runset_settings=ws.RunsetSettings(query=meta.get('run_name',run['id'])),sections=[
     ws.Section(name='01 总览',is_open=True,pinned=True,panels=[
-        chart('课程进度','01_总览/课程编号'),
+        chart('当前关注课程编号','01_总览/课程编号'),
+        chart('课程掌握与解锁数量','01_总览/已掌握课程数','01_总览/已解锁课程数'),
         chart('成功率与稳定率','01_总览/阶段成功率','01_总览/稳定率','01_总览/回合摔倒率'),
         chart('红蓝回报','01_总览/红队回报','01_总览/蓝队回报'),
         chart('回合存活秒数','01_总览/回合时长_秒'),
@@ -25,7 +29,7 @@ view=ws.Workspace(entity='mohismlab-robotics',project='q1-humanoid-kick-4v4',nam
         chart('红蓝窗口样本：各需256','02_晋级/红队窗口样本','02_晋级/蓝队窗口样本'),
         chart('阶段更新次数','02_晋级/阶段更新次数'),
         chart('红蓝分别过关','02_晋级/红队成功率','02_晋级/蓝队成功率'),
-        chart('红蓝分别站稳：各需85%','02_晋级/红队稳定率','02_晋级/蓝队稳定率')]),
+        chart('红蓝分别站稳：各需90%','02_晋级/红队稳定率','02_晋级/蓝队稳定率')]),
     ws.Section(name='03 足球技能',is_open=True,panels=[
         chart('左右脚触球','03_技能/左脚触球','03_技能/右脚触球'),
         chart('正踢与侧踢','03_技能/正踢奖励','03_技能/侧踢奖励'),
@@ -41,6 +45,11 @@ view=ws.Workspace(entity='mohismlab-robotics',project='q1-humanoid-kick-4v4',nam
         chart('速度跟踪误差','05_步态/速度误差_mps'),
         chart('足底离地高度','05_步态/足底离地_米'),
         chart('非脚部接地','05_步态/非脚部着地比例')]),
+    ws.Section(name='06 并行课程',is_open=True,panels=[
+        chart('各课成功率：'+','.join(COURSES[i:i+7]),*[f'06_课程/{name}/成功率' for name in COURSES[i:i+7]])
+        for i in range(0,len(COURSES),7)]+[
+        chart('各课场景数：'+','.join(COURSES[i:i+7]),*[f'06_课程/{name}/球场数' for name in COURSES[i:i+7]])
+        for i in range(0,len(COURSES),7)]),
     ws.Section(name='04 性能',is_open=False,panels=[
         chart('球场控制步/秒','04_性能/球场步每秒'),
         chart('GPU数量与并行球场','04_性能/GPU数量','04_性能/并行球场总数'),

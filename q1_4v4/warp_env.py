@@ -182,8 +182,7 @@ class WarpSoccerEnv:
         return self.observe(), self.state()
 
     def forward(self):
-        with wp.ScopedStream(self.stream):
-            wp.capture_launch(self.forward_graph)
+        wp.capture_launch(self.forward_graph,stream=self.stream)
 
     def observe(self):
         n = self.count
@@ -236,8 +235,7 @@ class WarpSoccerEnv:
         olddist = norm(oldpos[:, :, :2]-before[:, None, :2])
         oldtarget = norm(oldpos[:, :, :2]-self.targets[:, :, :2])
         self.touches.zero_()
-        with wp.ScopedStream(self.stream):
-            wp.capture_launch(self.graph)
+        wp.capture_launch(self.graph,stream=self.stream)
         self.steps += 1
         pos = self.xpos[:, self.bodies]
         upright = self.xmat[:, self.bodies].reshape(self.count, 8, 3, 3)[:, :, 2, 2]

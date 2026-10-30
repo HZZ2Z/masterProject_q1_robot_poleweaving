@@ -18,6 +18,7 @@ def run(options):
     if options.backend == 'warp':
         from q1_4v4.gpu_runner import run as run_gpu
         return run_gpu(options)
+    if getattr(options,'curriculum_mode',None)=='parallel':raise ValueError('Parallel curricula require the Warp backend')
     if options.episode_steps is not None and options.episode_steps < 1:
         raise ValueError('episode-steps must be positive')
     if options.save_interval < 1:
@@ -225,6 +226,7 @@ def parser():
     p.add_argument('--stage', choices=tuple(dict.fromkeys((*COURSES,*STAGES))), default='balance')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--checkpoint')
+    p.add_argument('--curriculum-mode',choices=('serial','parallel'),help='Parallel requires Warp and per-course prerequisite gates')
     p.add_argument('--policy-sharing',choices=('shared','independent'),help='Default shared for fresh runs; resume uses checkpoint layout')
     p.add_argument('--start-course', help='Override checkpoint course by name or zero-based index; reset course gates')
     p.add_argument('--save-interval', type=int, default=50)
