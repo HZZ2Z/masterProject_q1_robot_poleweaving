@@ -23,8 +23,9 @@ run('train.py', '--backend', 'warp', '--device', 'cuda:0', '--no-wandb',
     '--checkpoint', 'logs/warp_stage_balance/last.pt', '--output', 'logs/warp_resume', '--job-type', 'smoke')
 ckpt = torch.load(ROOT/'logs/warp_resume/last.pt', weights_only=False, map_location='cpu')
 assert ckpt['iteration'] == 2 and ckpt['backend'] == 'warp'
+assert ckpt['policy_sharing']=='shared' and len(ckpt['teams'])==1
 for team in ckpt['teams']:
-    assert all(x['step'] == 2 for x in team['actor_optimizer']['state'].values())
+    assert all(x['step'] == 4 for x in team['actor_optimizer']['state'].values())
     assert len(team['value_normalizer']) == 3
     assert team['value_normalizer']['debiasing_term'] > 0
 run('play.py', '--checkpoint', 'logs/warp_resume/last.pt', '--headless', '--steps', '30')
