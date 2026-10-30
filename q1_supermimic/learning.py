@@ -255,6 +255,45 @@ class SoccerAgent(nn.Module):
         n[:,p-2] = elapsed
         goal = (n[:,l['ball_start']] > 7) & (n[:,l['ball_start']+1].abs() < 1.3)
         n[:,p-1] = torch.where(goal, current[:,p-1]+1/50, 0.)
+        if 'football_feedback' in l:
+            n = self.project_task_context(current, n)
+        return n
+
+    def project_task_context(self, current, predicted):
+        """Advance the same football timers and approach windows as real physics."""
+        l, n = self.layout, predicted.clone()
+        cfg, p, dt = l['football_feedback'], l['progress_index'], l['dt']
+        q, r, b, j = l['root_quat'], l['root_xy'], l['ball_start'], l['joints_start']
+        root_quat = n[:,q:q+4][:,[1,2,3,0]]
+        frames = self.foot_kinematics(n[:,j:j+22])
+        gaps = []
+        low, high = n.new_tensor(l['foot_collision_bounds']).unbind(0)
+        for position, rotation in frames.values():
+            foot_position = n[:,r:r+3] + quat_rotate(root_quat, position)
+            foot_quat = quat_mul(root_quat, rotation)
+            local = quat_rotate_inverse(foot_quat, n[:,b:b+3]-foot_position)
+            gaps.append((local-local.clamp(min=low,max=high)).norm(dim=-1)-cfg['ball_radius'])
+        gap = torch.stack(gaps,-1).clamp_min(0).amin(-1)
+        near = gap < cfg['near_ball_gap'] + current[:,p+3]*cfg['near_ball_hysteresis']
+        goal_delta = n.new_tensor([7.,0.])-current[:,b:b+2]
+        goal_direction = goal_delta/goal_delta.norm(dim=-1,keepdim=True).clamp_min(1e-6)
+        speed = ((n[:,b:b+2]-current[:,b:b+2])*goal_direction).sum(-1)/dt
+        near_idle = torch.where(near & (speed <= cfg['ball_progress_speed']),current[:,p+1]+dt,0.)
+        steps = (current[:,p+6]/dt).round().long()
+        anchor_base = torch.where((steps==0)[:,None],n[:,r:r+2],current[:,p+7:p+9])
+        anchor_ball = torch.where((steps==0)[:,None],n[:,b:b+2],current[:,p+9:p+11])
+        window_steps = max(1,round(cfg['approach_window_s']/dt))
+        steps = steps+1
+        finished = steps >= window_steps
+        net_approach = (anchor_base-anchor_ball).norm(dim=-1)-(n[:,r:r+2]-anchor_ball).norm(dim=-1)
+        productive = net_approach >= cfg['approach_progress_speed']*cfg['approach_window_s']
+        far_idle = torch.where(near | (finished & productive),0.,
+                              current[:,p+2]+(finished & ~near).float()*window_steps*dt)
+        pending = torch.where(finished,0,steps).float()*dt
+        n[:,p+1], n[:,p+2], n[:,p+3] = near_idle, far_idle, near.float()
+        n[:,p+4] = ((near_idle-cfg['near_ball_grace_s'])/cfg['near_ball_stall_ramp_s']).clamp(0,1)
+        n[:,p+5] = torch.where(near,0.,((far_idle+pending-cfg['far_ball_grace_s'])/cfg['far_ball_stall_ramp_s']).clamp(0,1))
+        n[:,p+6], n[:,p+7:p+9], n[:,p+9:p+11] = pending, anchor_base, anchor_ball
         return n
 
     @staticmethod
@@ -304,6 +343,10 @@ class SoccerAgent(nn.Module):
 
     def configure_task(self, layout):
         self.layout = layout
+        if 'foot_kinematics' in layout:
+            from utils.kinematics import ResetKinematics
+            fk = layout['foot_kinematics']
+            self.foot_kinematics = ResetKinematics(fk['urdf'], fk['dof_names'], fk['frames'], self.mean.device)
         self.value_domain_positions = [i for i,index in enumerate(layout.get('model_feature_indices', []))
                                        if 262 <= index < 308 or index >= 390]
         if layout.get('model_feature_indices') and not self.model_indices.numel():
@@ -401,7 +444,7 @@ class SoccerAgent(nn.Module):
         speed2 = n[:, v:v+6].square().sum(-1)
         continuation = torch.sigmoid((height-.2)/.015)*torch.sigmoid((50-speed2)/3)
         progress = c[:, l['progress_index']].clamp(0, 1)
-        stall = torch.maximum(c[:, l['progress_index']+4], c[:, l['progress_index']+5]).clamp(0, 1)
+        stall = torch.maximum(n[:, l['progress_index']+4], n[:, l['progress_index']+5]).clamp(0, 1)
         reward = (3*(1-progress*stall) - 50*(height-l['nominal_height']).square() - 5*upright)*dt
         reward = reward - dt*(action-c[:, 57:79]).square().sum(-1)
         # MuJoCo free-joint angular velocity is body-local; task root_acc uses world axes.
@@ -418,8 +461,7 @@ class SoccerAgent(nn.Module):
         forward = (bp-goal).norm(dim=-1) - (bn-goal).norm(dim=-1)
         gain = 1 + c[:, l['group_index']+2].clamp(0, 1)*(l['near_approach_gain']-1)
         reward = reward + progress*dt*(50*gain*approach + 500*forward)
-        near = c[:, l['progress_index']+3].clamp(0, 1)
-        cost = 2*near*c[:, l['progress_index']+4] + (1-near)*c[:, l['progress_index']+5]
+        cost = 2*n[:, l['progress_index']+4] + n[:, l['progress_index']+5]
         reward = reward - progress*dt*l['stall_penalty_factor']*cost
         return .1*(reward-20*(1-continuation)), continuation
 

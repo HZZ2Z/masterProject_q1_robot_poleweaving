@@ -54,6 +54,13 @@ def task_layout(env):
                      + [friction_start, friction_start + 3*e.model.geom('soccer_ball').id]
                      + list(range(body_context_start, body_context_start + 6*e.model.nbody)))
     layout = dict(model_feature_indices=model_indices, context_end=context_end,
+                              foot_kinematics=dict(urdf=e.cfg['asset']['file'], dof_names=e.dof_names,
+                                                   frames=e.cfg['asset']['foot_names']),
+                              football_feedback={key:e.cfg['rewards'][key] for key in (
+                                  'near_ball_gap','near_ball_hysteresis','ball_radius','ball_progress_speed',
+                                  'near_ball_grace_s','near_ball_stall_ramp_s','far_ball_grace_s',
+                                  'far_ball_stall_ramp_s','approach_window_s','approach_progress_speed')},
+                              foot_collision_bounds=e.cfg['asset']['foot_collision_bounds'],
                               velocity_start=170+e.model.nq, velocity_end=170+e.model.nq+e.model.nv,
                               physical_start=170, physical_end=170+e.model.nq+e.model.nv,
                               root_z=172+e.root_addr, root_xy=170+e.root_addr,

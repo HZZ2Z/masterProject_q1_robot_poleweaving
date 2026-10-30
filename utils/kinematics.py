@@ -60,6 +60,7 @@ class ResetKinematics:
         identity[:, 3] = 1
         states = {self.root: (zero, identity)}
         for parent, child, xyz, rotation, axis, index in self.edges:
+            xyz, rotation, axis = xyz.to(dof_pos), rotation.to(dof_pos), axis.to(dof_pos)
             pos, quat = states[parent]
             child_pos = pos + quat_rotate(quat, xyz.expand(n, -1))
             child_quat = quat_mul(quat, rotation.expand(n, -1))

@@ -396,12 +396,13 @@
   },
   "current_mainline": {
     "checked_at": "2026-10-30T10:00:11.657711",
-    "status": "balance_improved_football_not_yet_validated",
+    "status": "football_open_but_no_productive_kicks",
     "changes": [
       "Normalize dynamics by one-step velocity increments",
       "Compact physical critic without noisy history or absolute field translation",
       "Latest completed five-second trial per world for curriculum",
-      "Paired rotating real-physics candidate/incumbent comparison; retain critic learning on actor rejection"
+      "Paired rotating real-physics candidate/incumbent comparison; retain critic learning on actor rejection",
+      "Advance exact football feedback from FK: near/far idle timers, hysteresis, stalls and approach anchors; reward uses post-transition feedback"
     ],
     "candidate_experiment": {
       "source_model": "logs/v7_model_validation/2026-10-30-09-14-41-942873/checkpoint_80.pt",
@@ -557,10 +558,10 @@
     },
     "failed_experiment": "Paired one-step reward-response supervision did not consistently improve held-out response and was removed.",
     "tests": {
-      "passed": 81,
+      "passed": 82,
       "failed": 0
     },
-    "learner_checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_140.pt",
+    "learner_checkpoint": "logs/current_football_validation/2026-10-30-10-21-55-817064/checkpoint_240.pt",
     "independent_balance_audit": {
       "checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_100.pt",
       "sha256": "07c90b40d35a62f6f7c4a5e03cdd9cad3ee0f5d0db4426ff44c3e179a6b55edb",
@@ -683,6 +684,493 @@
       ]
     },
     "curriculum_fix_reason": "Current checkpoint 100 achieved 69.14% and 67.58% fresh Warp survival; stale eight-trial per-world history reported only 60.64% by iteration 130. Keep 65% threshold and use latest completed trial per world.",
-    "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance."
+    "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
+    "football_context_audit": {
+      "uses_exact_next_physical_state": true,
+      "steps": 160,
+      "before_max_error": {
+        "near_idle_s": 0.0200001001,
+        "far_idle_s": 2.0,
+        "near_active": 1.0,
+        "near_stall": 0.01333341,
+        "far_stall": 0.020000219,
+        "approach_window_s": 1.9799999
+      },
+      "after_max_error": {
+        "near_idle_s": 0.0,
+        "far_idle_s": 0.0,
+        "near_active": 0.0,
+        "near_stall": 0.0,
+        "far_stall": 0.0,
+        "approach_window_s": 0.0
+      },
+      "test": "test_football_feedback_projection_and_dense_rewards_match_real_transitions; also verifies actor backward path"
+    },
+    "exploration_audit": {
+      "checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_140.pt",
+      "results": [
+        {
+          "noise_std": 0.025,
+          "seed": 810001,
+          "duration_s": 10.141319274902344,
+          "return": 4.889128684997559,
+          "survival_5s": 0.8125,
+          "horizon_s": 12.0,
+          "fall_fraction": 0.1875,
+          "near_approach_m": 0.04394979029893875,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "near_sample_count": 16,
+          "task_score": 0.04394979029893875
+        },
+        {
+          "noise_std": 0.025,
+          "seed": 910003,
+          "duration_s": 10.17569351196289,
+          "return": 4.916586875915527,
+          "survival_5s": 0.8125,
+          "horizon_s": 12.0,
+          "fall_fraction": 0.1875,
+          "near_approach_m": 0.02540244162082672,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "near_sample_count": 16,
+          "task_score": 0.02540244162082672
+        },
+        {
+          "noise_std": 0.05,
+          "seed": 810001,
+          "duration_s": 7.555663108825684,
+          "return": -17.84217071533203,
+          "survival_5s": 0.625,
+          "horizon_s": 12.0,
+          "fall_fraction": 0.625,
+          "near_approach_m": 0.02741284668445587,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "near_sample_count": 16,
+          "task_score": 0.02741284668445587
+        },
+        {
+          "noise_std": 0.05,
+          "seed": 910003,
+          "duration_s": 8.203797340393066,
+          "return": -16.41683006286621,
+          "survival_5s": 0.65625,
+          "horizon_s": 12.0,
+          "fall_fraction": 0.46875,
+          "near_approach_m": 0.022279150784015656,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.004752069711685181,
+          "near_success_rate": 0.0,
+          "near_sample_count": 16,
+          "task_score": 0.03178329020738602
+        },
+        {
+          "noise_std": 0.1,
+          "seed": 810001,
+          "duration_s": 2.7006239891052246,
+          "return": -40.850650787353516,
+          "survival_5s": 0.0625,
+          "horizon_s": 12.0,
+          "fall_fraction": 1.0,
+          "near_approach_m": 0.04315055161714554,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": -0.00021666288375854492,
+          "near_success_rate": 0.0,
+          "near_sample_count": 16,
+          "task_score": 0.04271722584962845
+        },
+        {
+          "noise_std": 0.1,
+          "seed": 910003,
+          "duration_s": 2.4981234073638916,
+          "return": -37.220481872558594,
+          "survival_5s": 0.03125,
+          "horizon_s": 12.0,
+          "fall_fraction": 1.0,
+          "near_approach_m": 0.042261894792318344,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0006749629974365234,
+          "near_success_rate": 0.0,
+          "near_sample_count": 16,
+          "task_score": 0.04361182078719139
+        }
+      ]
+    },
+    "football_step_audit": {
+      "checkpoint": "logs/current_football_validation/2026-10-30-10-21-55-817064/checkpoint_200.pt",
+      "phase": "football",
+      "seeds": [
+        1110011,
+        1210013,
+        1310027
+      ],
+      "count": 64,
+      "steps": 600,
+      "noise_std": 0.025,
+      "variants": {
+        "0.01": {
+          "updates": [
+            {
+              "loss": 0.21698248386383057,
+              "learning/policy_kl": 0.0043390230275690556,
+              "learning/update_fraction": 0.125
+            },
+            {
+              "loss": 0.21332067251205444,
+              "learning/policy_kl": 0.009940644726157188,
+              "learning/update_fraction": 0.0625
+            },
+            {
+              "loss": 0.21397137641906738,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.00048828125
+            },
+            {
+              "loss": 0.21158844232559204,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.21088168025016785,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.21255239844322205,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.20995405316352844,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.21175241470336914,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.2103019803762436,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.2106914520263672,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.21243822574615479,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.21155735850334167,
+              "learning/policy_kl": 0.00999300368130207,
+              "learning/update_fraction": 0.0
+            }
+          ],
+          "evaluation": [
+            {
+              "duration_s": 10.646947860717773,
+              "return": 5.584420204162598,
+              "survival_5s": 0.859375,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.140625,
+              "near_approach_m": 0.023401180282235146,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0003014802932739258,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.024004140868782997
+            },
+            {
+              "duration_s": 10.37975788116455,
+              "return": 5.390824794769287,
+              "survival_5s": 0.828125,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.171875,
+              "near_approach_m": 0.04056239873170853,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.001269519329071045,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.043101437389850616
+            },
+            {
+              "duration_s": 9.566937446594238,
+              "return": 3.3795905113220215,
+              "survival_5s": 0.765625,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.265625,
+              "near_approach_m": 0.02974351868033409,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0013911128044128418,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.032525744289159775
+            }
+          ]
+        },
+        "0.1": {
+          "updates": [
+            {
+              "loss": 0.21698248386383057,
+              "learning/policy_kl": 0.07313210517168045,
+              "learning/update_fraction": 0.5
+            },
+            {
+              "loss": 0.2063339650630951,
+              "learning/policy_kl": 0.0931364968419075,
+              "learning/update_fraction": 0.0625
+            },
+            {
+              "loss": 0.20695018768310547,
+              "learning/policy_kl": 0.098439060151577,
+              "learning/update_fraction": 0.015625
+            },
+            {
+              "loss": 0.2042984962463379,
+              "learning/policy_kl": 0.09979096055030823,
+              "learning/update_fraction": 0.00390625
+            },
+            {
+              "loss": 0.20339645445346832,
+              "learning/policy_kl": 0.09996175765991211,
+              "learning/update_fraction": 0.00048828125
+            },
+            {
+              "loss": 0.2051769345998764,
+              "learning/policy_kl": 0.09996175765991211,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.20261764526367188,
+              "learning/policy_kl": 0.09996175765991211,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.20441831648349762,
+              "learning/policy_kl": 0.09996175765991211,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.20297281444072723,
+              "learning/policy_kl": 0.09996175765991211,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.20321732759475708,
+              "learning/policy_kl": 0.09996175765991211,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.20497950911521912,
+              "learning/policy_kl": 0.09996175765991211,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.2042611986398697,
+              "learning/policy_kl": 0.09996175765991211,
+              "learning/update_fraction": 0.0
+            }
+          ],
+          "evaluation": [
+            {
+              "duration_s": 10.052254676818848,
+              "return": 4.428463935852051,
+              "survival_5s": 0.796875,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.203125,
+              "near_approach_m": 0.01818666234612465,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0035677924752235413,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.02532224729657173
+            },
+            {
+              "duration_s": 9.858501434326172,
+              "return": 3.0283899307250977,
+              "survival_5s": 0.765625,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.234375,
+              "near_approach_m": 0.03305526450276375,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.001402437686920166,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.03586013987660408
+            },
+            {
+              "duration_s": 9.7081880569458,
+              "return": 3.10360050201416,
+              "survival_5s": 0.78125,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.25,
+              "near_approach_m": 0.023985544219613075,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0012886673212051392,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.026562878862023354
+            }
+          ]
+        },
+        "0.5": {
+          "updates": [
+            {
+              "loss": 0.21698248386383057,
+              "learning/policy_kl": 0.3132241368293762,
+              "learning/update_fraction": 1.0
+            },
+            {
+              "loss": 0.1970362663269043,
+              "learning/policy_kl": 0.4962395131587982,
+              "learning/update_fraction": 0.25
+            },
+            {
+              "loss": 0.19417589902877808,
+              "learning/policy_kl": 0.49938803911209106,
+              "learning/update_fraction": 0.00390625
+            },
+            {
+              "loss": 0.19175730645656586,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.00048828125
+            },
+            {
+              "loss": 0.19071093201637268,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.19270336627960205,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.19022610783576965,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.19203659892082214,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.19061622023582458,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.19056741893291473,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.19236984848976135,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.0
+            },
+            {
+              "loss": 0.19196321070194244,
+              "learning/policy_kl": 0.49978214502334595,
+              "learning/update_fraction": 0.0
+            }
+          ],
+          "evaluation": [
+            {
+              "duration_s": 7.548481464385986,
+              "return": -5.7552490234375,
+              "survival_5s": 0.53125,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.484375,
+              "near_approach_m": 0.0178211759775877,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.013234853744506836,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.04429088346660137
+            },
+            {
+              "duration_s": 7.982547760009766,
+              "return": -5.7340497970581055,
+              "survival_5s": 0.59375,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.4375,
+              "near_approach_m": 0.017242703586816788,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.006395958364009857,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.030034620314836502
+            },
+            {
+              "duration_s": 7.9572343826293945,
+              "return": -2.1304850578308105,
+              "survival_5s": 0.59375,
+              "horizon_s": 12.0,
+              "fall_fraction": 0.453125,
+              "near_approach_m": 0.018872182816267014,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.004150107502937317,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.027172397822141647
+            }
+          ]
+        }
+      },
+      "baseline": [
+        {
+          "duration_s": 10.920388221740723,
+          "return": 6.494123458862305,
+          "survival_5s": 0.890625,
+          "horizon_s": 12.0,
+          "fall_fraction": 0.109375,
+          "near_approach_m": 0.027047691866755486,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "near_sample_count": 32,
+          "task_score": 0.027047691866755486
+        },
+        {
+          "duration_s": 10.279443740844727,
+          "return": 5.196874141693115,
+          "survival_5s": 0.8125,
+          "horizon_s": 12.0,
+          "fall_fraction": 0.1875,
+          "near_approach_m": 0.037597186863422394,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0001967400312423706,
+          "near_success_rate": 0.0,
+          "near_sample_count": 32,
+          "task_score": 0.037990666925907135
+        },
+        {
+          "duration_s": 9.789440155029297,
+          "return": 3.529425621032715,
+          "survival_5s": 0.78125,
+          "horizon_s": 12.0,
+          "fall_fraction": 0.234375,
+          "near_approach_m": 0.031204093247652054,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0013599097728729248,
+          "near_success_rate": 0.0,
+          "near_sample_count": 32,
+          "task_score": 0.0339239127933979
+        }
+      ]
+    },
+    "football_step_conclusion": "Larger noise or KL did not produce productive kicks and reduced survival. Keep original noise and KL; repair task-context implementation instead."
   }
 }

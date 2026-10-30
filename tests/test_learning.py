@@ -233,3 +233,36 @@ def test_balance_value_excludes_absolute_field_location_and_camera_noise():
     changed = state.clone(); changed[:,88:90] += 1
     assert not torch.equal(agent.value_features(agent.normalize(state)),
                            agent.value_features(agent.normalize(changed)))
+
+
+def test_football_feedback_projection_and_dense_rewards_match_real_transitions():
+    from train import task_layout
+    torch.manual_seed(1420011)
+    w = load_environment('cpu', 8)
+    e = w.env
+    e.balance_release_iteration = 0
+    e.soccer_progress = .1
+    e.set_training_iteration(0)
+    w.reset()
+    agent = SoccerAgent(w.state_dim, width=16, history_dim=w.history_dim)
+    agent.configure_task(task_layout(w))
+    p = agent.layout['progress_index']
+    for _ in range(160):
+        current = w.state()
+        action = torch.zeros(8,22)
+        _, target, _, info = w.step(action)
+        physical_oracle = target.clone()
+        physical_oracle[:,p+1:p+11] = current[:,p+1:p+11]
+        projected = agent.project_observations(current,physical_oracle,action)
+        live = ~info['done']
+        torch.testing.assert_close(projected[live,p+1:p+11],target[live,p+1:p+11],atol=2e-5,rtol=2e-5)
+        reward, continuation = agent.task_reward(agent.normalize(current),agent.normalize(target),action)
+        names = ('survival','upright','base_height','action_rate','root_acc','stance_pose',
+                 'ball_distance','goal_distance','pos_still','near_ball_stall')
+        actual = sum(e.extras['rew_terms'][name] for name in names)
+        dense = reward/.1+20*(1-continuation)
+        torch.testing.assert_close(dense[live],actual[live],atol=2e-5,rtol=2e-4)
+    # The full projected rollout must still support actor gradients through FK.
+    agent.make_optimizers()
+    loss = agent.improve_model_policy(w.state(),2,.025)
+    assert torch.isfinite(torch.tensor(loss))
