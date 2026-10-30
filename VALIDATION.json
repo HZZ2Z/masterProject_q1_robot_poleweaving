@@ -3,7 +3,7 @@
   "status": "repair_in_progress_not_stable",
   "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
   "tests": {
-    "passed": 82,
+    "passed": 83,
     "failed": 0
   },
   "current_implementation": [
@@ -18,7 +18,10 @@
     "Preallocated rollout buffers and chunked critic evaluation bound history memory"
   ],
   "current_run": {
-    "status": "preparing fresh bounded training after reset and observation changes",
+    "status": "resuming same run after acceptance correction",
+    "resume_checkpoint": "logs/q1_supermimic/2026-10-30-11-35-22-064054/checkpoint_90.pt",
+    "wandb_run_id": "qyfmtvgv",
+    "target_iteration": 600,
     "productive_kicking_verified": false
   },
   "historical_failure": {
@@ -382,5 +385,13 @@
     "peak_torch_reserved_gib": 8.171875,
     "run": "logs/current_memory_check/2026-10-30-11-24-22-816422",
     "includes_native_policy_evaluation": true
+  },
+  "football_acceptance_regression": {
+    "iteration": 50,
+    "sample_count": 192,
+    "neutral_previous_cohort_survivors": 150,
+    "incumbent_same_cohort_survivors": 145,
+    "candidate_same_cohort_survivors": 148,
+    "fix": "Apply finite-cohort survival tolerance to football baseline and paired incumbent; keep 65% absolute survival floor, 35% fall ceiling and noisy-cohort check."
   }
 }

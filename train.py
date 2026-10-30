@@ -3,6 +3,7 @@ import argparse
 import hashlib
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import random
 import signal
@@ -228,9 +229,15 @@ def main():
     wandb_run = None
     if args.start_training and not args.no_wandb:
         import wandb
+        resume_id = (checkpoint['config'].get('wandb_run_id') or os.environ.get('WANDB_RUN_ID')) if checkpoint else None
+        run_config = {**cfg,'environment':env.cfg,'algorithm':'analytic_model_actor_real_gae_critic','reward_includes_amp':False}
         wandb_run = wandb.init(entity=cfg['wandb_entity'], project=cfg['wandb_project'],
-                              config={**cfg, 'environment': env.cfg, 'algorithm': 'analytic_model_actor_real_gae_critic',
-                                      'reward_includes_amp': False}, dir=str(output), name=output.name)
+                              config=run_config, dir=str(output), name=None if resume_id else output.name,
+                              id=resume_id, resume='must' if resume_id else None)
+        cfg['wandb_run_id'] = wandb_run.id
+        if resume_id:
+            wandb_run.config.update(run_config,allow_val_change=True)
+        (output / 'config.yaml').write_text(yaml.safe_dump(cfg))
         wandb_run.define_metric('iteration')
         wandb_run.define_metric('*', step_metric='iteration')
     replay = TemporalReplay(cfg['replay_steps'], cfg['num_envs'], env.state_dim, cfg['device'])
@@ -302,7 +309,7 @@ def main():
             save_checkpoint(output / f'checkpoint_{start}.pt', agent, env, cfg, start)
             (output / 'last.pt').symlink_to(f'checkpoint_{start}.pt')
         action_check = {}
-        last_applied = last_retained = max(cfg['actor_start_iteration'], start + cfg.get('critic_warmup_iterations', 20)) - 1
+        last_applied = last_retained = max(cfg['actor_start_iteration']-1,start)
         for iteration in range(start + 1, cfg['iterations'] + 1):
             began = time.monotonic()
             if args.smoke and not checkpoint and iteration == 2:
@@ -337,8 +344,7 @@ def main():
             response_ready = (action_check['model_validation/action_response_cosine'] >= cfg['model_action_response_cosine']
                               and action_check['model_validation/action_response_relative_error'] <= cfg['model_action_response_relative_error'])
             actor_loss = 0.
-            actor_enabled = ready and response_ready and iteration >= max(
-                cfg['actor_start_iteration'], start + cfg.get('critic_warmup_iterations', 20))
+            actor_enabled = ready and response_ready and iteration >= cfg['actor_start_iteration']
             if actor_enabled:
                 initial = replay.sample(cfg['batch_size'], 1)[0][:, 0]
                 actor_loss = agent.improve_model_policy(initial, cfg['imagination_horizon'],

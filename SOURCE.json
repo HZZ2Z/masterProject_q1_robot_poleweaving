@@ -39,7 +39,7 @@
         "envs/Q1.yaml": "c88682f8285e06ca70e034a23fb8c099a1a42df7ec3fc63d6f1f474f6195037d",
         "q1_supermimic/environment.py": "5a88d495084d3eebf12959a228303f8d990b3a1ea4a163e18bac4991d6d26a5e",
         "q1_supermimic/learning.py": "79488b0abfbd4ae9bbf1847b826b2bbd4b7c03c93fd131c2409b23e1056ef6b3",
-        "train.py": "d7126c260e4e7434061d591d4c39fd839dfdbe2f520647e5606ec0075cd10965",
+        "train.py": "e60dae80c4d5c5119a2ef67a7e198c40917d3f57b8824f45d989b784d1c72fa9",
         "play.py": "6fd56a4e0135c8a10af76033e9243f99566121cc9be6c137a3ebe97a7de4d5a1",
         "utils/kinematics.py": "5cd088228d16d124d300820bdd173a56001a2705991b3e27f608a0436189d24c"
       }
@@ -62,10 +62,10 @@
     "date": "2026-10-30",
     "method": "Physical model actor with matched camera observations, compact real-GAE critic, visible reset stances and independent noisy-cohort curriculum gate",
     "files": {
-      "train.py": "d7126c260e4e7434061d591d4c39fd839dfdbe2f520647e5606ec0075cd10965",
+      "train.py": "e60dae80c4d5c5119a2ef67a7e198c40917d3f57b8824f45d989b784d1c72fa9",
       "q1_supermimic/learning.py": "79488b0abfbd4ae9bbf1847b826b2bbd4b7c03c93fd131c2409b23e1056ef6b3",
-      "q1_supermimic/safety.py": "93710975268ac7114f214d3ebbd8f40f481b833ae457140f70a8835ea49948bd",
-      "configs/soccer.yaml": "c7630e6cb96045222cc0c1fd42179f5a740fd325edaee0dfefca73476ba4e7c3",
+      "q1_supermimic/safety.py": "d6f8021c11e11b02a4ad4699709c897874d01a936fd17381c379bac395ac4b08",
+      "configs/soccer.yaml": "d738db9759086ac3012f68b9fc06ba3879c31ee4ea2ae40e5bacd53fe82a0051",
       "utils/kinematics.py": "5cd088228d16d124d300820bdd173a56001a2705991b3e27f608a0436189d24c",
       "q1_supermimic/environment.py": "5a88d495084d3eebf12959a228303f8d990b3a1ea4a163e18bac4991d6d26a5e",
       "envs/q1.py": "0e844a7847b071512d6e3a8f3c4e113948115810af8ed2f175e8115c363eedf2",
@@ -75,7 +75,7 @@
       "Not a full upstream tracking trainer or paper reproduction",
       "No AMP discriminator"
     ],
-    "runtime_status": "Visible near starts and 50-frame visual history integrated and checked; fresh football learning pending. No productive kicking claim.",
+    "runtime_status": "Visible-start training reached 90 with no productive kicks; resume same weights and W&B run after finite-cohort acceptance correction.",
     "mainline": "single current implementation, under repair"
   }
 }

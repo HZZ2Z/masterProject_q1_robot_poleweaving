@@ -69,3 +69,14 @@ def test_soccer_gate_prefers_task_progress_to_standing_return(monkeypatch):
     falling = dict(moving, task_score=10., survival_5s=.2, fall_fraction=.8)
     monkeypatch.setattr(safety, 'evaluate_actor', lambda *a, **kw: dict(falling))
     assert gate.check(agent, .3)['evaluation/policy_accepted'] == 0
+
+
+def test_soccer_gate_tolerates_finite_baseline_cohorts_without_losing_safety_floor():
+    from q1_supermimic.safety import soccer_candidate_is_safe
+    baseline = {'survival_5s':.78125}
+    # Real iteration-50 proposal: 148/192 survive, better than the paired
+    # incumbent's 145/192 but below a different cohort's 150/192 baseline.
+    candidate = {'survival_5s':148/192,'fall_fraction':44/192}
+    assert soccer_candidate_is_safe(candidate,baseline,count=192)
+    assert not soccer_candidate_is_safe({'survival_5s':.64,'fall_fraction':.3},baseline,count=192)
+    assert not soccer_candidate_is_safe({'survival_5s':.8,'fall_fraction':.36},baseline,count=192)

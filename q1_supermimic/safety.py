@@ -72,9 +72,9 @@ def evaluate_actor(agent, progress=0., count=32, steps=300, seed=104729, zero=Fa
                 'task_score': approach + .5 * kick_rate + 2 * forward + 5 * success}
 
 
-def soccer_candidate_is_safe(measured, baseline):
+def soccer_candidate_is_safe(measured, baseline, count=32):
     # Fixed floor, independent of total reward and of previous score improvements.
-    return (measured['survival_5s'] >= max(.65, baseline['survival_5s'])
+    return (measured['survival_5s'] >= max(.65, survival_floor(baseline['survival_5s'],count))
             and measured['fall_fraction'] <= .35)
 
 
@@ -137,7 +137,8 @@ class SafetyGate:
             candidate = incumbent = self._measure(agent, phase, seeds)
             noisy = incumbent_noisy = self._measure(agent, phase, seeds, noise_std=self.noise_std)
         if phase:
-            safe = soccer_candidate_is_safe(candidate,self.baseline)
+            safe = (soccer_candidate_is_safe(candidate,self.baseline,count=n)
+                    and candidate['survival_5s'] >= survival_floor(incumbent['survival_5s'],n))
         else:
             floor = max(survival_floor(incumbent['survival_5s'],n),survival_floor(self.baseline['survival_5s'],n))
             safe = (candidate['survival_5s'] >= floor
