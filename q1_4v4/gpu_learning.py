@@ -1,6 +1,7 @@
 """GPU-resident rollout/GAE using the official MAPPO ppo_update implementation."""
 import torch
 from torch import nn
+from .distributed import enabled, moments
 
 
 class DeviceValueNorm(nn.Module):
@@ -18,8 +19,13 @@ class DeviceValueNorm(nn.Module):
 
     @torch.no_grad()
     def update(self, x):
-        self.running_mean.mul_(.99999).add_(x.mean(0)*.00001)
-        self.running_mean_sq.mul_(.99999).add_(x.square().mean(0)*.00001)
+        if enabled():
+            mean, variance = moments(x)
+            second = variance + mean.square()
+        else:
+            mean, second = x.mean(0), x.square().mean(0)
+        self.running_mean.mul_(.99999).add_(mean*.00001)
+        self.running_mean_sq.mul_(.99999).add_(second*.00001)
         self.debiasing_term.mul_(.99999).add_(.00001)
 
     def normalize(self, x):
@@ -56,7 +62,11 @@ class GpuRollout:
         adv = self.returns[:, :, sl]-self.values[:-1, :, sl]
         valid = torch.ones_like(adv,dtype=torch.bool) if active is None else active[:,sl][None,:,:,None].expand_as(adv)
         selected_adv=adv[valid]
-        adv = (adv-selected_adv.mean())/(selected_adv.std(unbiased=False)+1e-5)
+        if enabled():
+            mean, variance = moments(selected_adv)
+            adv = (adv-mean)/(variance.sqrt()+1e-5)
+        else:
+            adv = (adv-selected_adv.mean())/(selected_adv.std(unbiased=False)+1e-5)
         norm = trainer.value_normalizer
         # Snapshot normalized old values before ppo_update changes ValueNorm statistics.
         old_values = norm.normalize(self.values[:-1, :, sl]).detach()

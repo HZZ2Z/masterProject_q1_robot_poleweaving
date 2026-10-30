@@ -40,7 +40,9 @@ view=ws.Workspace(entity='mohismlab-robotics',project='q1-humanoid-kick-4v4',nam
         chart('非脚部接地','05_步态/非脚部着地比例')]),
     ws.Section(name='04 性能',is_open=False,panels=[
         chart('球场控制步/秒','04_性能/球场步每秒'),
-        chart('Warp + Torch 进程显存','04_性能/进程显存_GiB'),
+        chart('GPU数量与并行球场','04_性能/GPU数量','04_性能/并行球场总数'),
+        chart('各卡 Warp + Torch 显存','04_性能/GPU0显存_GiB','04_性能/GPU1显存_GiB','04_性能/GPU2显存_GiB','04_性能/GPU3显存_GiB','04_性能/GPU4显存_GiB'),
+        chart('总显存','04_性能/GPU总显存_GiB'),
         chart('PPO近似KL','debug/red_approx_kl','debug/blue_approx_kl'),
         chart('PPO裁剪比例','debug/red_clip_fraction','debug/blue_clip_fraction')])])
 existing_path=root/'artifacts/dashboard.json'

@@ -46,6 +46,18 @@ Python 3.11、PyTorch 2.9.0/CUDA 12.8、MuJoCo/MuJoCo Warp 3.17.0、Warp 1.18.0�
 
 `--iterations` 是本次额外更新数。保存双方网络、优化器、ValueNorm、课程、迭代与随机状态，仿真世界重新初始化。SIGINT/SIGTERM 在当前迭代完成后保存退出。旧检查点保留权重、优化器和全局迭代；新增相位和速度指令使actor观测由121扩至128维，critic由972扩至1028维，输入权重和优化器矩按字段迁移，新列初始化为零。奖励变更时重置ValueNorm。通过 `--start-course 2` 可从新课程2重新认证；未指定时按检查点课程恢复或按迁移规则重新认证。
 
+多 GPU 同步训练使用独立入口，各卡共同更新同一套红蓝策略：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4 ./scripts/python.sh -m torch.distributed.run \
+  --standalone --nproc_per_node=5 train_distributed.py \
+  --num-envs 4096 --horizon 128 --epochs 5 --iterations 20000 \
+  --checkpoint logs/train/last.pt --nconmax 1536 --njmax 6144 \
+  --learning-rate 0.0001 --save-interval 1 --output logs/distributed
+```
+
+多卡入口的 `--num-envs` 是**每卡球场数**，上例共 20,480 场、163,840 台机器人；4096 场适用于已验证的 96GB 显卡，其他硬件应先测显存和吞吐。每个进程只访问分配给它的 GPU，梯度先跨卡平均再裁剪，优势和 ValueNorm 使用全体样本统计。结束回合跨卡交错汇总，所有卡使用相同的课程门控；只有主进程写 checkpoint、TensorBoard 和 W&B。checkpoint 保存每卡随机状态，并检查各卡策略参数完全一致；扩展单卡权重时自动为其他卡分配不同随机种子。W&B 的性能组包含全局吞吐、GPU 数量、并行球场总数、各卡和总显存；通过 `WANDB_RUN_ID` 和 `WANDB_RESUME=must` 可衔接原 run。
+
 ## 课程
 
 28 阶段按重心转移、交替踏步、低速步行、全向移动、启停、足球技能和逐级对抗组织。完整清单见 CURRICULUM.md。

@@ -12,6 +12,7 @@ from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
 from .learning import make_args, make_team, save_team, load_team
 from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES
+from .distributed import Distributed
 
 
 def run(options):
@@ -22,6 +23,7 @@ def run(options):
     device = torch.device(options.device)
     if device.type != 'cuda':
         raise ValueError('--backend warp requires --device cuda:0')
+    distributed = Distributed(device)
     torch.set_num_threads(2)
     torch.manual_seed(options.seed)
     np.random.seed(options.seed)
@@ -53,10 +55,26 @@ def run(options):
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
-        torch.set_rng_state(checkpoint['torch_rng'].cpu())
-        torch.cuda.set_rng_state_all([x.cpu() for x in checkpoint['cuda_rng']])
-        env.generator.set_state(checkpoint['env_rng'].cpu())
-        np.random.set_state(checkpoint['numpy_rng'])
+        states = checkpoint.get('distributed_rng', [])
+        state = states[distributed.rank] if len(states) == distributed.world_size else checkpoint
+        if len(states) == distributed.world_size or distributed.primary:
+            torch.set_rng_state(state['torch_rng'].cpu())
+            torch.cuda.set_rng_state_all([x.cpu() for x in state['cuda_rng']])
+            env.generator.set_state(state['env_rng'].cpu())
+            np.random.set_state(state['numpy_rng'])
+        else:
+            # Expanding a single-GPU checkpoint must not duplicate every rollout.
+            seed = options.seed + start + 100003*distributed.rank
+            torch.manual_seed(seed)
+            env.generator.manual_seed(seed)
+            np.random.seed(seed)
+    elif not distributed.primary:
+        seed = options.seed + 100003*distributed.rank
+        torch.manual_seed(seed)
+        env.generator.manual_seed(seed)
+        np.random.seed(seed)
+    for policy, _, _ in teams:
+        distributed.attach(policy)
     if options.learning_rate is not None:
         for policy,_,_ in teams:
             for opt in (policy.actor_optimizer,policy.critic_optimizer):
@@ -68,8 +86,11 @@ def run(options):
     ones = torch.ones((options.num_envs*4, 1), device=device)
     out = Path(options.output)
     out.mkdir(parents=True, exist_ok=True)
-    (out/'config.json').write_text(json.dumps(vars(options), indent=2))
-    writer = SummaryWriter(str(out/'tensorboard'))
+    if distributed.primary:
+        config = dict(vars(options), world_size=distributed.world_size,
+                      total_num_envs=options.num_envs*distributed.world_size)
+        (out/'config.json').write_text(json.dumps(config, indent=2))
+    writer = SummaryWriter(str(out/'tensorboard')) if distributed.primary else None
     wandb_run = None
     stop = False
 
@@ -90,28 +111,37 @@ def run(options):
 
     def save(iteration, name='last.pt'):
         nonlocal last_saved
+        rng = dict(torch_rng=torch.get_rng_state(), cuda_rng=torch.cuda.get_rng_state_all(),
+                   env_rng=env.generator.get_state(), numpy_rng=np.random.get_state())
+        rank_rng = distributed.objects(rng)
+        difference = distributed.check_parameters(teams)
+        if name=='last.pt':last_saved=iteration
+        if not distributed.primary:
+            return
         payload = dict(version=4, reward_version=3, obs_dim=obs_dim, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
-                       torch_rng=torch.get_rng_state(), cuda_rng=torch.cuda.get_rng_state_all(),
-                       env_rng=env.generator.get_state(), numpy_rng=np.random.get_state())
+                       **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
+                       parameter_max_difference=difference)
         temp = out/(name+'.tmp')
         torch.save(payload, temp)
         temp.replace(out/name)
-        if name=='last.pt':last_saved=iteration
 
     reset_stage()
     iteration = start
     try:
-        if options.wandb:
+        if options.wandb and distributed.primary:
             import wandb
             wandb_run = wandb.init(entity='mohismlab-robotics', project='q1-humanoid-kick-4v4',
                 name=options.run_name or out.name, job_type=options.job_type,
                 tags=['q1', '4v4', 'mappo', 'warp', options.job_type], config=vars(options),
                 dir=str(out.resolve()), settings=wandb.Settings(init_timeout=60))
+            wandb_run.config.update(dict(vars(options), world_size=distributed.world_size,
+                total_num_envs=options.num_envs*distributed.world_size), allow_val_change=True)
             wandb_run.define_metric('iteration')
             wandb_run.define_metric('*', step_metric='iteration')
             wandb_run.define_metric('debug/*', hidden=True)
             (out/'wandb_run.json').write_text(json.dumps({'id': wandb_run.id, 'url': wandb_run.url}))
+        distributed.maximum(0)  # All workers wait for primary W&B initialization.
         for iteration in range(start+1, start+options.iterations+1):
             torch.cuda.synchronize(device)
             tic = time.perf_counter()
@@ -180,12 +210,18 @@ def run(options):
                 metrics[f'{("red", "blue")[t]}/reward'] = (raw_reward[t]/options.horizon).item()
             if not all(np.isfinite(x) for x in metrics.values()):
                 raise FloatingPointError('Nonfinite MAPPO update')
-            episodes = torch.cat(completed).cpu().tolist() if completed else []
+            local_episodes = torch.cat(completed) if completed else torch.empty((0,9),device=device)
+            episodes = distributed.rows(local_episodes).cpu().tolist()
+            if distributed.world_size > 1:
+                averaged = distributed.mean(torch.tensor(list(metrics.values()),device=device)).cpu().tolist()
+                metrics = dict(zip(metrics,averaged))
+                skill_stats = distributed.mean(skill_stats)
+                gait_stats = distributed.mean(gait_stats)
             for stable, success, _, _, duration, progress, touch, recover, team in episodes:
                 curriculum.record(dict(stage=env.course,stable=stable,success=success,duration=duration,
                                        progress=progress,touch=touch,recover=recover,team=team))
             torch.cuda.synchronize(device)
-            seconds = time.perf_counter()-tic
+            seconds = distributed.maximum(time.perf_counter()-tic)
             # Torch's allocator excludes Warp, so also record whole-process NVML usage.
             query = subprocess.run(['nvidia-smi', '--query-compute-apps=pid,used_memory',
                                     '--format=csv,noheader,nounits'], capture_output=True, text=True, timeout=5)
@@ -193,16 +229,21 @@ def run(options):
                 fields = line.split(',')
                 if len(fields) == 2 and fields[0].strip() == str(os.getpid()):
                     metrics['gpu_process_used_gib'] = float(fields[1].strip())/1024
+            memories = distributed.objects(metrics.get('gpu_process_used_gib',0.))
+            metrics['gpu_process_used_gib'] = max(memories)
             metrics.update(iteration=iteration, seconds=seconds, backend='warp',
+                           world_size=distributed.world_size, total_num_envs=options.num_envs*distributed.world_size,
+                           gpu_total_used_gib=sum(memories), gpu_worker_used_gib=memories,
                            episodes=len(episodes), goals=sum(bool(x[2]) for x in episodes),
                            falls=sum(bool(x[3]) for x in episodes),
-                           env_steps_per_second=options.num_envs*options.horizon/seconds,
-                           agent_steps_per_second=8*options.num_envs*options.horizon/seconds,
+                           env_steps_per_second=distributed.world_size*options.num_envs*options.horizon/seconds,
+                           agent_steps_per_second=8*distributed.world_size*options.num_envs*options.horizon/seconds,
                            cuda_peak_allocated_gib=torch.cuda.max_memory_allocated(device)/2**30,
                            curriculum=curriculum.metrics())
-            with (out/'metrics.jsonl').open('a') as stream:
-                enriched=dict(metrics,gait=dict(zip(('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact'),(gait_stats/options.horizon).cpu().tolist())))
-                stream.write(json.dumps(enriched)+'\n')
+            if distributed.primary:
+                with (out/'metrics.jsonl').open('a') as stream:
+                    enriched=dict(metrics,gait=dict(zip(('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact'),(gait_stats/options.horizon).cpu().tolist())))
+                    stream.write(json.dumps(enriched)+'\n')
             cm = curriculum.metrics()
             gm=dict(zip(('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact'),(gait_stats/options.horizon).cpu().tolist()))
             metrics['gait']=gm
@@ -223,7 +264,12 @@ def run(options):
                      '01_总览/直立程度':ss['upright'],
                      '04_性能/球场步每秒':metrics['env_steps_per_second'],
                      '04_性能/进程显存_GiB':metrics.get('gpu_process_used_gib',0.),
+                     '04_性能/GPU数量':distributed.world_size,
+                     '04_性能/并行球场总数':options.num_envs*distributed.world_size,
+                     '04_性能/GPU总显存_GiB':sum(memories),
                      '阶段名称':env.course,'晋级状态':cm['gate_reason']}
+            for rank,memory in enumerate(memories):
+                cloud[f'04_性能/GPU{rank}显存_GiB']=memory
             for key,label in [('slip_mps','支撑脚滑移_mps'),('phase_match','接触相位匹配率'),('velocity_error','速度误差_mps'),
                               ('left_steps','左脚有效步数'),('right_steps','右脚有效步数'),('clearance_m','足底离地_米'),
                               ('weight_shifts','有效重心切换'),('nonfoot_contact','非脚部着地比例')]:
@@ -232,12 +278,13 @@ def run(options):
                 for k in ('value_loss','policy_loss','dist_entropy','actor_grad_norm','critic_grad_norm','ratio','approx_kl','clip_fraction'):
                     cloud['debug/'+side+'_'+k] = metrics[side+'/'+k]
             for k, v in cloud.items():
-                if isinstance(v, (float, int)):
+                if writer and isinstance(v, (float, int)):
                     writer.add_scalar(k, v, iteration)
-            writer.flush()
+            if writer:writer.flush()
             if wandb_run:
                 wandb_run.log(cloud, step=iteration)
-            print(json.dumps(metrics), flush=True)
+            if distributed.primary:print(json.dumps(metrics), flush=True)
+            stop = bool(distributed.maximum(int(stop)))
             old = curriculum.state_dict()
             if curriculum.advance():
                 promoted = curriculum.state_dict()
@@ -259,13 +306,16 @@ def run(options):
             diagnostic['latched_flags']=wp.to_torch(env.failure).cpu().tolist()
             diagnostic['overflow_flags']=wp.to_torch(env.data.overflow).cpu().tolist()
         except Exception as secondary: diagnostic['diagnostic_error']=str(secondary)
-        (out/'physics_failure.json').write_text(json.dumps(diagnostic,indent=2))
+        failure_name = 'physics_failure.json' if distributed.primary else f'physics_failure_rank{distributed.rank}.json'
+        (out/failure_name).write_text(json.dumps(diagnostic,indent=2))
         if wandb_run:
             wandb_run.finish(exit_code=1)
             wandb_run=None
         raise
     finally:
-        writer.close()
+        if writer:writer.close()
         if wandb_run:
             wandb_run.finish()
+    if distributed.world_size > 1:
+        torch.distributed.destroy_process_group()
     return out/'last.pt'
