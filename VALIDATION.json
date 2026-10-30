@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-10-30T11:34:33.784076",
+  "checked_at": "2026-10-30T12:45:01.735319",
   "status": "repair_in_progress_not_stable",
   "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
   "tests": {
-    "passed": 83,
+    "passed": 85,
     "failed": 0
   },
   "current_implementation": [
@@ -18,7 +18,7 @@
     "Preallocated rollout buffers and chunked critic evaluation bound history memory"
   ],
   "current_run": {
-    "status": "running under validation; kicking not demonstrated",
+    "status": "normalization repair validated for resume; no productive kicking verified",
     "resume_checkpoint": "logs/q1_supermimic/2026-10-30-11-35-22-064054/checkpoint_90.pt",
     "wandb_run_id": "qyfmtvgv",
     "target_iteration": 600,
@@ -541,5 +541,31 @@
       }
     },
     "conclusion": "All scripted exploration candidates failed to produce a kick surviving the 8-second trial. These are controller/data-coverage diagnostics, not learned-policy performance. No candidate adopted."
+  },
+  "physical_normalization_repair": {
+    "problem": "Global normalized-state clipping lost goal-scale displacement; static ball feature scales collapsed velocities above 0.02 m/s to the same model input.",
+    "fix": "Lossless physical affine normalization, unchanged actor observation clipping, explicit ball motion input/output scale floors; bounded model features; refit input sensitivities on resume.",
+    "migration_check": {
+      "evidence": "logs/current_normalization_resume_check_retry.log",
+      "sha256": "94dd64947f75fcceeadbe243b11e91a1d3d602370206af566c81e8307eb75768",
+      "iterations": 10,
+      "first_physical_mse": 0.19581089913845062,
+      "last_physical_mse": 0.11570404469966888,
+      "actor_gate_passed": false,
+      "kick_rate": 0.0
+    },
+    "rejected_migration": "Unbounded model features plus rescaled input weights caused autoregressive divergence; rejected by GPU check and not deployed."
+  },
+  "objective_direction_check": {
+    "evidence": "logs/current_objective_direction_probe.json",
+    "sha256": "694861efed26215064500f969545430079a0fb0a2203e2b2d8f108c89f091d13",
+    "scope": "Small open-loop action perturbations from near initial states; does not establish long-term policy value accuracy or kicking progress.",
+    "near_trials_per_objective_horizon": 24,
+    "mean_real_improved_fraction": {
+      "8_dense": 1.0,
+      "8_full": 1.0,
+      "32_dense": 0.9583333333333334,
+      "32_full": 0.9583333333333334
+    }
   }
 }

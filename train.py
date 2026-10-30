@@ -168,6 +168,7 @@ def main():
     cfg['task_layout'] = task_layout(env)
     cfg['checkpoint_schema'] = 7
     cfg['survival_statistic'] = 'independent_noisy_first_episode_cohort'
+    cfg['physical_state_normalization'] = 'lossless_affine_ball_motion_floors'
     try:
         cfg['code_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         cfg['code_dirty'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode != 0
@@ -213,6 +214,8 @@ def main():
         for optimizer, state in zip((agent.model_optimizer, agent.actor_optimizer,
                                      agent.critic_optimizer), checkpoint['optimizers']):
             optimizer.load_state_dict(state)
+        if agent.ensure_ball_motion_scales(resuming=True):
+            print('Restored model with physical ball-motion scales; actor and critic weights retained.', flush=True)
         torch.set_rng_state(checkpoint['torch_rng'].cpu())
         np.random.set_state(checkpoint['numpy_rng'])
         random.setstate(checkpoint['python_rng'])

@@ -312,3 +312,49 @@ def test_policy_uses_encoder_angles_and_visual_history_without_true_ball_state()
     changed[:,390:-w.history_dim] += 10  # Physical parameters and curriculum labels.
     torch.testing.assert_close(agent.policy_observation(agent.normalize(changed)),observation)
     assert w.history.shape[1] == w.cfg['runner']['num_stack'] == 50
+
+
+def test_physical_normalization_preserves_goal_displacement_and_kick_speed():
+    from train import task_layout
+    w = load_environment('cpu',4)
+    a = SoccerAgent(w.state_dim,width=16,history_dim=w.history_dim)
+    a.configure_task(task_layout(w))
+    initial = w.state()
+    a.calibrate(initial)
+    moving = initial.clone()
+    moving[:,a.layout['ball_start']] = 7.
+    moving[:,a.layout['ball_velocity']] = torch.tensor([.02,.5,2.,5.])
+    reconstructed = a.normalize(moving)*a.scale+a.mean
+    torch.testing.assert_close(reconstructed,moving)
+    torch.testing.assert_close(a.policy_observation(a.normalize(initial)),
+                               a.policy_observation(a.normalize(moving)))
+    features = ((a.physical_features(reconstructed)-a.model_mean)/a.model_scale).clamp(-20,20)
+    index = (a.model_indices == a.layout['ball_velocity']).nonzero().item()
+    assert torch.unique(features[:,index]).numel() == 4
+    assert a.model_scale[index] >= 1.
+    offset = a.layout['ball_velocity']-a.layout['velocity_start']
+    assert a.velocity_delta_scale[offset] >= .1
+
+
+def test_resumed_ball_scaling_preserves_output_units_at_rest_and_actor():
+    import copy
+    from train import task_layout
+    w = load_environment('cpu',4)
+    a = SoccerAgent(w.state_dim,width=16,history_dim=w.history_dim)
+    a.configure_task(task_layout(w))
+    states = w.state()[:1].expand(4,-1).clone()
+    a.calibrate(states)
+    # At the calibration mean, static-ball inputs remain zero after migration.
+    ball = a.layout['ball_velocity']
+    a.model_scale[(a.model_indices>=ball)&(a.model_indices<ball+6)] = .001
+    offset = ball-a.layout['velocity_start']
+    a.velocity_delta_scale[offset:offset+6] = .001
+    before = copy.deepcopy(a.state_dict())
+    actions = torch.zeros(4,22)
+    predicted = a.predict(a.normalize(states),actions)[0].detach()
+    assert a.ensure_ball_motion_scales(resuming=True)
+    torch.testing.assert_close(a.predict(a.normalize(states),actions)[0],predicted,atol=2e-5,rtol=2e-5)
+    for key,value in a.state_dict().items():
+        if key.startswith(('actor.','critic.')):
+            torch.testing.assert_close(value,before[key])
+    assert not a.ensure_ball_motion_scales(resuming=True)

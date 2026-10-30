@@ -94,22 +94,59 @@ class SoccerAgent(nn.Module):
             self.velocity_delta_scale.copy_(delta_scale.clamp_min(.001))
         if actions is not None:
             self.model_action_scale.copy_(actions.std(0, unbiased=False).clamp(.025, .25))
+        self.ensure_ball_motion_scales()
+
+    @torch.no_grad()
+    def ensure_ball_motion_scales(self, resuming=False):
+        """Static warmup must not make contact speeds thousands of model units.
+
+        Input bounds cover ordinary ball motion (20 m/s, 200 rad/s), even when
+        warmup never moves the ball. On resume, preserve output units but refit
+        input sensitivities: expanding formerly clipped inputs while multiplying
+        their weights can destabilize autoregressive predictions.
+        """
+        if not self.layout or 'ball_velocity' not in self.layout or not self.model_indices.numel():
+            return False
+        l = self.layout
+        floors = self.model_scale.new_zeros(self.model_scale.shape)
+        for offset, minimum in enumerate((1., 1., 1., 10., 10., 10.)):
+            floors[self.model_indices == l['ball_velocity']+offset] = minimum
+        for offset in range(3):
+            floors[self.model_indices == l['ball_start']+offset] = 1.
+        new_input = torch.maximum(self.model_scale, floors)
+        new_delta = self.velocity_delta_scale.clone()
+        start = l['ball_velocity']-l['velocity_start']
+        new_delta[start:start+6] = torch.maximum(new_delta[start:start+6], new_delta.new_tensor([.1,.1,.1,1.,1.,1.]))
+        changed = not (torch.equal(new_input,self.model_scale) and torch.equal(new_delta,self.velocity_delta_scale))
+        if changed and resuming:
+            ratio = self.velocity_delta_scale/new_delta
+            self.dynamics[-1].weight.mul_(ratio[:,None])
+            self.dynamics[-1].bias.mul_(ratio)
+            if self.model_optimizer is not None:
+                for parameter in (self.dynamics[0].weight, self.outcomes[0].weight,
+                                  self.dynamics[-1].weight, self.dynamics[-1].bias):
+                    self.model_optimizer.state.pop(parameter, None)
+        self.model_scale.copy_(new_input)
+        self.velocity_delta_scale.copy_(new_delta)
+        return changed
 
     def normalize(self, state):
-        return ((state - self.mean) / self.scale).clamp(-20, 20)
+        # Physical state must remain invertible: a moving ball can leave the
+        # warmup range. Only policy observations are clipped, below.
+        return (state - self.mean) / self.scale
 
     def policy_observation(self, normalized, mean=None, scale=None):
         mean = self.mean if mean is None else mean
         scale = self.scale if scale is None else scale
-        obs = normalized[..., :self.obs_dim]
-        history = normalized[..., -self.history_dim:] if self.history_dim else None
+        obs = normalized[..., :self.obs_dim].clamp(-20,20)
+        history = normalized[..., -self.history_dim:].clamp(-20,20) if self.history_dim else None
         if self.layout and self.layout.get('policy_absolute_joints'):
             # Encoder angles plus the known commanded neutral pose, never ball
             # ground truth. Absolute proprioception distinguishes reset stances.
             defaults = normalized[...,368:390]*scale[368:390]+mean[368:390]
             factor = self.layout['normalization']['dof_pos']
             obs = obs.clone()
-            obs[...,13:35] = (normalized[...,13:35]*scale[13:35]+mean[13:35])/factor+defaults
+            obs[...,13:35] = (obs[...,13:35]*scale[13:35]+mean[13:35])/factor+defaults
             if history is not None:
                 raw = history*scale[-self.history_dim:]+mean[-self.history_dim:]
                 raw = raw.reshape(*raw.shape[:-1],-1,self.obs_dim)
