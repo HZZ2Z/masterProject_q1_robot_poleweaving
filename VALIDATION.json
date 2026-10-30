@@ -268,5 +268,58 @@
     "productive_kicks_all_candidates": 0,
     "conclusion": "Longer horizon did not improve real approach or kicking; not adopted.",
     "evidence": "logs/current_horizon_audit.json"
+  },
+  "safe_visible_pose_audit": {
+    "backend": "MuJoCo Warp",
+    "camera_unchanged": true,
+    "noise_std": 0.025,
+    "pose": {
+      "root_pitch": 0.45,
+      "hip_pitch": -1.05,
+      "knee": 0.9,
+      "ankle_pitch": -0.3
+    },
+    "results": [
+      {
+        "seed": 1910041,
+        "count": 128,
+        "survival_12s": 1.0,
+        "visible_fraction": 0.8951033353805542,
+        "initial_gap_range": [
+          0.10105613619089127,
+          0.2478550374507904
+        ],
+        "action_clipped_fraction": 0.0,
+        "evidence": "logs/current_visible_pose_confirm_1910041.json",
+        "sha256": "ff615b15befd4417fd12fc884ba8eefe99b5b4e6b43070daba41e17ffcb3a810"
+      },
+      {
+        "seed": 2010049,
+        "count": 128,
+        "survival_12s": 1.0,
+        "visible_fraction": 0.8927596211433411,
+        "initial_gap_range": [
+          0.10002680867910385,
+          0.24930822849273682
+        ],
+        "action_clipped_fraction": 0.0,
+        "evidence": "logs/current_visible_pose_confirm_2010049.json",
+        "sha256": "dd08d9a241739ca17843f9d1b8996c6c82c0d61775825ae74a211f6819ab0ed3"
+      },
+      {
+        "seed": 2110051,
+        "count": 128,
+        "survival_12s": 1.0,
+        "visible_fraction": 0.8896607160568237,
+        "initial_gap_range": [
+          0.10158831626176834,
+          0.24925482273101807
+        ],
+        "action_clipped_fraction": 0.0,
+        "evidence": "logs/current_visible_pose_confirm_2110051.json",
+        "sha256": "d95c6b04944880aab23d4947e189e16d7a39edc95613b499bb9ddb81b1f74363"
+      }
+    ],
+    "scope": "Constant-pose hold only. Not yet integrated into reset/control pipeline and not a kicking-policy result."
   }
 }
