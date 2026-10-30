@@ -358,9 +358,9 @@ def test_five_second_cohort_counts_failures_and_does_not_double_count(cfg):
     env.extras['success'] = torch.zeros(4)
     env._record_survival_trials()
     assert env.survival_rate_5s == pytest.approx(2 / 3)
-    before = env._survival_trial_mass
+    before = env._survival_trial_mass.clone()
     env._record_survival_trials()
-    assert env._survival_trial_mass == before
+    torch.testing.assert_close(env._survival_trial_mass, before)
     env.cfg['curriculum'] = {'balance_until_iteration': 0, 'release_active_5s_fraction': .8,
                              'use_cohort_gate': True}
     env.episode_length_buf[:] = 300
@@ -689,3 +689,17 @@ def test_near_start_gpu_reset_geometry(cfg):
     env.batch.check()
 
 
+
+
+def test_survival_curriculum_does_not_overweight_repeatedly_failing_worlds(cfg):
+    env = Q1(cfg); env.reset()
+    env.episode_length_buf[:] = torch.tensor([250,250,10,10])
+    env.reset_buf[:] = torch.tensor([False,False,True,True])
+    env.extras['fall'] = torch.tensor([0.,0.,1.,1.])
+    env.extras['success'] = torch.zeros(4)
+    env._record_survival_trials()
+    assert env.survival_rate_5s == pytest.approx(.5)
+    for _ in range(20):
+        env._survival_checked[2:] = False
+        env._record_survival_trials()
+    assert env.survival_rate_5s == pytest.approx(.5)

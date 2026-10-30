@@ -1,4 +1,4 @@
-"""Fixed-seed real-physics safety floor and soccer-specific policy selection."""
+"""Paired real-physics safety floor and soccer-specific policy selection."""
 import copy
 import math
 import torch
@@ -89,140 +89,157 @@ def survival_floor(rate, count):
 
 
 class SafetyGate:
-    def __init__(self, agent, count=32, steps=300, noise_std=0.):
-        self.count, self.steps = count, steps
-        self.noise_std = noise_std
-        self.noisy_baseline = evaluate_actor(agent, count=count, steps=steps, zero=True, noise_std=noise_std)
-        self.noisy_best = dict(self.noisy_baseline)
-        self.baseline = evaluate_actor(agent, count=count, steps=steps, zero=True)
-        self.best = dict(self.baseline)
+    def __init__(self, agent, count=32, steps=300, noise_std=0., seeds=None):
+        self.count, self.steps, self.noise_std = count, steps, noise_std
+        self.seeds = tuple(seeds or (104729,))
+        self.checks = 0
+        self.comparison = 'paired_real_cohorts'
+        self.baseline = self._measure(agent, 0., self.seeds, zero=True)
+        self.noisy_baseline = self._measure(agent, 0., self.seeds, zero=True, noise_std=noise_std)
+        self.best, self.noisy_best = dict(self.baseline), dict(self.noisy_baseline)
         self.accepted_actor = copy.deepcopy(agent.actor.state_dict())
         self.accepted_optimizer = copy.deepcopy(agent.actor_optimizer.state_dict())
         self.accepted_action_limit = float(agent.action_limit)
-        self.accepted_critic = copy.deepcopy(agent.critic.state_dict())
-        self.accepted_critic_optimizer = copy.deepcopy(agent.critic_optimizer.state_dict())
-        self.soccer_best_actor = None
-        self.soccer_best_action_limit = None
-        self.soccer_best_metrics = None
+        self.soccer_best_actor = self.soccer_best_action_limit = self.soccer_best_metrics = None
         self.rejections = 0
         self.progress = 0.
-        self.peak_survival = self.baseline['survival_5s']
-        self.peak_noisy_survival = self.noisy_baseline['survival_5s']
-        self.version = 5
+
+    def _measure(self, agent, progress, seeds, **kwargs):
+        results = [evaluate_actor(agent, progress, self.count, self.steps, seed=seed, **kwargs) for seed in seeds]
+        return {key: (sum(row[key] for row in results) if key.endswith('sample_count')
+                      else sum(row[key] for row in results)/len(results)) for key in results[0]}
 
     def check(self, agent, progress=0.):
-        policy_changed = any(not torch.equal(value, self.accepted_actor[key])
-                             for key, value in agent.actor.state_dict().items())
-        soccer = progress > 0
-        if soccer and self.progress == 0:
-            self.baseline = evaluate_actor(agent, 1., self.count, self.steps, zero=True)
-            self.noisy_baseline = evaluate_actor(agent, 1., self.count, self.steps, zero=True, noise_std=self.noise_std)
-            self.noisy_best = dict(self.noisy_baseline)
-            # Compare against the deployed incumbent on this fixed soccer task.
-            candidate_actor = copy.deepcopy(agent.actor.state_dict())
-            candidate_limit = float(agent.action_limit)
+        changed = (float(agent.action_limit) != self.accepted_action_limit or
+                   any(not torch.equal(value,self.accepted_actor[key]) for key,value in agent.actor.state_dict().items()))
+        self.checks += 1
+        seeds = tuple(seed+self.checks*1000003 for seed in self.seeds)
+        phase = 1. if progress > 0 else 0.
+        n = self.count*len(seeds)
+        if phase and self.progress == 0:
+            self.baseline = self._measure(agent, phase, seeds, zero=True)
+            self.noisy_baseline = self._measure(agent, phase, seeds, zero=True, noise_std=self.noise_std)
+        self.progress = progress
+        candidate_actor = copy.deepcopy(agent.actor.state_dict())
+        candidate_limit = float(agent.action_limit)
+        if changed:
             try:
                 agent.actor.load_state_dict(self.accepted_actor)
                 agent.action_limit.fill_(self.accepted_action_limit)
-                self.best = evaluate_actor(agent, 1., self.count, self.steps)
+                incumbent = self._measure(agent, phase, seeds)
+                incumbent_noisy = self._measure(agent, phase, seeds, noise_std=self.noise_std)
             finally:
                 agent.actor.load_state_dict(candidate_actor)
                 agent.action_limit.fill_(candidate_limit)
-        self.progress = progress
-        measured = evaluate_actor(agent, 1. if soccer else 0., self.count, self.steps)
-        candidate = dict(measured)
-        noisy = evaluate_actor(agent, 1. if soccer else 0., self.count, self.steps, noise_std=self.noise_std)
-        if soccer:
-            # Safety controls rollback; soccer score ranks checkpoints separately.
-            # Millimetre-level approach fluctuations must not erase safe learning.
-            accepted = soccer_candidate_is_safe(measured, self.baseline)
+            candidate = self._measure(agent, phase, seeds)
+            noisy = self._measure(agent, phase, seeds, noise_std=self.noise_std)
         else:
-            accepted = measured['survival_5s'] >= survival_floor(self.peak_survival, self.count)
-        accepted = accepted and noisy['survival_5s'] >= survival_floor(self.peak_noisy_survival, self.count)
-        if accepted:
-            self.peak_survival = max(self.peak_survival, measured['survival_5s'])
-            self.peak_noisy_survival = max(self.peak_noisy_survival, noisy['survival_5s'])
-            self.noisy_best = noisy
-            self.best = measured
+            candidate = incumbent = self._measure(agent, phase, seeds)
+            noisy = incumbent_noisy = self._measure(agent, phase, seeds, noise_std=self.noise_std)
+        if phase:
+            safe = soccer_candidate_is_safe(candidate,self.baseline)
+        else:
+            floor = max(survival_floor(incumbent['survival_5s'],n),survival_floor(self.baseline['survival_5s'],n))
+            safe = (candidate['survival_5s'] >= floor
+                    and candidate['return'] >= incumbent['return']-.1
+                    and noisy['return'] >= incumbent_noisy['return']-.1)
+        safe = safe and noisy['survival_5s'] >= max(
+            survival_floor(incumbent_noisy['survival_5s'],n),survival_floor(self.noisy_baseline['survival_5s'],n))
+        if safe:
+            measured, measured_noisy = candidate, noisy
             self.accepted_actor = copy.deepcopy(agent.actor.state_dict())
             self.accepted_optimizer = copy.deepcopy(agent.actor_optimizer.state_dict())
             self.accepted_action_limit = float(agent.action_limit)
-            self.accepted_critic = copy.deepcopy(agent.critic.state_dict())
-            self.accepted_critic_optimizer = copy.deepcopy(agent.critic_optimizer.state_dict())
-            eligible = (soccer and measured['near_kick_event_rate'] > 0
-                        and measured['near_net_goal_progress_m'] >= .01)
-            if eligible and (self.soccer_best_metrics is None or measured['task_score'] > self.soccer_best_metrics['task_score']):
+            eligible = phase and candidate['near_kick_event_rate'] > 0 and candidate['near_net_goal_progress_m'] >= .01
+            if eligible and (self.soccer_best_metrics is None or candidate['task_score'] > self.soccer_best_metrics['task_score']):
                 self.soccer_best_actor = copy.deepcopy(self.accepted_actor)
                 self.soccer_best_action_limit = self.accepted_action_limit
-                self.soccer_best_metrics = dict(measured)
+                self.soccer_best_metrics = dict(candidate)
         else:
             agent.actor.load_state_dict(self.accepted_actor)
             agent.actor_optimizer.load_state_dict(self.accepted_optimizer)
             agent.action_limit.fill_(self.accepted_action_limit)
-            agent.critic.load_state_dict(self.accepted_critic)
-            agent.critic_optimizer.load_state_dict(self.accepted_critic_optimizer)
-            self.rejections += 1
-            measured = evaluate_actor(agent, 1. if soccer else 0., self.count, self.steps)
-        return {**{f'evaluation/{k}': v for k,v in measured.items()},
-                **{f'evaluation/candidate_{k}': v for k,v in candidate.items()},
-                'evaluation/exploratory_survival_5s': noisy['survival_5s'] if accepted else self.noisy_best['survival_5s'],
-                'evaluation/policy_accepted': float(accepted and policy_changed),
-                'evaluation/soccer_best_available': float(self.soccer_best_actor is not None),
-                'evaluation/rollback_count': self.rejections,
-                **{f'evaluation/neutral_{k}': v for k,v in self.baseline.items()}}
+            # Critic/model learning from collected failures must survive a rejected
+            # actor proposal; otherwise the same mistaken proposal repeats forever.
+            if changed:
+                self.rejections += 1
+            measured, measured_noisy = incumbent, incumbent_noisy
+        self.best, self.noisy_best = dict(measured), dict(measured_noisy)
+        return {**{f'evaluation/{key}':value for key,value in measured.items()},
+                **{f'evaluation/candidate_{key}':value for key,value in candidate.items()},
+                'evaluation/exploratory_survival_5s':measured_noisy['survival_5s'],
+                'evaluation/policy_accepted':float(safe and changed),
+                'evaluation/soccer_best_available':float(self.soccer_best_actor is not None),
+                'evaluation/rollback_count':self.rejections,
+                **{f'evaluation/neutral_{key}':value for key,value in self.baseline.items()}}
 
     def state_dict(self):
         return dict(self.__dict__)
 
     def load_state_dict(self, state):
-        if state.get('version') == 5:
+        if state.get('comparison') == self.comparison:
             self.__dict__.update(state)
         else:
-            # Old acceptance scores were dominated by standing reward. Preserve
-            # loaded policy/optimizers but re-evaluate with the new task criteria.
-            self.rejections = state.get('rejections', 0)
+            self.rejections = state.get('rejections',0)
 
 
 @torch.no_grad()
-def validate_action_response(agent, count=16, seed=130363):
-    """Held-out paired real transitions; checks action sensitivity, not just MSE.
+def sample_action_pairs(agent, count=32, seed=1000003, prefix_steps=20, amplitude=.05, progress=0.):
+    """Paired native-physics transitions, preserving the training RNG.
 
-    Both branches replay the same seed and actions before +/- perturbations.
-    These cases never enter the model-training replay buffer.
+    Training callers must use different seeds from held-out validation. Both
+    actions are tested from exactly the same state and randomized physical model.
     """
     device = agent.mean.device
-    generator = torch.Generator().manual_seed(seed+1)
-    direction = torch.randn(count, 22, generator=generator)
+    actor = copy.deepcopy(agent.actor).cpu().eval()
+    mean, scale = agent.mean.cpu(), agent.scale.cpu()
+    direction = torch.randn(count, 22, generator=torch.Generator().manual_seed(seed+1))
     direction /= direction.norm(dim=-1, keepdim=True).clamp_min(1e-6)
-    predicted, actual, initials = [], [], []
+    targets, actions, initials = [], [], []
+    def act(state):
+        return float(agent.action_limit)*actor(agent.policy_observation(((state-mean)/scale).clamp(-20,20))).tanh()
     with torch.random.fork_rng(devices=[]):
         for sign in (-1., 1.):
             torch.random.default_generator.manual_seed(seed)
             wrapper = load_environment('cpu', count)
+            if progress > 0:
+                wrapper.env.balance_release_iteration = 0
+                wrapper.env.soccer_progress = .1
+                wrapper.env.set_training_iteration(0)
+                wrapper.reset()
             state = wrapper.state()
-            for _ in range(20):
-                state, _, _, _ = wrapper.step(agent.act(state.to(device)).cpu())
-            initial = state.to(device)
-            action = (agent.act(initial).cpu() + sign*.05*direction).clamp(-1, 1)
+            for _ in range(prefix_steps):
+                state, _, _, _ = wrapper.step(act(state))
+            action = (act(state)+sign*amplitude*direction).clamp(-1,1)
             _, target, _, _ = wrapper.step(action)
-            pred = agent.predict(agent.normalize(initial), action.to(device))[0]
-            predicted.append(pred*agent.scale + agent.mean)
-            actual.append(target.to(device))
-            initials.append(initial)
-        if not torch.equal(initials[0], initials[1]):
-            raise RuntimeError('Counterfactual branches must start from identical states')
+            initials.append(state)
+            targets.append(target)
+            actions.append(action)
+    if not torch.equal(initials[0], initials[1]):
+        raise RuntimeError('Counterfactual branches must start from identical states')
+    return (initials[0].to(device), torch.stack(actions,1).to(device),
+            torch.stack(targets,1).to(device))
+
+
+@torch.no_grad()
+def validate_action_response(agent, count=16, seed=130363):
+    """Held-out physical and reward response; never added to training replay."""
+    initial, actions, targets = sample_action_pairs(agent, count, seed)
+    flat = initial[:,None].expand(-1,2,-1).flatten(0,1)
+    pred = agent.predict(agent.normalize(flat), actions.flatten(0,1))[0]
+    predicted = (pred*agent.scale+agent.mean).reshape_as(targets)
     a, b = agent.layout['physical_start'], agent.layout['physical_end']
-    observed = (actual[1]-actual[0])[:, a:b] / agent.scale[a:b]
-    estimated = (predicted[1]-predicted[0])[:, a:b] / agent.scale[a:b]
-    denom = observed.square().sum().clamp_min(1e-12)
-    relative = (estimated-observed).square().sum()/denom
-    cosine = torch.nn.functional.cosine_similarity(estimated.flatten(), observed.flatten(), dim=0)
-    # Root pose is small in aggregate norm but determines balance gradients.
-    r = agent.layout.get('root_xy', a) - a
-    root_observed, root_estimated = observed[:,r:r+7], estimated[:,r:r+7]
-    root_cosine = torch.nn.functional.cosine_similarity(root_estimated.flatten(), root_observed.flatten(), dim=0)
-    root_error = (root_estimated-root_observed).square().sum()/root_observed.square().sum().clamp_min(1e-12)
-    return {'model_validation/action_response_cosine': cosine.item(),
-            'model_validation/action_response_relative_error': relative.item(),
-            'model_validation/root_response_cosine': root_cosine.item(),
-            'model_validation/root_response_relative_error': root_error.item()}
+    observed = (targets[:,1]-targets[:,0])[:,a:b]/agent.scale[a:b]
+    estimated = (predicted[:,1]-predicted[:,0])[:,a:b]/agent.scale[a:b]
+    def compare(real, model, prefix):
+        return {prefix+'_cosine': torch.nn.functional.cosine_similarity(real.flatten(),model.flatten(),dim=0).item(),
+                prefix+'_relative_error': ((model-real).square().sum()/real.square().sum().clamp_min(1e-12)).item()}
+    result = compare(observed, estimated, 'model_validation/action_response')
+    r = agent.layout.get('root_xy',a)-a
+    result.update(compare(observed[:,r:r+7], estimated[:,r:r+7], 'model_validation/root_response'))
+    if 'dt' in agent.layout:
+        current = agent.normalize(flat)
+        real_reward = agent.task_reward(current, agent.normalize(targets.flatten(0,1)), actions.flatten(0,1))[0].reshape(-1,2)
+        model_reward = agent.task_reward(current, pred, actions.flatten(0,1))[0].reshape(-1,2)
+        result.update(compare(real_reward[:,1]-real_reward[:,0], model_reward[:,1]-model_reward[:,0], 'model_validation/reward_response'))
+    return result

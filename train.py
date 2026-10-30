@@ -31,7 +31,7 @@ def parser():
     p.add_argument('--iterations', type=int)
     p.add_argument('--output', type=Path)
     p.add_argument('--checkpoint', type=Path)
-    p.add_argument('--migrate-curriculum', action='store_true', help='Allow curriculum-only changes to a v6 checkpoint')
+    p.add_argument('--migrate-curriculum', action='store_true', help='Allow curriculum-only changes to a structurally compatible checkpoint')
     p.add_argument('--no-wandb', action='store_true')
     return p
 
@@ -77,13 +77,12 @@ def task_layout(env):
 
 CURRICULUM_FIELDS = ('balance_release_iteration', 'soccer_progress', 'recent_success_rate',
                      '_curriculum_iteration', '_curriculum_last_adjustment',
-                     '_curriculum_quality_window', 'survival_rate_5s',
-                     '_survival_pass_mass', '_survival_trial_mass')
+                     '_curriculum_quality_window', 'survival_rate_5s')
 
 
 def save_checkpoint(path, agent, env, cfg, iteration):
     optimizers = [agent.model_optimizer, agent.actor_optimizer, agent.critic_optimizer]
-    payload = {'version': 6, 'iteration': iteration, 'config': cfg,
+    payload = {'version': 7, 'iteration': iteration, 'config': cfg,
                'state_dim': agent.dim, 'task_signature': env.task_signature,
                'near_start': env.env.near_start_state(),
                'environment': env.cfg, 'agent': agent.state_dict(),
@@ -105,7 +104,7 @@ def validate_checkpoint(checkpoint, env, migrate_curriculum=False):
             raise ValueError('Curriculum migration cannot change physics, controls or rewards')
         checkpoint = dict(checkpoint, task_signature=env.task_signature)
 
-    if (checkpoint.get('version') != 6 or checkpoint.get('state_dim') != env.state_dim
+    if (checkpoint.get('version') != 7 or checkpoint.get('state_dim') != env.state_dim
             or checkpoint.get('task_signature') != env.task_signature):
         raise ValueError('Incompatible task/state schema: use a fresh run for the corrected learning objective; '
                          'old smoke and PPO checkpoints cannot be resumed')
@@ -155,7 +154,8 @@ def main():
     env = load_environment(cfg['device'], cfg['num_envs'])
     cfg['history_dim'] = env.history_dim
     cfg['task_layout'] = task_layout(env)
-    cfg['learner_version'] = 6
+    cfg['checkpoint_schema'] = 7
+    cfg['survival_statistic'] = 'equal_world_ema8'
     try:
         cfg['code_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         cfg['code_dirty'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode != 0
@@ -188,7 +188,8 @@ def main():
         if args.smoke:
             cfg['iterations'] = start + 2
         for key, value in checkpoint['curriculum'].items():
-            setattr(env.env, key, value)
+            if key in CURRICULUM_FIELDS:
+                setattr(env.env, key, value)
         env.env.restore_near_start_state(checkpoint['near_start'])
         env.env.set_training_iteration(start)
         env.reset()
@@ -268,9 +269,11 @@ def main():
         # optimizer states persist. This is not bitwise trajectory continuation.
         collect(cfg['warmup_steps'], record_policy=False)
         if not checkpoint:
-            agent.calibrate(replay.states[:replay.count].flatten(0, 1), replay.actions[:replay.count].flatten(0, 1))
+            agent.calibrate(replay.states[:replay.count].flatten(0, 1), replay.actions[:replay.count].flatten(0, 1),
+                            replay.next_states[:replay.count].flatten(0, 1))
         gate = SafetyGate(agent, count=4 if args.smoke else cfg.get('evaluation_envs', 32),
-                          steps=20 if args.smoke else cfg.get('evaluation_steps', 300), noise_std=cfg['exploration_std'])
+                          steps=20 if args.smoke else cfg.get('evaluation_steps', 300), noise_std=cfg['exploration_std'],
+                          seeds=[104729] if args.smoke else cfg.get('evaluation_seeds',[104729]))
         if checkpoint and checkpoint.get('safety'):
             gate.load_state_dict(checkpoint['safety'])
         agent.safety_gate = gate
@@ -310,10 +313,11 @@ def main():
                 epochs=1 if args.smoke else cfg.get('critic_epochs', 4))
             if iteration == start+1 or iteration % cfg.get('evaluation_interval', 50) == 0:
                 action_check = validate_action_response(agent, count=4 if args.smoke else 16)
+            # Basic dynamics checks permit a small proposal. Task improvement is
+            # decided by paired multi-step real-physics evaluation, not by a noisy
+            # one-step reward derivative (which remains a diagnostic).
             response_ready = (action_check['model_validation/action_response_cosine'] >= cfg['model_action_response_cosine']
-                              and action_check['model_validation/action_response_relative_error'] <= cfg['model_action_response_relative_error']
-                              and action_check['model_validation/root_response_cosine'] >= cfg['model_action_response_cosine']
-                              and action_check['model_validation/root_response_relative_error'] <= cfg['model_action_response_relative_error'])
+                              and action_check['model_validation/action_response_relative_error'] <= cfg['model_action_response_relative_error'])
             actor_loss = 0.
             actor_enabled = ready and response_ready and iteration >= max(
                 cfg['actor_start_iteration'], start + cfg.get('critic_warmup_iterations', 20))

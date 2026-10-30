@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 import torch
 from q1_supermimic.environment import load_environment
-from train import build_agent, validate_checkpoint
+from train import build_agent, validate_checkpoint, CURRICULUM_FIELDS
 from q1_supermimic.visualization import draw_camera_frustum
 
 
@@ -24,7 +24,8 @@ def main():
     validate_checkpoint(ckpt, env)
     env.env.restore_near_start_state(ckpt['near_start'])
     for key, value in ckpt['curriculum'].items():
-        setattr(env.env, key, value)
+        if key in CURRICULUM_FIELDS:
+            setattr(env.env, key, value)
     env.env.set_training_iteration(ckpt['iteration'])
     env.reset()
     agent = build_agent(env.state_dim, cfg)

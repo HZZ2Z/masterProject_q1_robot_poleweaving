@@ -98,7 +98,7 @@ def test_validation_worlds_never_enter_model_training_batches():
     assert train.max() <= 13 and held_out.min() >= 14
 
 
-def test_real_regression_restores_complete_policy_and_critic(monkeypatch):
+def test_policy_rejection_restores_actor_but_retains_value_learning(monkeypatch):
     from q1_supermimic import safety
     baseline = {'duration_s': 6., 'return': 5., 'survival_5s': 1., 'fall_fraction': 0.}
     monkeypatch.setattr(safety, 'evaluate_actor', lambda *args, **kwargs: dict(baseline))
@@ -106,11 +106,11 @@ def test_real_regression_restores_complete_policy_and_critic(monkeypatch):
     a.make_optimizers()
     a.fit_real_values(rollout(torch.zeros(8, 12)), epochs=1)
     gate = SafetyGate(a, count=4, steps=10)
-    optimizer = copy.deepcopy(a.critic_optimizer.state_dict())
     a.fit_real_values(rollout(torch.zeros(8, 12), -1), epochs=1)
-    actor = copy.deepcopy(gate.accepted_actor); critic = copy.deepcopy(gate.accepted_critic)
+    optimizer = copy.deepcopy(a.critic_optimizer.state_dict())
+    actor = copy.deepcopy(gate.accepted_actor); critic = copy.deepcopy(a.critic.state_dict())
     with torch.no_grad():
-        for p in list(a.actor.parameters())+list(a.critic.parameters()):p.add_(1.)
+        for p in a.actor.parameters():p.add_(1.)
         a.action_limit.fill_(.8)
     monkeypatch.setattr(safety, 'evaluate_actor', lambda *args, **kwargs: {**baseline, 'duration_s': .2, 'return': -20., 'survival_5s': 0., 'fall_fraction': 1.})
     result = gate.check(a)
@@ -176,3 +176,24 @@ def test_unchanged_actor_is_not_reported_as_new_acceptance(monkeypatch):
     assert result['evaluation/rollback_count'] == 0
     with torch.no_grad(): agent.actor[-1].bias.add_(.001)
     assert gate.check(agent)['evaluation/policy_accepted'] == 1
+
+
+def test_gate_compares_incumbent_on_identical_rotating_cohorts(monkeypatch):
+    import q1_supermimic.safety as safety
+    agent = toy_agent()
+    calls = []
+    def measure(agent, progress, count, steps, seed, **kwargs):
+        calls.append((seed, kwargs.get('noise_std', 0.), float(agent.actor[-1].bias[0].detach())))
+        return {'return': 1., 'survival_5s': 1., 'fall_fraction': 0.}
+    monkeypatch.setattr(safety, 'evaluate_actor', measure)
+    gate = safety.SafetyGate(agent, seeds=[11, 23], noise_std=.025)
+    calls.clear()
+    with torch.no_grad(): agent.actor[-1].bias.add_(.01)
+    assert gate.check(agent)['evaluation/policy_accepted'] == 1
+    assert [(s, n) for s,n,_ in calls[:4]] == [(s,n) for s,n,_ in calls[4:]]
+    assert all(b == 0. for _,_,b in calls[:4])
+    assert all(b > 0. for _,_,b in calls[4:])
+    previous_seeds = {s for s,_,_ in calls}
+    calls.clear()
+    gate.check(agent)
+    assert not previous_seeds.intersection(s for s,_,_ in calls)

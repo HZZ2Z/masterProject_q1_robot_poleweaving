@@ -214,3 +214,22 @@ def test_balance_dense_reward_matches_real_world_frame_acceleration():
         # Compare dense terms before smooth termination shaping (separately approximated).
         dense = reward/.1 + 20*(1-continuation)
         torch.testing.assert_close(dense, actual, atol=2e-5, rtol=2e-4)
+
+
+def test_balance_value_excludes_absolute_field_location_and_camera_noise():
+    from train import task_layout
+    w = load_environment('cpu',4)
+    agent = SoccerAgent(w.state_dim,width=16,history_dim=w.history_dim)
+    agent.configure_task(task_layout(w))
+    state = w.state(); changed = state.clone()
+    changed[:,:79] += torch.randn_like(changed[:,:79])
+    changed[:,-w.history_dim:] += torch.randn_like(changed[:,-w.history_dim:])
+    changed[:,88:90] += 3  # true goal vector changes under translation
+    for start in (agent.layout['root_xy'],agent.layout['ball_start']):
+        changed[:,start:start+2] += 3
+    torch.testing.assert_close(agent.value_features(agent.normalize(state)),
+                               agent.value_features(agent.normalize(changed)),atol=1e-6,rtol=1e-6)
+    state[:,agent.layout['progress_index']] = 1
+    changed = state.clone(); changed[:,88:90] += 1
+    assert not torch.equal(agent.value_features(agent.normalize(state)),
+                           agent.value_features(agent.normalize(changed)))

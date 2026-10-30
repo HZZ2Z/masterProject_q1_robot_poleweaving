@@ -124,7 +124,7 @@
     "torch_peak_allocated_gib": 3.8028674125671387,
     "wandb": false
   },
-  "status": "runtime_failed_policy_frozen",
+  "status": "repair_in_progress_not_stable",
   "runtime_audit": {
     "checked_at": "2026-10-30T08:41:56.589861",
     "run": "logs/q1_supermimic/2026-10-30-05-21-53-498881",
@@ -393,5 +393,172 @@
       ]
     },
     "next": "Paired real-action supervision; objective gradient validation; critic and curriculum remain unresolved"
+  },
+  "current_mainline": {
+    "checked_at": "2026-10-30T10:00:11.657711",
+    "status": "awaiting_bounded_full_learner_validation",
+    "changes": [
+      "Normalize dynamics by one-step velocity increments",
+      "Compact physical critic without noisy history or absolute field translation",
+      "Equal-world survival EMA for curriculum",
+      "Paired rotating real-physics candidate/incumbent comparison; retain critic learning on actor rejection"
+    ],
+    "candidate_experiment": {
+      "source_model": "logs/v7_model_validation/2026-10-30-09-14-41-942873/checkpoint_80.pt",
+      "model_weights_frozen": true,
+      "actor_baseline": "zero mean; no old trained actor loaded",
+      "variants": {
+        "real_targets": {
+          "applied_steps": 6,
+          "kl_max": 0.009990952908992767,
+          "evaluation": [
+            {
+              "duration_s": 4.205934524536133,
+              "return": -0.16238903999328613,
+              "survival_5s": 0.546875,
+              "horizon_s": 6.0,
+              "fall_fraction": 0.453125,
+              "near_approach_m": 0.015646174550056458,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.015646174550056458
+            },
+            {
+              "duration_s": 4.206246852874756,
+              "return": -0.14508700370788574,
+              "survival_5s": 0.546875,
+              "horizon_s": 6.0,
+              "fall_fraction": 0.453125,
+              "near_approach_m": 0.020369257777929306,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.020369257777929306
+            },
+            {
+              "duration_s": 4.065934181213379,
+              "return": -1.0186330080032349,
+              "survival_5s": 0.515625,
+              "horizon_s": 6.0,
+              "fall_fraction": 0.484375,
+              "near_approach_m": 0.019290342926979065,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.019290342926979065
+            }
+          ]
+        },
+        "real_and_model_targets": {
+          "applied_steps": 6,
+          "kl_max": 0.009991807863116264,
+          "evaluation": [
+            {
+              "duration_s": 4.2237467765808105,
+              "return": -0.11717557907104492,
+              "survival_5s": 0.546875,
+              "horizon_s": 6.0,
+              "fall_fraction": 0.453125,
+              "near_approach_m": 0.01579289883375168,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.01579289883375168
+            },
+            {
+              "duration_s": 4.186246871948242,
+              "return": -0.19708353281021118,
+              "survival_5s": 0.546875,
+              "horizon_s": 6.0,
+              "fall_fraction": 0.453125,
+              "near_approach_m": 0.020709838718175888,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.020709838718175888
+            },
+            {
+              "duration_s": 4.065622329711914,
+              "return": -1.0268714427947998,
+              "survival_5s": 0.515625,
+              "horizon_s": 6.0,
+              "fall_fraction": 0.484375,
+              "near_approach_m": 0.01884801685810089,
+              "near_kick_event_rate": 0.0,
+              "near_net_goal_progress_m": 0.0,
+              "near_success_rate": 0.0,
+              "near_sample_count": 32,
+              "task_score": 0.01884801685810089
+            }
+          ]
+        }
+      },
+      "baseline": [
+        {
+          "duration_s": 3.9184346199035645,
+          "return": -2.493642807006836,
+          "survival_5s": 0.46875,
+          "horizon_s": 6.0,
+          "fall_fraction": 0.53125,
+          "near_approach_m": 0.015864921733736992,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "near_sample_count": 32,
+          "task_score": 0.015864921733736992
+        },
+        {
+          "duration_s": 4.015934467315674,
+          "return": -1.6128332614898682,
+          "survival_5s": 0.5,
+          "horizon_s": 6.0,
+          "fall_fraction": 0.5,
+          "near_approach_m": 0.020211443305015564,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "near_sample_count": 32,
+          "task_score": 0.020211443305015564
+        },
+        {
+          "duration_s": 3.9321846961975098,
+          "return": -2.021904230117798,
+          "survival_5s": 0.484375,
+          "horizon_s": 6.0,
+          "fall_fraction": 0.515625,
+          "near_approach_m": 0.01889539137482643,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "near_sample_count": 32,
+          "task_score": 0.01889539137482643
+        }
+      ]
+    },
+    "interpretation": "Small real-target critic candidate improved survival and return on all three seeds; no kicks and no evidence yet of sustained learning. Imagined critic auxiliary had no clear benefit and was not added.",
+    "cohort_experiment": {
+      "seconds": 40.0,
+      "first_cohort_survival": 0.65625,
+      "all_episode_trials_survival": 0.29010990262031555,
+      "equal_world_survival": 0.7243590354919434,
+      "reported_survival": 0.7356503009796143,
+      "trials": 455.0,
+      "world_trials_min_max": [
+        1.0,
+        25.0
+      ],
+      "world_mean_resets": 2.6484375
+    },
+    "failed_experiment": "Paired one-step reward-response supervision did not consistently improve held-out response and was removed.",
+    "tests": {
+      "passed": 80,
+      "failed": 0
+    }
   }
 }

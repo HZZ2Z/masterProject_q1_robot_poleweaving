@@ -28,7 +28,8 @@ wandb_project: q1-humanoid-kick-SuperMimic
 torch_memory_fraction: 0.30
 
 evaluation_interval: 10
-evaluation_envs: 32
+evaluation_envs: 64
+evaluation_seeds: [104729, 204731, 304737]
 evaluation_steps: 300
 model_max_mse: 1.0
 model_max_ratio: 0.80

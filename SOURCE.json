@@ -35,12 +35,12 @@
         "local W&B/save destination"
       ],
       "local_sha256": {
-        "envs/q1.py": "36ff8186039727ec390a70c7fc69dacb8f4b3b4372dc2f4b20c6013cd948a25c",
+        "envs/q1.py": "567b023d4d4b482df294af897931e65f541ac5a80b941a166bd42e97cd63fb42",
         "envs/Q1.yaml": "1938d2bc38aa760dee35634b5b6243affe8ad7aa2937182c41df289c555dd991",
         "q1_supermimic/environment.py": "9639515de605d46fa25fa1aa3593b55da319c7a31de57fdd066cb7a98ca50a0d",
-        "q1_supermimic/learning.py": "5af367360966ce7a81e5d7ed4696c3f656a5853d55ae0d95c3106cd4b8cd9957",
-        "train.py": "e1d5139f05997d4f0a4722dcc9f6d87f5369e6f9a7bf68045ae4148793c198c9",
-        "play.py": "d8dee47ccd8546515b2208e581a1ee9f56bc9e3155cc01b48fa7c5768b55aa17"
+        "q1_supermimic/learning.py": "dab1d78641dcee4024dd285996db1946dfb418288e3d3f1736278ca63da11b3f",
+        "train.py": "2d954886c635c7212dd2611c4df57402deda85f9ce06b4f8110e9899ad090032",
+        "play.py": "6fd56a4e0135c8a10af76033e9243f99566121cc9be6c137a3ebe97a7de4d5a1"
       }
     }
   },
@@ -58,20 +58,20 @@
     "bounded Torch memory allocation for shared GPU"
   ],
   "corrected_learning": {
-    "version": 6,
     "date": "2026-10-30",
-    "method": "Compact physical velocity model with complete inertial context; model actor and critic still under audit",
+    "method": "Increment-normalized physical dynamics; compact real-GAE critic; model actor with paired rotating real-physics acceptance",
     "files": {
-      "train.py": "e1d5139f05997d4f0a4722dcc9f6d87f5369e6f9a7bf68045ae4148793c198c9",
-      "q1_supermimic/learning.py": "5af367360966ce7a81e5d7ed4696c3f656a5853d55ae0d95c3106cd4b8cd9957",
-      "q1_supermimic/safety.py": "2e4abe814afa4258a3be96b76231fa0f63fc0a4104980edba1ccf1a5cf6f6a3d",
-      "configs/soccer.yaml": "9a6cfe9c015ce23d930e4c5c83489216b5e319ecae6fdb6772d2f1591ec8cdb9"
+      "train.py": "2d954886c635c7212dd2611c4df57402deda85f9ce06b4f8110e9899ad090032",
+      "q1_supermimic/learning.py": "dab1d78641dcee4024dd285996db1946dfb418288e3d3f1736278ca63da11b3f",
+      "q1_supermimic/safety.py": "90232c86dc73ac73a25cda15aeb246a9b1985bf56c80315494074f5fe670849f",
+      "configs/soccer.yaml": "b47e3f9bfc8d4171751c234bf709318adf96c2616b820698814fd189b67bdf92"
     },
     "adaptation_limits": [
       "Not a full upstream tracking trainer or paper reproduction",
       "No AMP discriminator",
       "Fixed visual visibility and sensor residuals within short imagination"
     ],
-    "runtime_status": "bounded model-only validation; not approved for long training"
+    "runtime_status": "Bounded learner validation pending; no stable kicking claim",
+    "mainline": "single current implementation, under repair"
   }
 }

@@ -51,7 +51,10 @@ class SoccerAgent(nn.Module):
         self.register_buffer('model_indices', torch.empty(0, dtype=torch.long))
         self.register_buffer('model_mean', torch.empty(0))
         self.register_buffer('model_scale', torch.empty(0))
+        self.register_buffer('velocity_delta_scale', torch.empty(0))
         self.model_width = model_width or width
+        self.policy_width = width
+        self.value_domain_positions = []
         self.history_dim = history_dim
         self.layout = None
         self.last_diagnostics = {}
@@ -78,13 +81,17 @@ class SoccerAgent(nn.Module):
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=self.lr)
 
     @torch.no_grad()
-    def calibrate(self, states, actions=None):
+    def calibrate(self, states, actions=None, targets=None):
         self.mean.copy_(states.mean(0))
         self.scale.copy_(states.std(0, unbiased=False).clamp_min(.1))
         if self.model_indices.numel():
             features = self.physical_features(states)
             self.model_mean.copy_(features.mean(0))
             self.model_scale.copy_(features.std(0, unbiased=False).clamp_min(.001))
+            v, end = self.layout['velocity_start'], self.layout['velocity_end']
+            delta_scale = ((targets[:,v:end]-states[:,v:end]).square().mean(0).sqrt()
+                           if targets is not None else .1*self.scale[v:end])
+            self.velocity_delta_scale.copy_(delta_scale.clamp_min(.001))
         if actions is not None:
             self.model_action_scale.copy_(actions.std(0, unbiased=False).clamp(.025, .25))
 
@@ -105,6 +112,35 @@ class SoccerAgent(nn.Module):
         raw[..., b:b+2] = raw[..., b:b+2] - raw[..., r:r+2]
         return raw[..., self.model_indices]
 
+    def value_features(self, normalized):
+        if not self.model_indices.numel():
+            return normalized
+        raw = normalized*self.scale+self.mean
+        l = self.layout
+        p, q, v, b = l['progress_index'],l['root_quat'],l['ball_velocity'],l['ball_start']
+        progress = raw[:,p:p+1].clamp(0,1)
+        quat = raw[:,q:q+4][:,[1,2,3,0]]
+        ball_velocity = quat_rotate_inverse(quat, raw[:,v:v+3])
+        # Goal and stall information cannot create fictitious standing rewards
+        # associated with an arbitrary absolute field location or camera noise.
+        context = torch.cat((progress,raw[:,p+1:p+7]*progress,
+                             raw[:,p+11:p+16]*progress,raw[:,p-1:p]*progress),-1)
+        co,si = raw[:,90:91],raw[:,91:92]
+        root = raw[:,l['root_xy']:l['root_xy']+2]
+        anchors = []
+        for start in (p+7,p+9):
+            delta = raw[:,start:start+2]-root
+            anchors.append(torch.cat((co*delta[:,:1]+si*delta[:,1:],
+                                      -si*delta[:,:1]+co*delta[:,1:]),-1)*progress)
+        physical = ((self.physical_features(raw)-self.model_mean)/self.model_scale).clamp(-20,20)
+        domain = physical[:,self.value_domain_positions]
+        return torch.cat((raw[:,79:85],raw[:,92:158],raw[:,162:166],raw[:,368:390],
+                          raw[:,85:87],raw[:,88:90]*progress,raw[:,b+2:b+3],
+                          ball_velocity,context,*anchors,domain),-1).clamp(-20,20)
+
+    def value(self, normalized):
+        return self.critic(self.value_features(normalized))
+
     def predict(self, state, action):
         normalized_action = action / self.model_action_scale
         if self.model_indices.numel():
@@ -112,7 +148,7 @@ class SoccerAgent(nn.Module):
             delta = self.dynamics(torch.cat((features, normalized_action), -1))
             following = state.clone()
             start, end = self.layout['velocity_start'], self.layout['velocity_end']
-            following[..., start:end] = state[..., start:end] + delta
+            following[..., start:end] = state[..., start:end] + delta*self.velocity_delta_scale/self.scale[start:end]
         else:
             following = state + self.dynamic_mask * self.dynamics(torch.cat((state, normalized_action), -1))
         if self.layout is not None:
@@ -243,9 +279,14 @@ class SoccerAgent(nn.Module):
             if self.model_indices.numel():
                 # Sensor noise and history are not physical prediction targets.
                 l = self.layout
-                loss = error[:,l['physical_start']:l['physical_end']].mean(-1)
-                v = l['root_velocity']
-                loss = loss + error[:,v:v+6].mean(-1)
+                v, end = l['velocity_start'], l['velocity_end']
+                loss = error[:,l['physical_start']:v].mean(-1)
+                velocity_error = (prediction[:,v:end]-targets[:,t,v:end])*self.scale[v:end]/self.velocity_delta_scale
+                # Root/control accelerations must not be hidden by the much larger
+                # range of velocities accumulated over an entire falling episode.
+                velocity_loss = F.smooth_l1_loss(velocity_error, torch.zeros_like(velocity_error), reduction='none')
+                root = l['root_velocity']-v
+                loss = loss + velocity_loss.mean(-1) + velocity_loss[:,root:root+6].mean(-1)
             else:
                 loss = error.mean(-1)
                 if self.layout is not None:
@@ -262,6 +303,9 @@ class SoccerAgent(nn.Module):
         return loss.item()
 
     def configure_task(self, layout):
+        self.layout = layout
+        self.value_domain_positions = [i for i,index in enumerate(layout.get('model_feature_indices', []))
+                                       if 262 <= index < 308 or index >= 390]
         if layout.get('model_feature_indices') and not self.model_indices.numel():
             if self.model_optimizer is not None:
                 raise RuntimeError('Configure physical model before creating optimizers')
@@ -270,10 +314,15 @@ class SoccerAgent(nn.Module):
             size = len(layout['model_feature_indices'])
             self.model_mean = torch.zeros(size, device=device)
             self.model_scale = torch.ones(size, device=device)
+            self.velocity_delta_scale = torch.ones(layout['velocity_end']-layout['velocity_start'], device=device)
             self.dynamics = mlp(size+22, (self.model_width,)*3, layout['velocity_end']-layout['velocity_start']).to(device)
             self.outcomes = mlp(size+22+layout['physical_end']-layout['physical_start']+18, (self.model_width,)*2, 2).to(device)
             nn.init.normal_(self.dynamics[-1].weight, std=.001)
             nn.init.zeros_(self.dynamics[-1].bias)
+            value_dim = self.value_features(self.mean.new_zeros(1,self.dim)).shape[-1]
+            self.critic = mlp(value_dim, (self.policy_width,)*2, 1).to(device)
+            nn.init.zeros_(self.critic[-1].weight)
+            nn.init.zeros_(self.critic[-1].bias)
         self.layout = layout
         # Keep domain parameters and curriculum context fixed in model rollouts.
         self.dynamic_mask.fill_(0)
@@ -319,20 +368,20 @@ class SoccerAgent(nn.Module):
         states, _, targets, rewards, dones, terminated = rollout
         with torch.no_grad():
             flat = self.normalize(states.flatten(0, 1))
-            values = self.critic(flat).squeeze(-1).reshape(rewards.shape)
-            next_values = self.critic(self.normalize(targets.flatten(0, 1))).squeeze(-1).reshape(rewards.shape)
+            values = self.value(flat).squeeze(-1).reshape(rewards.shape)
+            next_values = self.value(self.normalize(targets.flatten(0, 1))).squeeze(-1).reshape(rewards.shape)
             _, returns = real_gae(rewards * .1, values, next_values, dones, terminated, gamma, lam)
             ids = torch.randperm(len(flat), device=flat.device)[:8192]
             x, target = flat[ids], returns.flatten()[ids]
-            before = (self.critic(x).squeeze(-1) - target).square().mean()
+            before = (self.value(x).squeeze(-1) - target).square().mean()
         losses = []
         for _ in range(epochs):
             for batch in torch.randperm(len(x), device=x.device).split(2048):
-                loss = F.mse_loss(self.critic(x[batch]).squeeze(-1), target[batch])
+                loss = F.mse_loss(self.value(x[batch]).squeeze(-1), target[batch])
                 self.optimize(loss, self.critic_optimizer, self.critic.parameters())
                 losses.append(loss.item())
         with torch.no_grad():
-            error = self.critic(x).squeeze(-1) - target
+            error = self.value(x).squeeze(-1) - target
             self.last_diagnostics = {'learning/value_mse_before': before.item(),
                                      'learning/value_mse_after': error.square().mean().item()}
         return sum(losses) / len(losses)
@@ -385,7 +434,7 @@ class SoccerAgent(nn.Module):
             total = total + gamma**t * alive * reward
             alive = alive * continuation
             state = following
-        return (total + gamma**horizon*alive*self.critic(state).squeeze(-1)).mean()
+        return (total + gamma**horizon*alive*self.value(state).squeeze(-1)).mean()
 
     def improve_model_policy(self, initial, horizon, exploration_std, max_kl=.01, gamma=.995, reference_state=None):
         import copy

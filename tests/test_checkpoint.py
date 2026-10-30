@@ -48,7 +48,7 @@ def test_curriculum_only_migration_rejects_reward_changes():
     import copy
     import pytest
     env = load_environment('cpu', 4)
-    saved = {'version': 6, 'state_dim': env.state_dim, 'task_signature': 'old',
+    saved = {'version': 7, 'state_dim': env.state_dim, 'task_signature': 'old',
              'environment': copy.deepcopy(env.cfg)}
     saved['environment']['curriculum']['release_active_5s_fraction'] = .8
     validate_checkpoint(saved, env, migrate_curriculum=True)
@@ -109,3 +109,10 @@ def test_compact_physical_model_roundtrip(tmp_path):
     other.load_state_dict(saved['agent'])
     validate_checkpoint(saved, env)
     torch.testing.assert_close(expected, other.predict(other.normalize(state), action)[0], rtol=0, atol=0)
+
+
+def test_v6_missing_increment_normalization_is_rejected():
+    import pytest
+    env = load_environment('cpu', 2)
+    with pytest.raises(ValueError, match='Incompatible'):
+        validate_checkpoint({'version':6,'state_dim':env.state_dim,'task_signature':env.task_signature}, env)
