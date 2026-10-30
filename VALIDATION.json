@@ -27,7 +27,7 @@
     "exploration_std": 0.05,
     "value_warmup_until": 620,
     "latest_checked_evaluation": {
-      "iteration": 860,
+      "iteration": 920,
       "evaluation/policy_accepted": 1.0,
       "evaluation/exploratory_survival_5s": 0.8489583333333334,
       "evaluation/near_kick_event_rate": 0.0,
@@ -677,5 +677,43 @@
     ],
     "interpretation": "Visibility is conditional on frames before first episode termination. Current measurements do not support loss of ball visibility from standing upright as the cause of no kicks. No reward change based on this hypothesis.",
     "timeout_note": "12-second near-practice timeout counts as done; unterminated fraction is not survival or fall rate. Visibility is conditioned on frames before first termination."
+  },
+  "native_trajectory_feasibility_audit": {
+    "method": "Bounded CEM search of smooth leg-action residuals on the unchanged accepted visual policy; score uses simulator feedback for offline search only. Not trained-policy or curriculum success.",
+    "method_reference": "https://arxiv.org/abs/1805.12114",
+    "checkpoint": "logs/q1_supermimic/2026-10-30-13-07-51-985403/checkpoint_800.pt",
+    "fixed_reset_mixture": [
+      0.25,
+      0.25,
+      0.5
+    ],
+    "worlds": 512,
+    "near_worlds": 256,
+    "candidate_parameters": 48,
+    "replicates_per_candidate": 4,
+    "horizon_seconds": 6,
+    "decision": "Wide search can produce kick events but every held-out world fell; rejected. Feasible-candidate search gives only about 8 mm approach and no kicks, so not deployed. Continue bounded search to 64 generations, then paired fresh-seed evaluation against unchanged actor.",
+    "continuation_pid": 728753,
+    "support_geometry_evidence": "logs/current_support_margin_probe.json",
+    "support_geometry_limit": "Fore-aft projected foot-box extent only, not an exact contact support polygon or dynamic stability guarantee; initial mean COM margin about 9.2 cm does not support an initial fore-aft edge-balance explanation.",
+    "evidence": [
+      "logs/current_trajectory_wide_search.json",
+      "logs/current_trajectory_search.json"
+    ],
+    "wide_search_heldout_summary": {
+      "near_worlds": 768,
+      "kick_rate_range": [
+        0.7265625,
+        0.8046875
+      ],
+      "fall_fraction": 1.0,
+      "kick_and_survive_count": 0
+    },
+    "safe_search_pilot_summary": {
+      "near_worlds": 768,
+      "mean_approach_m": 0.008357862631479899,
+      "mean_fall_fraction": 0.08333333333333333,
+      "kick_rate": 0.0
+    }
   }
 }
