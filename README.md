@@ -17,7 +17,7 @@ conda activate q1-kick-4v4
 
 Python 3.11、PyTorch 2.9.0/CUDA 12.8、MuJoCo/MuJoCo Warp 3.17.0、Warp 1.18.0；详细版本见 `requirements.txt`。GPU 训练需要兼容的 NVIDIA GPU/驱动，首次运行会编译物理内核。`third_party/mappo` 已包含固定版本源码，安装不需要再次克隆或获取 submodule。
 
-`./scripts/python.sh` 使用 `Q1_4V4_PYTHON` 指定的解释器，或已激活的 Conda 环境，并清除桌面 AppImage 可能注入的 Python/动态库路径。
+`./scripts/python.sh` 优先使用 `Q1_4V4_PYTHON` 显式指定的解释器；否则优先寻找 `q1-kick-4v4` 环境，即使当前激活的是 `q1-kick`。找不到项目环境时才回退当前 Conda/Python，并清除桌面 AppImage 可能注入的 Python/动态库路径。
 
 ## 训练与续训
 
