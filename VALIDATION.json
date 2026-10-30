@@ -18,7 +18,7 @@
     "Preallocated rollout buffers and chunked critic evaluation bound history memory"
   ],
   "current_run": {
-    "status": "resuming same run after acceptance correction",
+    "status": "running under validation; kicking not demonstrated",
     "resume_checkpoint": "logs/q1_supermimic/2026-10-30-11-35-22-064054/checkpoint_90.pt",
     "wandb_run_id": "qyfmtvgv",
     "target_iteration": 600,
@@ -393,5 +393,78 @@
     "incumbent_same_cohort_survivors": 145,
     "candidate_same_cohort_survivors": 148,
     "fix": "Apply finite-cohort survival tolerance to football baseline and paired incumbent; keep 65% absolute survival floor, 35% fall ceiling and noisy-cohort check."
+  },
+  "policy_step_comparison": {
+    "start_iteration": 100,
+    "end_iteration": 160,
+    "num_envs": 128,
+    "starting_checkpoint": "logs/q1_supermimic/2026-10-30-11-48-41-678761/checkpoint_100.pt",
+    "branches": {
+      "control": {
+        "policy_max_kl": 0.01,
+        "evidence": "logs/current_policy_step_control/2026-10-30-11-53-42-396326/metrics.jsonl",
+        "sha256": "323209219791ce1c6026640ddd63162d24c4ab98d89ce3f0936dbc34bfeb829d",
+        "final_evaluation": {
+          "survival_5s": 0.734375,
+          "exploratory_survival_5s": 0.7135416666666666,
+          "near_approach_m": 0.0024281601266314587,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "rollback_count": 2
+        }
+      },
+      "larger": {
+        "policy_max_kl": 0.1,
+        "evidence": "logs/current_policy_step_larger/2026-10-30-11-53-42-483774/metrics.jsonl",
+        "sha256": "e1e644cf6e66ea8943ccdeeb4a4b394a5c6d17791036c827128f84ca5907ac9d",
+        "final_evaluation": {
+          "survival_5s": 0.6927083333333334,
+          "exploratory_survival_5s": 0.671875,
+          "near_approach_m": 0.001848334213718772,
+          "near_kick_event_rate": 0.0,
+          "near_net_goal_progress_m": 0.0,
+          "near_success_rate": 0.0,
+          "rollback_count": 3
+        }
+      }
+    },
+    "conclusion": "Increasing policy KL alone produced no productive kicks or net goal progress; larger-step branch had worse final survival. Not adopted. CUDA trajectories are not guaranteed identical."
+  },
+  "foot_approach_probe": {
+    "evidence": "logs/current_foot_approach_probe.json",
+    "sha256": "61def1e4676dee9e279cf491ab3b15b3cca82d7f8fc1945665f48729cfe54569",
+    "checkpoint": "logs/q1_supermimic/2026-10-30-11-48-41-678761/checkpoint_200.pt",
+    "horizon_steps": 32,
+    "policy_max_kl": 0.1,
+    "evaluation_seeds": [
+      2610091,
+      2710093,
+      2810099
+    ],
+    "evaluation_worlds_per_seed": 64,
+    "evaluation_duration_s": 12,
+    "actor_inputs_unchanged": true,
+    "results": {
+      "baseline": {
+        "survival_5s": 0.734375,
+        "near_approach_m": 0.00537915814978381,
+        "near_kick_event_rate": 0.0,
+        "near_net_goal_progress_m": 0.0
+      },
+      "root": {
+        "survival_5s": 0.7604166666666666,
+        "near_approach_m": 0.005339104138935606,
+        "near_kick_event_rate": 0.0,
+        "near_net_goal_progress_m": 0.0
+      },
+      "foot": {
+        "survival_5s": 0.765625,
+        "near_approach_m": 0.004974611413975556,
+        "near_kick_event_rate": 0.0,
+        "near_net_goal_progress_m": 0.0
+      }
+    },
+    "conclusion": "Bounded offline candidate updates replacing near root approach with foot approach did not improve actual kicking; not adopted. This does not establish the outcome of retraining the critic with a changed reward."
   }
 }
