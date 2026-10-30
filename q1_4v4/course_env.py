@@ -1,0 +1,297 @@
+"""Skill curricula layered over the shared 8-Q1 Warp physical backend."""
+import torch
+import warp as wp
+from .warp_env import WarpSoccerEnv
+from .course_config import COURSES, LOW_LEVEL, KICKS, FAMILIES, AMPLITUDE, command
+
+
+@wp.kernel
+def feet_contact(n: wp.array[int], geoms: wp.array[wp.vec2i], worlds: wp.array[int],
+                 dist: wp.array[float], owner: wp.array[int], ball: int, hits: wp.array3d[int]):
+    c = wp.tid()
+    if c < n[0] and dist[c] <= 0.:
+        a,b = geoms[c][0], geoms[c][1]
+        g = int(-1)
+        if a == ball: g = b
+        elif b == ball: g = a
+        if g >= 0 and owner[g] >= 0:
+            k = owner[g]
+            wp.atomic_max(hits,worlds[c],k//2,k%2,1)
+
+
+class CourseWarpEnv(WarpSoccerEnv):
+    def __init__(self, count=64, device='cuda:0', seed=42, stage='balance', **kwargs):
+        self.course = stage
+        self.ready = False
+        # Kernels are captured by parent constructor; buffers must exist before _substep.
+        self.foot_hits = torch.zeros((count,8,2),device=device,dtype=torch.int32)
+        self.foot_owner = None
+        super().__init__(count,device,seed,FAMILIES[stage],**kwargs)
+        self.agent_steps = torch.zeros((count,8),device=self.device,dtype=torch.long)
+        self.heading = torch.zeros((count,8),device=self.device)
+        self.ever_feet = torch.zeros((count,8,2),device=self.device,dtype=torch.bool)
+        self.foot_displacement = torch.zeros((count,8,2),device=self.device)
+        self.forward_total = torch.zeros_like(self.foot_displacement)
+        self.side_total = torch.zeros_like(self.foot_displacement)
+        self.control_steps = torch.zeros(count,device=self.device,dtype=torch.long)
+        self.hold_steps = torch.zeros_like(self.agent_steps)
+        self.forward_kick = torch.zeros((count,8),device=self.device)
+        self.side_kick = torch.zeros_like(self.forward_kick)
+        self.contact_at = torch.full_like(self.agent_steps,-1)
+        self.progress = torch.zeros(count,device=self.device)
+        self.received = torch.zeros(count,device=self.device,dtype=torch.bool)
+        self.aligned = torch.zeros(count,device=self.device,dtype=torch.bool)
+        self.active = torch.ones((count,8),device=self.device,dtype=torch.bool)
+        self.ready = True
+        self.configure(stage)
+        self.reset()
+
+    def _substep(self):
+        if self.foot_owner is None:
+            # Build mapping before first capture. Only the two foot collision bodies count.
+            m = self.model
+            owner = torch.full((m.ngeom,),-1,device=self.device,dtype=torch.int32)
+            from .scene import PREFIXES
+            self.feet = torch.tensor([[m.body(p+s+'_ankle_roll_link').id for s in ('left','right')] for p in PREFIXES],device=self.device)
+            for a in range(8):
+                for f in range(2):
+                    owner[torch.as_tensor(m.geom_bodyid == int(self.feet[a,f]),device=self.device)] = a*2+f
+            self.foot_owner_tensor = owner
+            self.foot_owner = wp.from_torch(owner)
+        super()._substep()
+        wp.launch(feet_contact,dim=self.data.contact.geom.shape[0],inputs=[self.data.nacon,
+            self.data.contact.geom,self.data.contact.worldid,self.data.contact.dist,self.foot_owner,
+            self.reference.ballgeom,wp.from_torch(self.foot_hits)],device=self.wp_device)
+
+    def configure(self, stage):
+        self.course = stage; self.stage = FAMILIES[stage]
+        self.course_amplitude = AMPLITUDE[stage]
+        self.active.fill_(True)
+        allowed = {'duel':[2,6], 'attack_2v1':[2,3,6], 'game_2v2':[2,3,6,7],
+                   'pass_receive':[2,3,6,7], 'goalkeeper':[0,4]}.get(stage)
+        if allowed:
+            self.active.zero_(); self.active[:,allowed] = True
+
+    def reset(self, ids=None):
+        result = super().reset(ids)
+        if not self.ready: return result
+        ids = self.rows if ids is None else ids
+        self.agent_steps[ids] = 0; self.ever_feet[ids] = False; self.contact_at[ids] = -1
+        self.forward_total[ids] = 0; self.side_total[ids] = 0; self.control_steps[ids] = 0; self.hold_steps[ids] = 0
+        self.progress[ids] = 0; self.received[ids] = False; self.aligned[ids] = False
+        self.heading[ids] = torch.where(self.sign>0,0.,torch.pi)
+        self._targets(ids)
+        if self.course in KICKS or self.course in ('align','dribble','pass_receive'):
+            p = self.practice[ids]; sign = self.sign[p]
+            self.qpos[ids,self.ballq] = sign*2.
+            self.qpos[ids,self.ballq+1] = 0
+            self.qpos[ids,self.rootq[p]] = sign*(2.-(.8 if self.course == 'align' else .32))
+            self.qpos[ids,self.rootq[p]+1] = -.10 if self.course.endswith('left') else .10
+            if self.course.startswith('side_'):
+                yaw = torch.where(p<4,0.,torch.pi) + (torch.pi/2 if self.course=='side_left' else -torch.pi/2)
+                self.qpos[ids,self.rootq[p]+3] = torch.cos(yaw/2)
+                self.qpos[ids,self.rootq[p]+6] = torch.sin(yaw/2)
+            if self.course == 'align':
+                yaw = torch.where(p<4,0.,torch.pi)+self.uniform((len(ids),),-.9,.9)
+                self.qpos[ids,self.rootq[p]+3] = torch.cos(yaw/2);self.qpos[ids,self.rootq[p]+6] = torch.sin(yaw/2)
+        if self.course == 'pass_receive':
+            receiver = self.practice[ids]+1
+            self.qpos[ids,self.rootq[receiver]] = self.ball[ids,0]+self.sign[receiver]*2
+            self.qpos[ids,self.rootq[receiver]+1] = .6
+        if self.course == 'goalkeeper':
+            sign = torch.where(self.practice[ids]<4,1.,-1.)
+            self.qpos[ids,self.ballq] = -sign*3.5
+            self.qpos[ids,self.ballq+1] = self.uniform((len(ids),),-.8,.8)
+            self.qvel[ids,self.ballv] = -sign*self.uniform((len(ids),),1.,2.)
+        self.start_ball[ids] = self.ball[ids]
+        self.start_positions[ids] = self.qpos[ids][:,self.rootq[:,None]+torch.arange(3,device=self.device)]
+        self.foot_hits[ids] = 0
+        self.forward()
+        return self.observe(),self.state()
+
+    def _targets(self, ids):
+        n = len(ids)
+        if self.course == 'backward': self.targets[ids,:,0] = self.start_positions[ids,:,0]-self.sign*.8
+        if self.course == 'lateral':
+            self.targets[ids,:,:2] = self.start_positions[ids,:,:2]
+            self.targets[ids,:,1] += torch.where(self.uniform((n,8))>.5,.8,-.8)
+        if self.course == 'turn':
+            self.heading[ids] += torch.where(self.uniform((n,8))>.5,1.,-1.)*self.uniform((n,8),.5,1.5)
+        if self.course == 'stop': self.targets[ids,:,:2] = self.start_positions[ids,:,:2]+self.sign[None,:,None]*self.tensor([.6,0])
+
+    def reset_agents(self, pairs):
+        if not len(pairs): return self.observe(),self.state()
+        w,a = pairs[:,0],pairs[:,1]
+        # Only reset the indicated articulated robot; ball and other robots retain their trajectories.
+        q0 = self.tensor(self.model.qpos0)
+        qindices = self.rootq[a,None]+torch.arange(7,device=self.device)
+        self.qpos[w[:,None],qindices] = q0[qindices]
+        self.qpos[w[:,None],self.qidx[a]] = self.neutral
+        self.qvel[w[:,None],self.rootv[a,None]+torch.arange(6,device=self.device)] = 0
+        self.qvel[w[:,None],self.vidx[a]] = 0
+        wp.to_torch(self.data.qacc_warmstart)[w[:,None],self.rootv[a,None]+torch.arange(6,device=self.device)] = 0
+        wp.to_torch(self.data.qacc_warmstart)[w[:,None],self.vidx[a]] = 0
+        self.hold_steps[w,a] = 0; self.previous_action[w,a] = 0;self.agent_steps[w,a] = 0;self.reached[w,a] = False
+        self.start_positions[w,a] = self.qpos[w[:,None],self.rootq[a,None]+torch.arange(3,device=self.device)]
+        self.targets[w,a] = self.start_positions[w,a]
+        dx = -.8 if self.course=='backward' else .8
+        self.targets[w,a,0] += self.sign[a]*dx
+        if self.course=='lateral':
+            self.targets[w,a,0] = self.start_positions[w,a,0]
+            self.targets[w,a,1] += torch.where(self.uniform((len(w),))>.5,.8,-.8)
+        self.heading[w,a] = torch.where(a<4,0.,torch.pi)
+        if self.course=='turn': self.heading[w,a] += self.uniform((len(w),),-.9,.9)
+        self.forward()
+        return self.observe(),self.state()
+
+    def observe(self):
+        obs = super().observe()
+        if not self.ready: return obs
+        obs[:,:,109:115] = self.tensor(command(self.course))
+        obs[:,:,-2] = self.agent_steps/self.episode_steps if self.course in LOW_LEVEL else self.steps[:,None]/self.episode_steps
+        obs[:,:,-1] = AMPLITUDE[self.course]
+        if self.course=='turn':
+            rot=self.xmat[:,self.bodies].reshape(self.count,8,3,3)
+            yaw=torch.atan2(rot[:,:,1,0],rot[:,:,0,0]);error=self.heading-yaw
+            obs[:,:,106:109] = torch.stack((torch.cos(error),torch.sin(error),torch.zeros_like(error)),-1)
+        return obs
+
+    @torch.no_grad()
+    def step(self, action):
+        from .curriculum import STAGES,AMPLITUDES
+        controlled = action*self.active[:,:,None]
+        self.foot_hits.zero_()
+        last_action = self.previous_action.clone()
+        foot_before = self.xpos[:,self.feet].clone()
+        before = self.ball.clone()
+        pos_before = self.xpos[:,self.bodies].clone()
+        if self.course=='balance_push':
+            force=wp.to_torch(self.data.xfrc_applied)
+            pulse=(self.agent_steps % 100 == 50).float()
+            force[:,self.bodies,:2] = self.uniform((self.count,8,2),-8,8)*pulse[:,:,None]
+        _,_,_,term,trunc,base = super().step(controlled)
+        self.agent_steps += 1
+        pos=self.xpos[:,self.bodies]; rot=self.xmat[:,self.bodies].reshape(self.count,8,3,3)
+        norm=lambda x:torch.linalg.vector_norm(x,dim=-1)
+        upright=rot[:,:,2,2]
+        fallen=(pos[:,:,2]<.2)|(upright<.3)
+        outside=(pos[:,:,0].abs()>7.7)|(pos[:,:,1].abs()>4.7)
+        reward=self.dt*(1-2*(1-upright)-10*(pos[:,:,2]-.417).square()-.02*self.qvel[:,self.vidx].square().mean(-1))
+        reward -= self.dt*.1*(torch.tanh(action)-last_action).square().mean(-1)
+        self.ever_feet |= self.foot_hits.bool()
+        first=self.foot_hits.any(-1)&(self.contact_at<0)
+        self.contact_at[first]=self.agent_steps[first]
+        direction=torch.stack((self.sign*7,torch.zeros_like(self.sign)),-1)[None]-before[:,None,:2]
+        direction=direction/norm(direction).clamp(min=1e-6)[:,:,None]
+        ball_delta=self.ball-before
+        progress=(ball_delta[:,None,:2]*direction).sum(-1).clamp(min=0,max=.04)
+        speed=(self.xpos[:,self.feet]-foot_before)/self.dt
+        local=torch.einsum('nafi,naij->nafj',speed,rot)
+        mag=local[:,:,:,0].abs()+local[:,:,:,1].abs()
+        valid=self.foot_hits.bool()&(mag>.05)&(upright[:,:,None]>.8)&~fallen[:,:,None]
+        forward=progress[:,:,None]*valid*local[:,:,:,0].clamp(min=0)/mag.clamp(min=1e-6)
+        side=progress[:,:,None]*valid*local[:,:,:,1].abs()/mag.clamp(min=1e-6)
+        self.forward_total += forward; self.side_total += side
+        selected_foot=(forward+side).argmax(-1,keepdim=True)
+        self.forward_kick=forward.gather(-1,selected_foot).squeeze(-1)
+        self.side_kick=side.gather(-1,selected_foot).squeeze(-1)
+        reward += 2*self.forward_kick+8*self.side_kick
+        targetdist=norm(pos[:,:,:2]-self.targets[:,:,:2])
+        prevdist=norm(pos_before[:,:,:2]-self.targets[:,:,:2])
+        yaw=torch.atan2(rot[:,:,1,0],rot[:,:,0,0]); yawerr=torch.atan2(torch.sin(self.heading-yaw),torch.cos(self.heading-yaw)).abs()
+        low_success=torch.zeros_like(fallen)
+        if self.course in ('balance','balance_push'): low_success.fill_(True)
+        if self.course in ('move','backward','lateral','stop'):
+            reward += 3*(prevdist-targetdist).clamp(-.05,.05)-self.dt*.2*targetdist.clamp(max=2)
+            self.reached |= targetdist<.25
+            low_success=self.reached
+            if self.course=='stop':
+                velocity=norm(self.qvel[:,self.rootv[: ,None]+torch.arange(2,device=self.device)])
+                low_success=(targetdist<.25)&(velocity<.1)
+        if self.course=='turn':
+            reward += self.dt*(torch.cos(self.heading-yaw)-.5*yawerr)
+            low_success=yawerr<.2
+        if self.course in ('turn','stop'):
+            self.hold_steps = torch.where(low_success,self.hold_steps+1,0)
+            low_success &= self.hold_steps*self.dt >= 1.
+        ball_distance=norm(pos[:,:,:2]-self.ball[:,None,:2])
+        p=self.practice
+        if self.course not in LOW_LEVEL:
+            reward += .3*(norm(pos_before[:,:,:2]-before[:,None,:2])-ball_distance).clamp(-.05,.05)
+            reward += self.sign*ball_delta[:,0:1].clamp(-.2,.2)*2+self.sign*base['goal'][:,None]*20
+        if self.course in ('duel','attack_2v1','game_2v2','teamplay','match'):
+            anchors=self.ball[:,None,:2].expand(-1,8,-1).clone()
+            anchors[:,[0,4],0]=-6*self.sign[[0,4]]
+            anchors[:,[0,4],1]=self.ball[:,1:2].clamp(-1,1)
+            anchors[:,[1,5],0]=-3*self.sign[[1,5]]
+            anchors[:,[1,5],1]=self.ball[:,1:2]*.5
+            anchors[:,[3,7],0]-=self.sign[[3,7]]
+            anchors[:,[3,7],1]+=1.5
+            reward-=self.dt*.03*norm(pos[:,:,:2]-anchors).clamp(max=8)*self.active
+        practice_contact=self.ever_feet[self.rows,p].any(-1)
+        self.progress=torch.maximum(self.progress,torch.where(practice_contact,self.sign[p]*(self.ball[:,0]-self.start_ball[:,0]),0.))
+        heading_goal=torch.atan2(-pos[self.rows,p,1],self.sign[p]*7-pos[self.rows,p,0])
+        alignerr=torch.atan2(torch.sin(heading_goal-yaw[self.rows,p]),torch.cos(heading_goal-yaw[self.rows,p])).abs()
+        behind=(self.sign[p]*(self.ball[:,0]-pos[self.rows,p,0])>.1)
+        aligned=(ball_distance[self.rows,p]<.65)&(alignerr<.25)&behind
+        self.aligned |= aligned
+        if self.course=='align': reward[self.rows,p] += self.dt*(torch.cos(heading_goal-yaw[self.rows,p])-ball_distance[self.rows,p])
+        selected=0 if self.course.endswith('left') else 1
+        designated=self.ever_feet[self.rows,p,selected]
+        recover=practice_contact&((self.agent_steps[self.rows,p]-self.contact_at[self.rows,p])*self.dt>=1.5)&~fallen[self.rows,p]
+        receiver=p+1
+        receiver_dist=norm(self.ball[:,:2]-pos[self.rows,receiver,:2])
+        receiver_touch=self.ever_feet[self.rows,receiver].any(-1)
+        self.received |= self.foot_hits[self.rows,receiver].any(-1)&practice_contact&(
+            self.contact_at[self.rows,receiver]>self.contact_at[self.rows,p])
+        if self.course=='pass_receive':
+            # Pass aim is receiver, rather than incidental two-player contact anywhere.
+            receiver_progress=norm(before[:,:2]-pos[self.rows,receiver,:2])-receiver_dist
+            reward[self.rows,p] += 4*receiver_progress.clamp(-.05,.05)
+            reward[self.rows,receiver] += self.dt*(receiver_dist<.5).float()
+        ball_speed=norm(self.qvel[:,self.ballv:self.ballv+2])
+        self.control_steps = torch.where((ball_distance[self.rows,p]<.8)&(ball_speed<1.)&practice_contact,self.control_steps+1,0)
+        forward_ok=self.forward_total[self.rows,p,selected]>.02
+        side_ok=self.side_total[self.rows,p,selected]>.02
+        designated &= side_ok if self.course.startswith('side_') else forward_ok
+        if self.course.startswith('side_'):
+            designated &= self.side_total[self.rows,p,selected] > self.forward_total[self.rows,p,selected]
+        elif self.course in ('kick_left','kick_right'):
+            designated &= self.forward_total[self.rows,p,selected] > self.side_total[self.rows,p,selected]
+        touched_goal=(base['goal']!=0)&self.ever_feet.any(dim=(1,2))
+        if self.course=='goalkeeper':
+            keeper=torch.where(p<4,0,4)
+            objective=self.ever_feet[self.rows,keeper].any(-1)&(base['goal']==0)&(self.ball[:,0].abs()<6.9)
+            reward[self.rows,keeper] += self.dt*(6.9-self.ball[:,0].abs()).clamp(-1,2)
+        else:
+            objective={'approach':ball_distance[self.rows,p]<.45,'align':self.aligned,
+                'kick_left':designated&(self.progress>=.3),'kick_right':designated&(self.progress>=.3),
+                'side_left':designated&(self.progress>=.3),'side_right':designated&(self.progress>=.3),
+                'kick_recover':(self.progress>=.3)&recover,
+                'dribble':(self.progress>=1.5)&(self.control_steps*self.dt>=2.),
+                'pass_receive':self.received&(receiver_dist<.5)&(ball_speed<.6),
+                'duel':touched_goal,'attack_2v1':touched_goal,'game_2v2':touched_goal,
+                'teamplay':touched_goal|((self.progress>=1.)&((self.ever_feet.any(-1)&(torch.arange(8,device=self.device)[None]//4==p[:,None]//4)).sum(-1)>=2)),
+                'match':touched_goal}.get(self.course,torch.zeros(self.count,device=self.device,dtype=torch.bool))
+        reward -= 5*(fallen|outside)
+        if self.course in LOW_LEVEL:
+            terminated=fallen|outside
+            truncated=(self.agent_steps>=self.episode_steps)&~terminated
+            stable=~terminated&(self.agent_steps*self.dt>=5.)
+            success=stable&low_success
+            duration=self.agent_steps*self.dt
+        else:
+            active_fall=(fallen&self.active).any(-1)
+            terminated=(base['goal']!=0)|base['out']|active_fall|(outside&self.active).any(-1)
+            truncated=(self.steps>=self.episode_steps)&~terminated
+            stable=~active_fall&~(outside&self.active).any(-1)&((self.steps*self.dt>=5.)|touched_goal)
+            success=stable&objective
+            duration=self.steps*self.dt
+        self.last_stats={'upright':upright.mean(),'height':pos[:,:,2].mean(),'forward':self.forward_kick.mean(),
+                         'side':self.side_kick.mean(),'left':self.foot_hits[:,:,0].float().mean(),
+                         'right':self.foot_hits[:,:,1].float().mean()}
+        info=dict(stage=self.course,goal=base['goal'],fallen=fallen,stable=stable,success=success,
+                  duration=duration,progress=self.progress,touch=self.ever_feet.any(-1),recover=recover,
+                  out=base['out'])
+        obs=self.observe()
+        return obs,self.state(obs),reward[:,:,None],terminated,truncated,info
