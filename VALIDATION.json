@@ -27,9 +27,9 @@
     "exploration_std": 0.05,
     "value_warmup_until": 620,
     "latest_checked_evaluation": {
-      "iteration": 920,
+      "iteration": 980,
       "evaluation/policy_accepted": 1.0,
-      "evaluation/exploratory_survival_5s": 0.8489583333333334,
+      "evaluation/exploratory_survival_5s": 0.828125,
       "evaluation/near_kick_event_rate": 0.0,
       "evaluation/near_net_goal_progress_m": 0.0
     }
@@ -692,8 +692,7 @@
     "candidate_parameters": 48,
     "replicates_per_candidate": 4,
     "horizon_seconds": 6,
-    "decision": "Wide search can produce kick events but every held-out world fell; rejected. Feasible-candidate search gives only about 8 mm approach and no kicks, so not deployed. Continue bounded search to 64 generations, then paired fresh-seed evaluation against unchanged actor.",
-    "continuation_pid": 728753,
+    "decision": "Rejected: 64-generation mean trajectory approaches about 2.2 cm, but increases held-out falls to about 21% from zero and still produces zero kick events. No trajectory added to actor, replay or production reward.",
     "support_geometry_evidence": "logs/current_support_margin_probe.json",
     "support_geometry_limit": "Fore-aft projected foot-box extent only, not an exact contact support polygon or dynamic stability guarantee; initial mean COM margin about 9.2 cm does not support an initial fore-aft edge-balance explanation.",
     "evidence": [
@@ -714,6 +713,60 @@
       "mean_approach_m": 0.008357862631479899,
       "mean_fall_fraction": 0.08333333333333333,
       "kick_rate": 0.0
+    },
+    "completed_generations": 64,
+    "final_paired_heldout": {
+      "candidate": {
+        "near_approach_m": 0.022248121599356335,
+        "near_fall_rate": 0.20572916666666666,
+        "near_kick_rate": 0.0
+      },
+      "baseline": {
+        "near_approach_m": 0.0006808011676184833,
+        "near_fall_rate": 0.0,
+        "near_kick_rate": 0.0
+      }
     }
+  },
+  "terminal_value_contribution_audit": {
+    "evidence": [
+      "logs/current_gradient_balance_probe.json",
+      "logs/current_terminal_weight_probe.json"
+    ],
+    "checkpoint": "logs/q1_supermimic/2026-10-30-13-31-39-855917/checkpoint_900.pt",
+    "method_reference": "https://short-horizon-actor-critic.github.io/",
+    "near_gradient_terminal_to_task_norm_ratio": [
+      19.445710909837956,
+      14.974562044351469,
+      9.890386088030722
+    ],
+    "comparison": {
+      "baseline": {
+        "survival_5s": 0.8854166666666666,
+        "fall_fraction": 0.25,
+        "near_approach_m": 0.005541292019188404,
+        "near_kick_event_rate": 0.0
+      },
+      "1.0": {
+        "survival_5s": 0.671875,
+        "fall_fraction": 0.703125,
+        "near_approach_m": 0.005454520850131909,
+        "near_kick_event_rate": 0.0
+      },
+      "0.05": {
+        "survival_5s": 0.5364583333333334,
+        "fall_fraction": 0.796875,
+        "near_approach_m": 0.004208886607860525,
+        "near_kick_event_rate": 0.0
+      },
+      "0.0": {
+        "survival_5s": 0.5520833333333334,
+        "fall_fraction": 0.7552083333333334,
+        "near_approach_m": 0.0045657416339963675,
+        "near_kick_event_rate": 0.0
+      }
+    },
+    "limits": "Offline 32-update ablation with frozen model and critic, fresh Adam per objective and renewed KL anchor every four updates; no intermediate real-physics acceptance. This is not an online-training comparison or proof that the critic is wrong.",
+    "decision": "All changed candidates deteriorated survival and produced zero kicks. Retain existing production objective and real-physics acceptance gate; do not deploy lowered or removed terminal value."
   }
 }
