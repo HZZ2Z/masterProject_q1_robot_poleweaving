@@ -18,11 +18,14 @@
     "Preallocated rollout buffers and chunked critic evaluation bound history memory"
   ],
   "current_run": {
-    "status": "600-iteration run finished; preparing assessed exploration increase",
+    "status": "running assessed exploration stage; kicking not verified",
     "resume_checkpoint": "logs/q1_supermimic/2026-10-30-12-46-04-229224/checkpoint_600.pt",
     "wandb_run_id": "qyfmtvgv",
     "target_iteration": 800,
-    "productive_kicking_verified": false
+    "productive_kicking_verified": false,
+    "run_directory": "logs/q1_supermimic/2026-10-30-13-07-51-985403",
+    "exploration_std": 0.05,
+    "value_warmup_until": 620
   },
   "historical_failure": {
     "run": "logs/q1_supermimic/2026-10-30-05-21-53-498881",
