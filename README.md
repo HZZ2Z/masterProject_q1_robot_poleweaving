@@ -1,6 +1,6 @@
 # Q1 Robot Soccer — MAPPO 4v4
 
-Q1 V3 的 4v4 足球训练项目。红蓝各四台机器人，每台保留 22 个关节、独立自由基座和对应颜色帽子。使用 **MuJoCo Warp GPU 批量物理 + 双队 MAPPO + 角色编码网络**，包含 28 阶段课程、晋级门控、模型续训、GUI 回放和 W&B 看板。
+Q1 V3 的 4v4 足球训练项目。红蓝各四台机器人，每台保留 22 个关节、独立自由基座和对应颜色帽子。使用 **MuJoCo Warp GPU 批量物理 + 八机共享 MAPPO + 队伍身份与角色编码网络**，包含 28 阶段课程、晋级门控、模型续训、GUI 回放和 W&B 看板。
 
 ![4v4 场景](artifacts/scene_4v4.png)
 
@@ -37,6 +37,8 @@ Python 3.11、PyTorch 2.9.0/CUDA 12.8、MuJoCo/MuJoCo Warp 3.17.0、Warp 1.18.0�
   --save-interval 1 --output logs/train --run-name q1-mappo-4v4
 ```
 
+`--policy-sharing shared` 为默认设置：红蓝八台共用一套 actor、critic、Adam 优化器和 ValueNorm，红蓝样本混合后统一计算优势并进行 PPO 更新。队伍归属以已知的红/蓝 one-hot 显式输入；保留原有机器人自身坐标，critic 仍按本队在前、对手在后组织状态。角色输入区分四种职责。红蓝回报和晋级统计分别保留，优化器诊断集中在 `debug/shared_*`。共享 actor 输入为130维，critic为1030维；物理环境原始观测仍为128维。
+
 `--num-envs` 为并行球场数，每场八台机器人。先按可用硬件验证小规模，再增加并行数；更大批次不保证更高吞吐。当前物理、PD、观测、奖励、重置、GAE 和学习均在 GPU；中央 critic 输入按 minibatch 重建，减少全局状态副本。接触/约束容量默认每场 `--nconmax 768 --njmax 3072`，各物理子步锁存溢出与非有限状态，异常会阻止更新。
 
 ```bash
@@ -44,9 +46,9 @@ Python 3.11、PyTorch 2.9.0/CUDA 12.8、MuJoCo/MuJoCo Warp 3.17.0、Warp 1.18.0�
   --num-envs 1024 --iterations 1000 --output logs/resumed
 ```
 
-`--iterations` 是本次额外更新数。保存双方网络、优化器、ValueNorm、课程、迭代与随机状态，仿真世界重新初始化。SIGINT/SIGTERM 在当前迭代完成后保存退出。旧检查点保留权重、优化器和全局迭代；新增相位和速度指令使actor观测由121扩至128维，critic由972扩至1028维，输入权重和优化器矩按字段迁移，新列初始化为零。奖励变更时重置ValueNorm。通过 `--start-course 2` 可从新课程2重新认证；未指定时按检查点课程恢复或按迁移规则重新认证。
+`--iterations` 是本次额外更新数。保存策略网络、优化器、ValueNorm、课程、迭代与随机状态，仿真世界重新初始化。SIGINT/SIGTERM 在当前迭代完成后保存退出。checkpoint 用 `policy_sharing` 标明布局，共享模式只保存一份策略状态；旧的两队独立 checkpoint 自动按独立布局恢复，显式要求跨布局续训会报错。共享模式从头训练应省略 `--checkpoint`，使用新 W&B run，从课程0 `balance` 开始。旧检查点保留权重、优化器和全局迭代；新增相位和速度指令使actor观测由121扩至128维，critic由972扩至1028维，输入权重和优化器矩按字段迁移，新列初始化为零。奖励变更时重置ValueNorm。通过 `--start-course 2` 可从新课程2重新认证；未指定时按检查点课程恢复或按迁移规则重新认证。
 
-多 GPU 同步训练使用独立入口，各卡共同更新同一套红蓝策略：
+多 GPU 同步训练使用独立入口，各卡共同更新同一套八机共享策略：
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3,4 ./scripts/python.sh -m torch.distributed.run \
@@ -56,7 +58,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4 ./scripts/python.sh -m torch.distributed.run \
   --learning-rate 0.0001 --save-interval 1 --output logs/distributed
 ```
 
-多卡入口的 `--num-envs` 是**每卡球场数**，上例共 20,480 场、163,840 台机器人；4096 场适用于已验证的 96GB 显卡，其他硬件应先测显存和吞吐。每个进程只访问分配给它的 GPU，梯度先跨卡平均再裁剪，优势和 ValueNorm 使用全体样本统计。结束回合跨卡交错汇总，所有卡使用相同的课程门控；只有主进程写 checkpoint、TensorBoard 和 W&B。checkpoint 保存每卡随机状态，并检查各卡策略参数完全一致；扩展单卡权重时自动为其他卡分配不同随机种子。W&B 的性能组包含全局吞吐、GPU 数量、并行球场总数、各卡和总显存；通过 `WANDB_RUN_ID` 和 `WANDB_RESUME=must` 可衔接原 run。
+多卡入口的 `--num-envs` 是**每卡球场数**，上例共 20,480 场、163,840 台机器人；4096 场适用于已验证的 96GB 显卡，其他硬件应先测显存和吞吐。每卡共享 PPO 的 minibatch 数是单队设置的两倍，保持单次显存开销接近原规模。每个进程只访问分配给它的 GPU，梯度先跨卡平均再裁剪，优势和 ValueNorm 使用全体样本统计。结束回合跨卡交错汇总，所有卡使用相同的课程门控；只有主进程写 checkpoint、TensorBoard 和 W&B。checkpoint 保存每卡随机状态，并检查各卡策略参数完全一致；扩展单卡权重时自动为其他卡分配不同随机种子。W&B 的性能组包含全局吞吐、GPU 数量、并行球场总数、各卡和总显存；通过 `WANDB_RUN_ID` 和 `WANDB_RESUME=must` 可衔接原 run。
 
 ## 课程
 

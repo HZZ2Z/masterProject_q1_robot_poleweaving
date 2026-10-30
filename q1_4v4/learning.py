@@ -2,6 +2,8 @@
 import numpy as np
 import torch
 from torch import nn
+from types import SimpleNamespace
+from gymnasium.spaces import Box
 from onpolicy.config import get_config
 from onpolicy.algorithms.r_mappo.algorithm.rMAPPOPolicy import R_MAPPOPolicy
 from onpolicy.algorithms.r_mappo.r_mappo import R_MAPPO
@@ -38,7 +40,32 @@ def make_args(num_envs=4, horizon=128, epochs=5, hidden=128):
     return args
 
 
-def make_team(args, env, device, gpu_rollout=False):
+def policy_sharing(options, checkpoint=None):
+    saved = checkpoint.get('policy_sharing', 'independent') if checkpoint else 'shared'
+    selected = getattr(options, 'policy_sharing', None) or saved
+    if checkpoint and selected != saved:
+        raise ValueError('Policy sharing differs from checkpoint; start without --checkpoint to train from scratch')
+    options.policy_sharing = selected
+    return selected == 'shared'
+
+
+def with_team_identity(values, team, role_suffix=6):
+    """Insert known red/blue one-hot identity, retaining the role suffix layout."""
+    if isinstance(values, torch.Tensor):
+        team = torch.as_tensor(team, device=values.device, dtype=torch.long)
+        identity = torch.nn.functional.one_hot(team, 2).to(values.dtype)
+        identity = torch.broadcast_to(identity, (*values.shape[:-1], 2))
+        return torch.cat((values[..., :-role_suffix], identity, values[..., -role_suffix:]), -1)
+    identity = np.eye(2, dtype=values.dtype)[team]
+    identity = np.broadcast_to(identity, (*values.shape[:-1], 2))
+    return np.concatenate((values[..., :-role_suffix], identity, values[..., -role_suffix:]), -1)
+
+
+def make_team(args, env, device, gpu_rollout=False, shared=False):
+    if shared:
+        env = SimpleNamespace(observation_space=Box(-np.inf,np.inf,(env.observation_space.shape[0]+2,),dtype=np.float32),
+            share_observation_space=Box(-np.inf,np.inf,(env.share_observation_space.shape[0]+2,),dtype=np.float32),
+            action_space=env.action_space)
     policy = R_MAPPOPolicy(args, env.observation_space, env.share_observation_space, env.action_space, device)
     policy.actor.base = RoleBase(policy.actor.base, args.hidden_size).to(device)
     policy.actor_optimizer = torch.optim.Adam(policy.actor.parameters(), lr=args.lr, eps=args.opti_eps)
@@ -47,7 +74,7 @@ def make_team(args, env, device, gpu_rollout=False):
         from .gpu_learning import DeviceValueNorm
         trainer.value_normalizer = DeviceValueNorm(device)
         return policy, trainer, None
-    buffer = SharedReplayBuffer(args, 4, env.observation_space, env.share_observation_space, env.action_space)
+    buffer = SharedReplayBuffer(args, 8 if shared else 4, env.observation_space, env.share_observation_space, env.action_space)
     # Upstream Box actor returns ONE summed joint-action log probability.
     # Its generic buffer allocates action_dim columns; avoid broadcasting it 22 times.
     buffer.action_log_probs = np.zeros((*buffer.action_log_probs.shape[:-1], 1), dtype=np.float32)

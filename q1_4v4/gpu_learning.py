@@ -2,6 +2,7 @@
 import torch
 from torch import nn
 from .distributed import enabled, moments
+from .learning import with_team_identity
 
 
 class DeviceValueNorm(nn.Module):
@@ -58,7 +59,9 @@ class GpuRollout:
             self.returns[step] = gae+self.values[step]
 
     def update(self, team, trainer, args, active=None):
-        sl = slice(team*4, team*4+4)
+        shared = team is None
+        agents = 8 if shared else 4
+        sl = slice(None) if shared else slice(team*4, team*4+4)
         adv = self.returns[:, :, sl]-self.values[:-1, :, sl]
         valid = torch.ones_like(adv,dtype=torch.bool) if active is None else active[:,sl][None,:,:,None].expand_as(adv)
         selected_adv=adv[valid]
@@ -70,23 +73,30 @@ class GpuRollout:
         norm = trainer.value_normalizer
         # Snapshot normalized old values before ppo_update changes ValueNorm statistics.
         old_values = norm.normalize(self.values[:-1, :, sl]).detach()
-        total = self.horizon*self.count*4
         sums = torch.zeros(8, device=self.device)
         updates = 0
         for _ in range(args.ppo_epoch):
             eligible = valid.flatten().nonzero().flatten()
-            for index in eligible[torch.randperm(eligible.numel(),device=self.device)].tensor_split(args.num_mini_batch):
-                t = index//(self.count*4)
-                w = index//4 % self.count
-                a = index % 4
+            # Keep shared minibatches at the former per-team size to bound VRAM.
+            batches = args.num_mini_batch*(2 if shared else 1)
+            for index in eligible[torch.randperm(eligible.numel(),device=self.device)].tensor_split(batches):
+                t = index//(self.count*agents)
+                w = index//agents % self.count
+                a = index % agents
                 global_obs = self.obs[t, w]
-                order = torch.arange(8, device=self.device).roll(-team*4)
-                state = torch.cat((global_obs[:, order].flatten(1), torch.eye(4, device=self.device)[a]), -1)
-                obs = global_obs[torch.arange(index.numel(), device=self.device), a+team*4]
+                owner = a//4 if shared else torch.full_like(a,team)
+                robot = a if shared else a+team*4
+                order = (torch.arange(8,device=self.device)[None]+owner[:,None]*4)%8
+                state = torch.cat((global_obs.gather(1,order[:,:,None].expand(-1,-1,global_obs.shape[-1])).flatten(1),
+                                   torch.eye(4, device=self.device)[a%4]), -1)
+                obs = global_obs[torch.arange(index.numel(), device=self.device), robot]
+                if shared:
+                    obs = with_team_identity(obs,owner)
+                    state = with_team_identity(state,owner,role_suffix=4)
                 rnn = torch.zeros((index.numel(), 1, args.hidden_size), device=self.device)
                 mask = torch.ones((index.numel(), 1), device=self.device)
-                sample = (state, obs, rnn, rnn, self.actions[t, w, a+team*4], old_values[t, w, a],
-                          self.returns[t, w, a+team*4], mask, mask, self.log_probs[t, w, a+team*4],
+                sample = (state, obs, rnn, rnn, self.actions[t, w, robot], old_values[t, w, a],
+                          self.returns[t, w, robot], mask, mask, self.log_probs[t, w, robot],
                           adv[t, w, a], None)
                 result = trainer.ppo_update(sample)
                 iw=result[-1].detach()

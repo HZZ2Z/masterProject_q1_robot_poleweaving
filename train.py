@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from q1_4v4.env import SoccerEnv
-from q1_4v4.learning import make_args, make_team, numpy, save_team, load_team
+from q1_4v4.learning import make_args, make_team, numpy, save_team, load_team, policy_sharing, with_team_identity
 from q1_4v4.curriculum import Curriculum, STAGES
 from q1_4v4.course_config import COURSES
 
@@ -32,10 +32,18 @@ def run(options):
     curriculum = Curriculum(options.stage)
     envs = [SoccerEnv(options.seed, stage=curriculum.stage)]
     envs += [SoccerEnv(options.seed+i, stage=curriculum.stage, model=envs[0].model) for i in range(1, options.num_envs)]
-    teams = [make_team(args, envs[0], device) for _ in range(2)]
+    checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
+    shared = policy_sharing(options,checkpoint)
+    groups = [slice(None)] if shared else [slice(0,4),slice(4,8)]
+    agents = 8 if shared else 4
+    teams = [make_team(args, envs[0], device,shared=shared) for _ in groups]
+    def inputs(obs,state):
+        if shared:
+            return with_team_identity(obs,np.arange(8)//4),with_team_identity(state,np.arange(8)//4,role_suffix=4)
+        return obs,state
     start = 0
     if options.checkpoint:
-        checkpoint = torch.load(options.checkpoint, map_location=device, weights_only=False)
+        if len(checkpoint['teams'])!=len(teams):raise ValueError('Checkpoint policy count mismatch')
         if checkpoint['args']['hidden_size'] != args.hidden_size:
             raise ValueError('Checkpoint network configuration mismatch')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
@@ -79,14 +87,14 @@ def run(options):
             env.reset()
         for t, (_, _, b) in enumerate(teams):
             b.step = 0
-            b.obs[0] = np.stack([e.observe()[t*4:t*4+4] for e in envs])
-            b.share_obs[0] = np.stack([e.state()[t*4:t*4+4] for e in envs])
+            b.obs[0] = np.stack([inputs(e.observe(),e.state())[0][groups[t]] for e in envs])
+            b.share_obs[0] = np.stack([inputs(e.observe(),e.state())[1][groups[t]] for e in envs])
             b.rnn_states[0] = 0
             b.rnn_states_critic[0] = 0
             b.masks[0] = 1
 
     def save(iteration, name='last.pt'):
-        payload = dict(version=1, iteration=iteration, args=vars(args),
+        payload = dict(version=1, policy_sharing=options.policy_sharing, iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams],
                        curriculum=curriculum.state_dict(), torch_rng=torch.get_rng_state(),
                        numpy_rng=np.random.get_state(),
@@ -110,21 +118,21 @@ def run(options):
                         sample = policy.get_actions(flatten(b.share_obs[step]), flatten(b.obs[step]),
                                                     flatten(b.rnn_states[step]), flatten(b.rnn_states_critic[step]),
                                                     flatten(b.masks[step]))
-                        samples.append([numpy(x).reshape(options.num_envs, 4, *x.shape[1:]) for x in sample])
+                        samples.append([numpy(x).reshape(options.num_envs, agents, *x.shape[1:]) for x in sample])
                 actions = np.concatenate([s[1] for s in samples], axis=1)
                 results = list(pool.map(lambda pair: pair[0].step(pair[1]), zip(envs, actions)))
                 for t, (policy, trainer, b) in enumerate(teams):
-                    sl = slice(t*4, t*4+4)
+                    sl = groups[t]
                     values, acts, logs, ra, rc = samples[t]
-                    obs = np.stack([r[0][sl] for r in results])
-                    state = np.stack([r[1][sl] for r in results])
+                    obs = np.stack([inputs(r[0],r[1])[0][sl] for r in results])
+                    state = np.stack([inputs(r[0],r[1])[1][sl] for r in results])
                     rewards = np.stack([r[2][sl] for r in results])
-                    masks = np.ones((options.num_envs, 4, 1), dtype=np.float32)
+                    masks = np.ones((options.num_envs, agents, 1), dtype=np.float32)
                     for n, result in enumerate(results):
                         if result[4]:
                             # Bootstrap final observation BEFORE resetting a timeout.
                             with torch.no_grad():
-                                v = policy.get_values(state[n], rc[n], np.ones((4, 1), np.float32))
+                                v = policy.get_values(state[n], rc[n], np.ones((agents, 1), np.float32))
                                 rewards[n] += args.gamma*numpy(trainer.value_normalizer.denormalize(v))
                         if result[3] or result[4]:
                             masks[n] = 0
@@ -135,10 +143,10 @@ def run(options):
                     if result[3] or result[4]:
                         episode_infos.append(result[5])
                         curriculum.record(result[5])
-                        obs, state = envs[n].reset()
-                        for t in range(2):
-                            samples[t][0][n] = state[t*4:t*4+4]
-                            samples[t][1][n] = obs[t*4:t*4+4]
+                        obs, state = inputs(*envs[n].reset())
+                        for t,sl in enumerate(groups):
+                            samples[t][0][n] = state[sl]
+                            samples[t][1][n] = obs[sl]
                 for (_, _, b), sample in zip(teams, samples):
                     b.insert(*sample)
             metrics = {}
@@ -147,14 +155,17 @@ def run(options):
                     value = policy.get_values(b.share_obs[-1].reshape(-1, b.share_obs.shape[-1]),
                                               b.rnn_states_critic[-1].reshape(-1, args.recurrent_N, args.hidden_size),
                                               b.masks[-1].reshape(-1, 1))
-                b.compute_returns(numpy(value).reshape(options.num_envs, 4, 1), trainer.value_normalizer)
+                b.compute_returns(numpy(value).reshape(options.num_envs, agents, 1), trainer.value_normalizer)
                 trainer.prep_training()
                 info = trainer.train(b)
                 for k, v in info.items():
-                    metrics[f'{("red", "blue")[t]}/{k}'] = float(v.detach()) if isinstance(v, torch.Tensor) else float(v)
+                    metrics[f'{"shared" if shared else ("red", "blue")[t]}/{k}'] = float(v.detach()) if isinstance(v, torch.Tensor) else float(v)
                 if not all(torch.isfinite(p).all() for p in policy.actor.parameters()):
                     raise FloatingPointError('Nonfinite actor parameters')
-                metrics[f'{("red", "blue")[t]}/reward'] = float(b.rewards.mean())
+                if shared:
+                    metrics['red/reward']=float(b.rewards[:,:,:4].mean())
+                    metrics['blue/reward']=float(b.rewards[:,:,4:].mean())
+                else:metrics[f'{("red", "blue")[t]}/reward'] = float(b.rewards.mean())
                 b.after_update()
             if not all(np.isfinite(x) for x in metrics.values()):
                 raise FloatingPointError('Nonfinite MAPPO update')
@@ -214,6 +225,7 @@ def parser():
     p.add_argument('--stage', choices=tuple(dict.fromkeys((*COURSES,*STAGES))), default='balance')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--checkpoint')
+    p.add_argument('--policy-sharing',choices=('shared','independent'),help='Default shared for fresh runs; resume uses checkpoint layout')
     p.add_argument('--start-course', help='Override checkpoint course by name or zero-based index; reset course gates')
     p.add_argument('--save-interval', type=int, default=50)
     p.add_argument('--output', default='logs/train')

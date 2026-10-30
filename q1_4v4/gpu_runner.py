@@ -10,7 +10,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
-from .learning import make_args, make_team, save_team, load_team
+from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity
 from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
@@ -46,12 +46,17 @@ def run(options):
         curriculum=Curriculum(selected)
     if checkpoint and checkpoint.get('reward_version',1) != REWARD_REVISION:
         curriculum.recertify('reward_change_recertification')
+    shared = policy_sharing(options, checkpoint)
+    groups = [slice(None)] if shared else [slice(0,4),slice(4,8)]
+    agents = 8 if shared else 4
     env = CourseWarpEnv(options.num_envs, str(device), options.seed, curriculum.stage,
                         nconmax=options.nconmax, njmax=options.njmax)
-    teams = [make_team(args, env, device, gpu_rollout=True) for _ in range(2)]
+    teams = [make_team(args, env, device, gpu_rollout=True,shared=shared) for _ in groups]
     if checkpoint:
         if checkpoint.get('backend') != 'warp':
             raise ValueError('Use a Warp checkpoint for continuation; CPU legacy runs are reference-only')
+        if len(checkpoint['teams']) != len(teams):
+            raise ValueError('Checkpoint policy count does not match policy sharing')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
             load_team(state, policy, trainer)
             if checkpoint.get('reward_version',1) != REWARD_REVISION:
@@ -82,11 +87,18 @@ def run(options):
         for policy,_,_ in teams:
             for opt in (policy.actor_optimizer,policy.critic_optimizer):
                 for group in opt.param_groups:group['lr']=options.learning_rate
-    obs_dim=env.observation_space.shape[0]
-    state_dim=env.share_observation_space.shape[0]
-    rollout = GpuRollout(options.horizon, options.num_envs, device, obs_dim=obs_dim)
-    rnn = torch.zeros((options.num_envs*4, 1, args.hidden_size), device=device)
-    ones = torch.ones((options.num_envs*4, 1), device=device)
+    raw_obs_dim=env.observation_space.shape[0]
+    obs_dim=raw_obs_dim+(2 if shared else 0)
+    state_dim=env.share_observation_space.shape[0]+(2 if shared else 0)
+    rollout = GpuRollout(options.horizon, options.num_envs, device, obs_dim=raw_obs_dim)
+    rnn = torch.zeros((options.num_envs*agents, 1, args.hidden_size), device=device)
+    ones = torch.ones((options.num_envs*agents, 1), device=device)
+    owners = (torch.arange(8,device=device)//4)[None]
+
+    def policy_inputs(obs,state):
+        if shared:
+            return with_team_identity(obs,owners),with_team_identity(state,owners,role_suffix=4)
+        return obs,state
     out = Path(options.output)
     out.mkdir(parents=True, exist_ok=True)
     if distributed.primary:
@@ -124,7 +136,8 @@ def run(options):
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
-        payload = dict(version=4, reward_version=REWARD_REVISION, obs_dim=obs_dim, backend='warp', iteration=iteration, args=vars(args),
+        payload = dict(version=4, reward_version=REWARD_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
+                       policy_sharing=options.policy_sharing, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
                        parameter_max_difference=difference)
@@ -160,24 +173,26 @@ def run(options):
                 obs = rollout.obs[step]
                 state = env.state(obs)
                 with torch.no_grad():
+                    actor_obs,critic_state=policy_inputs(obs,state)
                     for t, (policy, trainer, _) in enumerate(teams):
-                        sl = slice(t*4, t*4+4)
+                        sl = groups[t]
                         trainer.prep_rollout()
-                        value, action, logprob, _, _ = policy.get_actions(state[:, sl].reshape(-1, state_dim),
-                            obs[:, sl].reshape(-1, obs_dim), rnn, rnn, ones)
-                        rollout.actions[step, :, sl].copy_(action.reshape(options.num_envs, 4, 22))
-                        rollout.log_probs[step, :, sl].copy_(logprob.reshape(options.num_envs, 4, 1))
-                        rollout.values[step, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, 4, 1))
+                        value, action, logprob, _, _ = policy.get_actions(critic_state[:, sl].reshape(-1, state_dim),
+                            actor_obs[:, sl].reshape(-1, obs_dim), rnn, rnn, ones)
+                        rollout.actions[step, :, sl].copy_(action.reshape(options.num_envs, agents, 22))
+                        rollout.log_probs[step, :, sl].copy_(logprob.reshape(options.num_envs, agents, 1))
+                        rollout.values[step, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, agents, 1))
                     terminal_obs, terminal_state, reward, terminated, truncated, info = env.step(rollout.actions[step])
                     gait_stats += torch.stack([env.gait_metrics[k] for k in METRIC_NAMES])
                     skill_stats += torch.stack([env.last_stats[k] for k in ('upright','height','forward','side','left','right')])
                     raw_reward += reward.reshape(options.num_envs, 2, 4).mean(dim=(0, 2))
                     # Bootstrap timeout final states BEFORE resetting. No CPU value normalization.
+                    _,terminal_state=policy_inputs(terminal_obs,terminal_state)
                     for t, (policy, trainer, _) in enumerate(teams):
-                        sl = slice(t*4, t*4+4)
+                        sl = groups[t]
                         value = policy.get_values(terminal_state[:, sl].reshape(-1, state_dim), rnn, ones)
                         timeout_mask = truncated[:,sl,None] if env.course in LOW_LEVEL else truncated[:,None,None]
-                        reward[:, sl] += args.gamma*trainer.value_normalizer.denormalize(value).reshape(options.num_envs, 4, 1)*timeout_mask
+                        reward[:, sl] += args.gamma*trainer.value_normalizer.denormalize(value).reshape(options.num_envs, agents, 1)*timeout_mask
                     rollout.rewards[step].copy_(reward)
                     done = terminated | truncated
                     low = env.course in LOW_LEVEL
@@ -204,17 +219,20 @@ def run(options):
             env.check()  # Includes overflow accumulated during all substeps, before any optimizer update.
             with torch.no_grad():
                 state = env.state(rollout.obs[-1])
+                _,state=policy_inputs(rollout.obs[-1],state)
                 for t, (policy, trainer, _) in enumerate(teams):
-                    sl = slice(t*4, t*4+4)
+                    sl = groups[t]
                     value = policy.get_values(state[:, sl].reshape(-1, state_dim), rnn, ones)
-                    rollout.values[-1, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, 4, 1))
+                    rollout.values[-1, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, agents, 1))
                 rollout.compute_returns(args.gamma, args.gae_lambda)
             metrics = {}
             for t, (_, trainer, _) in enumerate(teams):
                 trainer.prep_training()
-                stats = rollout.update(t, trainer, args, active=env.active)
-                metrics.update({f'{("red", "blue")[t]}/{k}': v for k, v in stats.items()})
-                metrics[f'{("red", "blue")[t]}/reward'] = (raw_reward[t]/options.horizon).item()
+                stats = rollout.update(None if shared else t, trainer, args, active=env.active)
+                prefix = 'shared' if shared else ('red','blue')[t]
+                metrics.update({f'{prefix}/{k}': v for k, v in stats.items()})
+            for t,side in enumerate(('red','blue')):
+                metrics[f'{side}/reward'] = (raw_reward[t]/options.horizon).item()
             if not all(np.isfinite(x) for x in metrics.values()):
                 raise FloatingPointError('Nonfinite MAPPO update')
             local_episodes = torch.cat(completed) if completed else torch.empty((0,9),device=device)
@@ -239,6 +257,7 @@ def run(options):
             memories = distributed.objects(metrics.get('gpu_process_used_gib',0.))
             metrics['gpu_process_used_gib'] = max(memories)
             metrics.update(iteration=iteration, seconds=seconds, backend='warp',
+                           policy_sharing=options.policy_sharing,
                            world_size=distributed.world_size, total_num_envs=options.num_envs*distributed.world_size,
                            gpu_total_used_gib=sum(memories), gpu_worker_used_gib=memories,
                            episodes=len(episodes), goals=sum(bool(x[2]) for x in episodes),
@@ -286,7 +305,7 @@ def run(options):
                               ('weight_shifts','有效重心切换'),('nonfoot_contact','非脚部着地比例'),
                               ('alternations','有效交替落脚'),('phase_lift','相位抬脚得分')]:
                 cloud['05_步态/'+label]=None if key in ('phase_match','velocity_error') and env.course not in GAIT_COURSES else gm[key]
-            for side in ('red','blue'):
+            for side in (('shared',) if shared else ('red','blue')):
                 for k in ('value_loss','policy_loss','dist_entropy','actor_grad_norm','critic_grad_norm','ratio','approx_kl','clip_fraction'):
                     cloud['debug/'+side+'_'+k] = metrics[side+'/'+k]
             for k, v in cloud.items():

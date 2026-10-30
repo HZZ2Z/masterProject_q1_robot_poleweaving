@@ -13,7 +13,7 @@ import torch
 import mujoco
 import imageio.v3 as iio
 from q1_4v4.env import SoccerEnv
-from q1_4v4.learning import make_args, make_team, load_team, numpy
+from q1_4v4.learning import make_args, make_team, load_team, numpy, with_team_identity
 from q1_4v4.curriculum import STAGES
 from q1_4v4.course_config import COURSES
 
@@ -64,12 +64,13 @@ def main():
         env = SoccerEnv(stage=stage)
     print({'course':stage,'checkpoint':a.checkpoint,'control':'policy' if ckpt else 'neutral PD',
            'steps':a.steps or 'until GUI closes'},flush=True)
+    shared = ckpt is not None and ckpt.get('policy_sharing')=='shared'
     teams = []
     if ckpt:
         args = make_args()
         args.hidden_size = ckpt['args']['hidden_size']
         for state in ckpt['teams']:
-            policy, trainer, _ = make_team(args, env, torch.device('cpu'), gpu_rollout=ckpt.get('backend') == 'warp')
+            policy, trainer, _ = make_team(args, env, torch.device('cpu'), gpu_rollout=ckpt.get('backend') == 'warp',shared=shared)
             load_team(state, policy, trainer)
             trainer.prep_rollout()
             teams.append(policy)
@@ -112,8 +113,12 @@ def main():
             if teams:
                 with torch.no_grad():
                     for t, policy in enumerate(teams):
-                        actions[t*4:t*4+4] = numpy(policy.act(env.observe()[t*4:t*4+4],
-                            np.zeros((4, 1, args.hidden_size), np.float32), np.ones((4, 1), np.float32),
+                        sl=slice(None) if shared else slice(t*4,t*4+4)
+                        count=8 if shared else 4
+                        obs=env.observe()[sl]
+                        if shared:obs=with_team_identity(obs,np.arange(8)//4)
+                        actions[sl] = numpy(policy.act(obs,
+                            np.zeros((count, 1, args.hidden_size), np.float32), np.ones((count, 1), np.float32),
                             deterministic=True)[0])
             _, _, _, done, truncated, info = env.step(actions)
             if video and step % 2 == 0:

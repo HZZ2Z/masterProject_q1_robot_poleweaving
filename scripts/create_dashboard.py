@@ -46,8 +46,10 @@ view=ws.Workspace(entity='mohismlab-robotics',project='q1-humanoid-kick-4v4',nam
         chart('GPU数量与并行球场','04_性能/GPU数量','04_性能/并行球场总数'),
         chart('各卡 Warp + Torch 显存','04_性能/GPU0显存_GiB','04_性能/GPU1显存_GiB','04_性能/GPU2显存_GiB','04_性能/GPU3显存_GiB','04_性能/GPU4显存_GiB'),
         chart('总显存','04_性能/GPU总显存_GiB'),
-        chart('PPO近似KL','debug/red_approx_kl','debug/blue_approx_kl'),
-        chart('PPO裁剪比例','debug/red_clip_fraction','debug/blue_clip_fraction')])])
+        chart('共享PPO近似KL','debug/shared_approx_kl'),
+        chart('共享PPO裁剪比例','debug/shared_clip_fraction'),
+        chart('共享策略熵','debug/shared_dist_entropy'),
+        chart('共享价值损失','debug/shared_value_loss')])])
 existing_path=root/'artifacts/dashboard.json'
 if existing_path.exists():
     old_url=json.loads(existing_path.read_text())['url'].replace('/wandb/','/',1)
