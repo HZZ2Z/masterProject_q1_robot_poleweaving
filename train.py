@@ -56,15 +56,18 @@ def collect(physics, observe, policy, replay, steps, generator):
 
 
 @torch.no_grad()
-def evaluate(model, policy, observe, seed=9187):
+def evaluate(model, policy, observe, seed=9187, episodes=4, details=False):
     actor, sensor = copy.deepcopy(policy).cpu(), copy.deepcopy(observe).cpu()
     control = sensor.control
     ref = reference(model, control, 'cpu', 1)
     goal = sensor.reference(ref).unsqueeze(1).repeat(1,10,1).flatten(1)
     random = np.random.default_rng(seed)
-    falls, errors, returns = 0, [], []
+    if episodes < 1:
+        raise ValueError("episodes must be positive")
+    falls, errors, returns, episode_falls = 0, [], [], []
     head = TrackingHead(model)
-    for _ in range(4):
+    for _ in range(episodes):
+        fallen = False
         recorded_states, recorded_actions = [], []
         data = mujoco.MjData(model)
         data.qpos[:] = ref[0,:model.nq].numpy()
@@ -84,6 +87,7 @@ def evaluate(model, policy, observe, seed=9187):
             q = data.qpos[3:7]
             if abs(data.qpos[2]-ref[0,2].item())>.25 or 2*(q[1]**2+q[2]**2)>.8:
                 falls += 1
+                fallen = True
                 break
         states = torch.stack(recorded_states)
         actions = torch.stack(recorded_actions)
@@ -91,8 +95,12 @@ def evaluate(model, policy, observe, seed=9187):
         rewards, _, _ = head(states,ref.expand_as(states),actions,previous)
         # Fixed full-horizon denominator: early falls must reduce return.
         returns.append(rewards.sum().item() / 25.)
-    return dict(episodes=4, seconds_per_episode=5, fall_rate=falls/4,
-                tracking_return=float(np.mean(returns)), joint_mse=float(np.mean(errors)))
+        episode_falls.append(fallen)
+    result = dict(episodes=episodes, seconds_per_episode=5, fall_rate=falls/episodes,
+                  tracking_return=float(np.mean(returns)), joint_mse=float(np.mean(errors)))
+    if details:
+        result.update(episode_returns=returns, episode_falls=episode_falls)
+    return result
 
 
 def main():
