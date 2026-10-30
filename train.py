@@ -62,8 +62,10 @@ def evaluate(model, policy, observe, seed=9187):
     ref = reference(model, control, 'cpu', 1)
     goal = sensor.reference(ref).unsqueeze(1).repeat(1,10,1).flatten(1)
     random = np.random.default_rng(seed)
-    falls, errors = 0, []
+    falls, errors, returns = 0, [], []
+    head = TrackingHead(model)
     for _ in range(4):
+        recorded_states, recorded_actions = [], []
         data = mujoco.MjData(model)
         data.qpos[:] = ref[0,:model.nq].numpy()
         data.qpos[control.qpos_indices.numpy()] += random.normal(0,.005,22)
@@ -75,13 +77,22 @@ def evaluate(model, policy, observe, seed=9187):
                 data.ctrl[:] = control(state[:,:model.nq],state[:,model.nq:],action)[0].numpy()
                 mujoco.mj_step(model,data)
             state = torch.tensor(np.r_[data.qpos,data.qvel],dtype=torch.float32).unsqueeze(0)
+            recorded_states.append(state[0].clone())
+            recorded_actions.append(action[0].clone())
             history = torch.cat((history[:,1:],sensor(state,action).unsqueeze(1)),1)
             errors.append(float(np.mean((data.qpos[control.qpos_indices.numpy()] - control.neutral.numpy())**2)))
             q = data.qpos[3:7]
             if abs(data.qpos[2]-ref[0,2].item())>.25 or 2*(q[1]**2+q[2]**2)>.8:
                 falls += 1
                 break
-    return dict(episodes=4, seconds_per_episode=5, fall_rate=falls/4, joint_mse=float(np.mean(errors)))
+        states = torch.stack(recorded_states)
+        actions = torch.stack(recorded_actions)
+        previous = torch.cat((torch.zeros_like(actions[:1]),actions[:-1]),0)
+        rewards, _, _ = head(states,ref.expand_as(states),actions,previous)
+        # Fixed full-horizon denominator: early falls must reduce return.
+        returns.append(rewards.sum().item() / 25.)
+    return dict(episodes=4, seconds_per_episode=5, fall_rate=falls/4,
+                tracking_return=float(np.mean(returns)), joint_mse=float(np.mean(errors)))
 
 
 def main():
