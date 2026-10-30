@@ -396,11 +396,11 @@
   },
   "current_mainline": {
     "checked_at": "2026-10-30T10:00:11.657711",
-    "status": "awaiting_bounded_full_learner_validation",
+    "status": "balance_improved_football_not_yet_validated",
     "changes": [
       "Normalize dynamics by one-step velocity increments",
       "Compact physical critic without noisy history or absolute field translation",
-      "Equal-world survival EMA for curriculum",
+      "Latest completed five-second trial per world for curriculum",
       "Paired rotating real-physics candidate/incumbent comparison; retain critic learning on actor rejection"
     ],
     "candidate_experiment": {
@@ -557,8 +557,132 @@
     },
     "failed_experiment": "Paired one-step reward-response supervision did not consistently improve held-out response and was removed.",
     "tests": {
-      "passed": 80,
+      "passed": 81,
       "failed": 0
-    }
+    },
+    "learner_checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_140.pt",
+    "independent_balance_audit": {
+      "checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_100.pt",
+      "sha256": "07c90b40d35a62f6f7c4a5e03cdd9cad3ee0f5d0db4426ff44c3e179a6b55edb",
+      "iteration": 100,
+      "count_per_seed": 64,
+      "steps": 300,
+      "noise_std": 0.025,
+      "phase": "balance",
+      "pairs": [
+        {
+          "seed": 410009,
+          "neutral": {
+            "duration_s": 3.997809410095215,
+            "return": -1.4853994846343994,
+            "survival_5s": 0.5,
+            "horizon_s": 6.0,
+            "fall_fraction": 0.5,
+            "near_approach_m": 0.022077469155192375,
+            "near_kick_event_rate": 0.0,
+            "near_net_goal_progress_m": 0.0,
+            "near_success_rate": 0.0,
+            "near_sample_count": 32,
+            "task_score": 0.022077469155192375
+          },
+          "accepted": {
+            "duration_s": 4.735933780670166,
+            "return": 3.9007062911987305,
+            "survival_5s": 0.671875,
+            "horizon_s": 6.0,
+            "fall_fraction": 0.328125,
+            "near_approach_m": 0.01933160051703453,
+            "near_kick_event_rate": 0.0,
+            "near_net_goal_progress_m": 0.0,
+            "near_success_rate": 0.0,
+            "near_sample_count": 32,
+            "task_score": 0.01933160051703453
+          },
+          "survival_gain": 0.171875,
+          "return_gain": 5.38610577583313
+        },
+        {
+          "seed": 510007,
+          "neutral": {
+            "duration_s": 3.8434348106384277,
+            "return": -3.276419162750244,
+            "survival_5s": 0.4375,
+            "horizon_s": 6.0,
+            "fall_fraction": 0.5625,
+            "near_approach_m": 0.017003361135721207,
+            "near_kick_event_rate": 0.0,
+            "near_net_goal_progress_m": 0.0,
+            "near_success_rate": 0.0,
+            "near_sample_count": 32,
+            "task_score": 0.017003361135721207
+          },
+          "accepted": {
+            "duration_s": 4.911246299743652,
+            "return": 4.929089546203613,
+            "survival_5s": 0.703125,
+            "horizon_s": 6.0,
+            "fall_fraction": 0.296875,
+            "near_approach_m": 0.021923745051026344,
+            "near_kick_event_rate": 0.0,
+            "near_net_goal_progress_m": 0.0,
+            "near_success_rate": 0.0,
+            "near_sample_count": 32,
+            "task_score": 0.021923745051026344
+          },
+          "survival_gain": 0.265625,
+          "return_gain": 8.205508708953857
+        },
+        {
+          "seed": 610031,
+          "neutral": {
+            "duration_s": 3.2765603065490723,
+            "return": -6.784276008605957,
+            "survival_5s": 0.328125,
+            "horizon_s": 6.0,
+            "fall_fraction": 0.671875,
+            "near_approach_m": 0.009122376330196857,
+            "near_kick_event_rate": 0.0,
+            "near_net_goal_progress_m": 0.0,
+            "near_success_rate": 0.0,
+            "near_sample_count": 32,
+            "task_score": 0.009122376330196857
+          },
+          "accepted": {
+            "duration_s": 4.241246700286865,
+            "return": -0.24450081586837769,
+            "survival_5s": 0.53125,
+            "horizon_s": 6.0,
+            "fall_fraction": 0.46875,
+            "near_approach_m": 0.014210082590579987,
+            "near_kick_event_rate": 0.0,
+            "near_net_goal_progress_m": 0.0,
+            "near_success_rate": 0.0,
+            "near_sample_count": 32,
+            "task_score": 0.014210082590579987
+          },
+          "survival_gain": 0.203125,
+          "return_gain": 6.539775192737579
+        }
+      ]
+    },
+    "warp_fresh_cohorts": {
+      "checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_100.pt",
+      "results": [
+        {
+          "seed": 42,
+          "count": 256,
+          "first_cohort_survival_5s": 0.69140625,
+          "reset_trial_ema": 0.69140625
+        },
+        {
+          "seed": 710041,
+          "count": 256,
+          "first_cohort_survival_5s": 0.67578125,
+          "reset_trial_ema": 0.67578125
+        }
+      ]
+    },
+    "curriculum_fix_reason": "Current checkpoint 100 achieved 69.14% and 67.58% fresh Warp survival; stale eight-trial per-world history reported only 60.64% by iteration 130. Keep 65% threshold and use latest completed trial per world.",
+    "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance."
   }
 }

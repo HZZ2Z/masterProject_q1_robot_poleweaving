@@ -358,9 +358,9 @@ def test_five_second_cohort_counts_failures_and_does_not_double_count(cfg):
     env.extras['success'] = torch.zeros(4)
     env._record_survival_trials()
     assert env.survival_rate_5s == pytest.approx(2 / 3)
-    before = env._survival_trial_mass.clone()
+    before = env._survival_seen.clone()
     env._record_survival_trials()
-    torch.testing.assert_close(env._survival_trial_mass, before)
+    torch.testing.assert_close(env._survival_seen, before)
     env.cfg['curriculum'] = {'balance_until_iteration': 0, 'release_active_5s_fraction': .8,
                              'use_cohort_gate': True}
     env.episode_length_buf[:] = 300
@@ -703,3 +703,26 @@ def test_survival_curriculum_does_not_overweight_repeatedly_failing_worlds(cfg):
         env._survival_checked[2:] = False
         env._record_survival_trials()
     assert env.survival_rate_5s == pytest.approx(.5)
+
+
+def test_survival_curriculum_tracks_recovery_without_old_failure_mass(cfg):
+    env = Q1(cfg); env.reset()
+    env.episode_length_buf[:] = 10
+    env.reset_buf[:] = True
+    env.extras['fall'] = torch.ones(4)
+    env.extras['success'] = torch.zeros(4)
+    for _ in range(20):
+        env._survival_checked[:] = False
+        env._record_survival_trials()
+    assert env.survival_rate_5s == 0.
+    # Three worlds now survive a complete trial; the fourth still falls.
+    env._survival_checked[:] = False
+    env.episode_length_buf[:3] = 250
+    env.reset_buf[:3] = False
+    env.extras['fall'][:3] = 0.
+    env._record_survival_trials()
+    assert env.survival_rate_5s == pytest.approx(.75)
+    # Continuing the same successful episode is not another trial.
+    env.extras['fall'][:3] = 1.
+    env._record_survival_trials()
+    assert env.survival_rate_5s == pytest.approx(.75)

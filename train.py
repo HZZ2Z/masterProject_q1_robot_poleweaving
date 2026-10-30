@@ -155,7 +155,7 @@ def main():
     cfg['history_dim'] = env.history_dim
     cfg['task_layout'] = task_layout(env)
     cfg['checkpoint_schema'] = 7
-    cfg['survival_statistic'] = 'equal_world_ema8'
+    cfg['survival_statistic'] = 'equal_world_latest_completed_trial'
     try:
         cfg['code_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         cfg['code_dirty'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode != 0

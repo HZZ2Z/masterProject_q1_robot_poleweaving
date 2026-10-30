@@ -154,8 +154,8 @@ class Q1(T1):
         neutral = neutral_fk(self.default_dof_pos)
         self.neutral_feet_pos = torch.stack([neutral[n][0] for n in cfg['asset']['foot_names']], dim=1)
         self.neutral_feet_quat = torch.stack([neutral[n][1] for n in cfg['asset']['foot_names']], dim=1)
-        self._survival_pass_mass = torch.zeros(self.num_envs, device=self.device)
-        self._survival_trial_mass = torch.zeros(self.num_envs, device=self.device)
+        self._survival_latest_pass = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._survival_seen = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self.survival_rate_5s = 0.
         self._prepare_reward_function()
         self.motion_sampler = Motion(cfg, self.device)
@@ -545,13 +545,12 @@ class Q1(T1):
         n = int(resolved.sum())
         if n:
             passed = (reached & ~self.extras['fall'].bool()) | self.extras['success'].bool()
-            # Each randomized world has equal weight, like the evaluation cohort.
-            # Fast-failing worlds must not gain weight merely by resetting more.
-            decay = np.exp(-1. / 8.)
-            self._survival_pass_mass[resolved] = decay*self._survival_pass_mass[resolved] + passed[resolved].float()
-            self._survival_trial_mass[resolved] = decay*self._survival_trial_mass[resolved] + 1.
-            seen = self._survival_trial_mass > 0
-            self.survival_rate_5s = (self._survival_pass_mass[seen]/self._survival_trial_mass[seen]).mean().item()
+            # One latest completed trial per world. Averaging over past trials
+            # keeps fast early failures around for many 60-second successful
+            # episodes, delaying the curriculum after the policy improves.
+            self._survival_latest_pass[resolved] = passed[resolved]
+            self._survival_seen[resolved] = True
+            self.survival_rate_5s = self._survival_latest_pass[self._survival_seen].float().mean().item()
             self._survival_checked[resolved] = True
 
     def _reward_base_height(self):

@@ -35,11 +35,11 @@
         "local W&B/save destination"
       ],
       "local_sha256": {
-        "envs/q1.py": "567b023d4d4b482df294af897931e65f541ac5a80b941a166bd42e97cd63fb42",
+        "envs/q1.py": "3799557f1a4f662f9f7957d02e1f0b3608e3c4e1da2fdb57f63e8595c3f3c1b8",
         "envs/Q1.yaml": "1938d2bc38aa760dee35634b5b6243affe8ad7aa2937182c41df289c555dd991",
         "q1_supermimic/environment.py": "9639515de605d46fa25fa1aa3593b55da319c7a31de57fdd066cb7a98ca50a0d",
         "q1_supermimic/learning.py": "dab1d78641dcee4024dd285996db1946dfb418288e3d3f1736278ca63da11b3f",
-        "train.py": "2d954886c635c7212dd2611c4df57402deda85f9ce06b4f8110e9899ad090032",
+        "train.py": "5731d4798b37cf570aa0b169d1c1b1e99374519420f7ee4295a896b1092ff6b1",
         "play.py": "6fd56a4e0135c8a10af76033e9243f99566121cc9be6c137a3ebe97a7de4d5a1"
       }
     }
@@ -61,7 +61,7 @@
     "date": "2026-10-30",
     "method": "Increment-normalized physical dynamics; compact real-GAE critic; model actor with paired rotating real-physics acceptance",
     "files": {
-      "train.py": "2d954886c635c7212dd2611c4df57402deda85f9ce06b4f8110e9899ad090032",
+      "train.py": "5731d4798b37cf570aa0b169d1c1b1e99374519420f7ee4295a896b1092ff6b1",
       "q1_supermimic/learning.py": "dab1d78641dcee4024dd285996db1946dfb418288e3d3f1736278ca63da11b3f",
       "q1_supermimic/safety.py": "90232c86dc73ac73a25cda15aeb246a9b1985bf56c80315494074f5fe670849f",
       "configs/soccer.yaml": "b47e3f9bfc8d4171751c234bf709318adf96c2616b820698814fd189b67bdf92"
@@ -71,7 +71,7 @@
       "No AMP discriminator",
       "Fixed visual visibility and sensor residuals within short imagination"
     ],
-    "runtime_status": "Bounded learner validation pending; no stable kicking claim",
+    "runtime_status": "Bounded learner reached iteration 140; balance improved but zero kicks. Continuing after correcting stale curriculum trials.",
     "mainline": "single current implementation, under repair"
   }
 }
