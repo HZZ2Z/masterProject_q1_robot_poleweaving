@@ -130,6 +130,23 @@ def test_counterfactual_validation_preserves_training_rng():
     assert all(torch.isfinite(torch.tensor(v)) for v in result.values())
 
 
+def test_counterfactual_football_phase_activates_near_task_rewards():
+    from train import task_layout
+    from q1_supermimic.safety import sample_action_pairs
+    wrapper = load_environment('cpu',4)
+    agent = SoccerAgent(wrapper.state_dim,width=16,history_dim=wrapper.history_dim)
+    agent.configure_task(task_layout(wrapper))
+    p, group = agent.layout['progress_index'], agent.layout['group_index']
+    for phase, near_reward, far_reward in ((0.,0.,0.),(.35,1.,0.),(1.,1.,1.)):
+        before = torch.random.get_rng_state()
+        states, _, _ = sample_action_pairs(agent,count=4,prefix_steps=0,progress=phase)
+        near = states[:,group+2].bool()
+        assert near.sum() == 2
+        torch.testing.assert_close(states[near,p],torch.full((2,),near_reward))
+        torch.testing.assert_close(states[~near,p],torch.full((2,),far_reward))
+        torch.testing.assert_close(torch.random.get_rng_state(),before)
+
+
 def test_physical_projection_matches_privileged_observations_and_backpropagates():
     from train import task_layout
     wrapper = load_environment('cpu', 4)

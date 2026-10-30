@@ -172,7 +172,7 @@ def main():
     cfg['checkpoint_schema'] = 7
     cfg['survival_statistic'] = 'independent_noisy_first_episode_cohort'
     cfg['physical_state_normalization'] = 'lossless_affine_ball_motion_floors'
-    cfg['action_response_validation'] = 'three_rotating_cohorts_32_pairs_each'
+    cfg['action_response_validation'] = 'three_rotating_cohorts_32_pairs_each_active_task_phase'
     try:
         cfg['code_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         cfg['code_dirty'] = subprocess.run(['git', 'diff', '--quiet', 'HEAD'], cwd=ROOT).returncode != 0
@@ -363,10 +363,11 @@ def main():
                 # cohort can freeze otherwise responsive models indefinitely.
                 seeds = (130363,) if args.smoke else tuple(
                     seed+iteration*1000003 for seed in (130363,230363,330373))
-                action_check = validate_action_response(agent,count=4 if args.smoke else 32,seeds=seeds)
-            # Basic dynamics checks permit a small proposal. Task improvement is
-            # decided by paired multi-step real-physics evaluation, not by a noisy
-            # one-step reward derivative (which remains a diagnostic).
+                action_check = validate_action_response(agent,count=4 if args.smoke else 32,seeds=seeds,
+                    progress=0. if env.env.balance_phase else env.env.soccer_progress)
+            # Basic dynamics checks permit a small proposal. Paired multi-step
+            # real-physics evaluation enforces safety; the one-step reward
+            # response remains a diagnostic, not proof of football improvement.
             response_ready = (action_check['model_validation/action_response_cosine'] >= cfg['model_action_response_cosine']
                               and action_check['model_validation/action_response_relative_error'] <= cfg['model_action_response_relative_error'])
             actor_loss = 0.

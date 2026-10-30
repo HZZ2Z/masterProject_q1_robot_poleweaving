@@ -3,7 +3,7 @@
   "status": "repair_in_progress_not_stable",
   "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
   "tests": {
-    "passed": 88,
+    "passed": 89,
     "failed": 0
   },
   "current_implementation": [
@@ -794,11 +794,60 @@
     "capacity_check": "Full upstream network completed 5 iterations on MuJoCo Warp with 512 environments.",
     "compatibility": "Diagnostic-only simulator copy skips removed Model.stat allocation on MuJoCo Warp 3.17; original vendor and shared conda environment unchanged. CLI dependencies installed only under ignored logs/reference_runtime_deps.",
     "bounded_followup": {
-      "pid": 738800,
       "iterations": 500,
       "output": "logs/current_reference_tracking/capacity_continuation",
       "acceptance": "Full-clip native-physics tracking must improve before considering any football integration; actual football curriculum still required for project acceptance.",
-      "resident_gpu_mib_observed": 2912
+      "resident_gpu_mib_observed": 2912,
+      "status": "completed_not_an_expert",
+      "decision": "500 rounds completed; 11/12 clips still fail and mean normalized return is below initialization. No reference-conditioned policy deployed."
+    },
+    "full_network_evaluations": {
+      "5": {
+        "failures": 12,
+        "motions": 12,
+        "mean_normalized_return": 0.17653001382988745,
+        "mean_evaluated_steps": 71.91666666666667
+      },
+      "100": {
+        "failures": 12,
+        "motions": 12,
+        "mean_normalized_return": 0.13810044211324216,
+        "mean_evaluated_steps": 53.833333333333336
+      },
+      "300": {
+        "failures": 12,
+        "motions": 12,
+        "mean_normalized_return": 0.14901476933025926,
+        "mean_evaluated_steps": 63.583333333333336
+      },
+      "500": {
+        "failures": 11,
+        "motions": 12,
+        "mean_normalized_return": 0.1493946097513505,
+        "mean_evaluated_steps": 66.16666666666667
+      }
     }
+  },
+  "action_response_phase_repair": {
+    "problem": "Action-response validation defaulted to balance-stage rewards even after football curriculum activation. Old reward-response metrics did not measure the active football objective.",
+    "fix": "Pass the current soccer progress into native paired sampling. An isolated evaluation cohort applies the requested stage without its empty success history silently capping full-task rewards. Actor observations and acceptance thresholds unchanged.",
+    "tests": "89 passed; regression covers balance, near-only and full football task progress, pooled-cohort forwarding and preserved RNG.",
+    "resume_smoke": "logs/current_response_phase_resume_check/2026-10-30-14-29-18-653604: two iterations completed; no W&B writes or football success claim.",
+    "same_physics_audit": "logs/current_response_phase_probe.json",
+    "limitation": "This corrects validation; it does not solve the zero-kick policy."
+  },
+  "world_model_capacity_audit": {
+    "evidence": [
+      "logs/current_world_capacity_probe.json",
+      "logs/current_response_phase_probe.json"
+    ],
+    "method": "Preserve initial model function while widening 512 to 2048, freeze actor/critic and fit identical real-data batches for 400 updates per candidate.",
+    "decision": "Not adopted. Wider model does not pass the active-phase physical response gate on the inspected cohort, and no real football benefit is demonstrated. Better one-step value response on one cohort alone is insufficient."
+  },
+  "value_response_model_audit": {
+    "evidence": "logs/current_value_response_model_probe.json",
+    "paper_context": "https://proceedings.mlr.press/v54/farahmand17a.html",
+    "method": "Experimental paired native-physics supervision of reward plus fixed-critic value response, mixed with ordinary dynamics fitting; not a reproduction of the cited method. Actor and critic frozen.",
+    "decision": "Not adopted: held-out near value-response cosine fell from 0.726 to 0.528; ordinary rollout error also increased."
   }
 }
