@@ -109,6 +109,24 @@ class SafetyGate:
         return {key: (sum(row[key] for row in results) if key.endswith('sample_count')
                       else sum(row[key] for row in results)/len(results)) for key in results[0]}
 
+    def recheck_exploration(self, agent, noise_std):
+        """Change exploration only after measuring the accepted policy anew.
+
+        Survival rates at different noise levels are not comparable baselines.
+        Failed changes leave the saved gate untouched.
+        """
+        if not math.isfinite(noise_std) or noise_std <= 0:
+            raise ValueError('Exploration standard deviation must be positive and finite')
+        seeds = tuple(seed+(self.checks+1)*1000003 for seed in self.seeds)
+        baseline = self._measure(agent,self.progress,seeds,zero=True,noise_std=noise_std)
+        measured = self._measure(agent,self.progress,seeds,noise_std=noise_std)
+        if measured['survival_5s'] < .65 or measured['fall_fraction'] > .35:
+            raise ValueError(f'Exploration change fails real-physics survival/fall floor: {measured}')
+        self.noise_std = noise_std
+        self.noisy_baseline, self.noisy_best = baseline, measured
+        self.checks += 1
+        return measured
+
     def check(self, agent, progress=0.):
         changed = (float(agent.action_limit) != self.accepted_action_limit or
                    any(not torch.equal(value,self.accepted_actor[key]) for key,value in agent.actor.state_dict().items()))

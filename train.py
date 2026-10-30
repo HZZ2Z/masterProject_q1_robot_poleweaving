@@ -30,6 +30,7 @@ def parser():
     p.add_argument('--device')
     p.add_argument('--num-envs', type=int)
     p.add_argument('--iterations', type=int)
+    p.add_argument('--exploration-std', type=float, help='Recheck a changed exploration level in real physics before resuming')
     p.add_argument('--output', type=Path)
     p.add_argument('--checkpoint', type=Path)
     p.add_argument('--migrate-curriculum', action='store_true', help='Allow curriculum-only changes to a structurally compatible checkpoint')
@@ -133,7 +134,7 @@ def policy_stall_reason(iteration, last_applied, last_retained, budget):
 def main():
     args = parser().parse_args()
     cfg = yaml.safe_load(args.config.read_text())
-    for key in ('device', 'num_envs', 'iterations', 'output'):
+    for key in ('device', 'num_envs', 'iterations', 'output', 'exploration_std'):
         value = getattr(args, key)
         if value is not None:
             cfg[key] = str(value) if key == 'output' else value
@@ -148,6 +149,8 @@ def main():
                            'replay_steps', 'model_sequence', 'model_batches', 'batch_size',
                            'width', 'validation_horizon', 'save_interval')) <= 0:
         raise ValueError('Counts and sizes must be positive')
+    if not np.isfinite(cfg['exploration_std']) or cfg['exploration_std'] <= 0:
+        raise ValueError('Exploration standard deviation must be positive and finite')
     if cfg['imagination_horizon'] > cfg['validation_horizon']:
         raise ValueError('Policy imagination must be covered by full-horizon validation')
     if cfg['validation_horizon'] > cfg['model_sequence']:
@@ -187,14 +190,18 @@ def main():
         return
     start = 0
     checkpoint = None
+    noise_changed = False
     if args.checkpoint:
         # Checkpoints contain optimizer/RNG state. Load only trusted local files.
         checkpoint = torch.load(args.checkpoint, map_location=cfg['device'], weights_only=False)
         validate_checkpoint(checkpoint, env, args.migrate_curriculum)
         for key in ('width', 'learning_rate', 'model_width'):
             cfg[key] = checkpoint['config'].get(key, cfg[key])
-        if checkpoint['config']['exploration_std'] != cfg['exploration_std']:
-            raise ValueError('Resume must preserve the exploration distribution used by the safety gate')
+        if args.exploration_std is None:
+            cfg['exploration_std'] = checkpoint['config']['exploration_std']
+        noise_changed = checkpoint['config']['exploration_std'] != cfg['exploration_std']
+        if noise_changed and not checkpoint.get('safety'):
+            raise ValueError('Changing exploration requires a saved accepted policy and safety gate')
         start = checkpoint['iteration']
         cfg['resumed_from'] = str(args.checkpoint.resolve())
         cfg['curriculum_migration'] = args.migrate_curriculum
@@ -206,6 +213,8 @@ def main():
         env.env.restore_near_start_state(checkpoint['near_start'])
         env.env.set_training_iteration(start)
         env.reset()
+    cfg['exploration_value_warmup_until'] = (start+20 if noise_changed else
+        checkpoint['config'].get('exploration_value_warmup_until',0) if checkpoint else 0)
     agent = build_agent(env.state_dim, cfg)
     agent.make_optimizers()
     if checkpoint:
@@ -216,6 +225,10 @@ def main():
             optimizer.load_state_dict(state)
         if agent.ensure_ball_motion_scales(resuming=True):
             print('Restored model with physical ball-motion scales; actor and critic weights retained.', flush=True)
+        if noise_changed:
+            agent.actor.load_state_dict(checkpoint['safety']['accepted_actor'])
+            agent.actor_optimizer.load_state_dict(checkpoint['safety']['accepted_optimizer'])
+            agent.action_limit.fill_(checkpoint['safety']['accepted_action_limit'])
         torch.set_rng_state(checkpoint['torch_rng'].cpu())
         np.random.set_state(checkpoint['numpy_rng'])
         random.setstate(checkpoint['python_rng'])
@@ -267,7 +280,7 @@ def main():
             on_policy = latest_rollout
         with torch.no_grad():
             for step_index in range(steps):
-                noise = cfg['exploration_std'] + cfg.get('exploration_progress_scale', .03) * env.env.soccer_progress
+                noise = cfg['exploration_std']
                 mean = agent.actor(agent.policy_observation(agent.normalize(state)))
                 latent = mean + noise / agent.action_limit * torch.randn(
                     cfg['num_envs'], 22, device=cfg['device'])
@@ -302,6 +315,10 @@ def main():
                           seeds=[104729] if args.smoke else cfg.get('evaluation_seeds',[104729]))
         if checkpoint and checkpoint.get('safety'):
             gate.load_state_dict(checkpoint['safety'])
+        if noise_changed:
+            measured = gate.recheck_exploration(agent,cfg['exploration_std'])
+            print('Exploration change real-physics check: '+json.dumps(
+                {'noise_std':cfg['exploration_std'],**measured}),flush=True)
         agent.safety_gate = gate
         env.env.survival_rate_5s = gate.noisy_best['survival_5s']
         print('Real-physics neutral baseline: ' + json.dumps(gate.baseline), flush=True)
@@ -347,7 +364,8 @@ def main():
             response_ready = (action_check['model_validation/action_response_cosine'] >= cfg['model_action_response_cosine']
                               and action_check['model_validation/action_response_relative_error'] <= cfg['model_action_response_relative_error'])
             actor_loss = 0.
-            actor_enabled = ready and response_ready and iteration >= cfg['actor_start_iteration']
+            actor_enabled = ready and response_ready and iteration >= max(
+                cfg['actor_start_iteration'],cfg['exploration_value_warmup_until'])
             if actor_enabled:
                 initial = replay.sample(cfg['batch_size'], 1)[0][:, 0]
                 actor_loss = agent.improve_model_policy(initial, cfg['imagination_horizon'],
@@ -373,6 +391,7 @@ def main():
                 if wandb_run:
                     wandb_run.summary.update(status)
             metrics = {'iteration': iteration, 'reward/control_step': totals['control_reward'],
+                       'policy/exploration_std':cfg['exploration_std'],
                        'loss/model': float(np.mean(losses)), 'loss/actor': actor_loss,
                        'loss/critic': critic_loss, 'curriculum/soccer_progress': env.env.soccer_progress,
                        'stability/active_over_5s': (env.env.episode_length_buf * env.env.dt >= 5).float().mean().item(),

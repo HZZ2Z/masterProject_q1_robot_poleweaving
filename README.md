@@ -65,6 +65,8 @@ Critic 读取紧凑物理状态、相对位置、课程上下文与物理参数�
 
 状态和网络结构不兼容的旧 checkpoint 不可加载。新训练从随机初始化开始，不传 `--checkpoint`；需要续训时，仅传与当前任务、网络结构相容的 checkpoint。恢复网络、优化器、归一化、课程和 RNG，重建物理轨迹、replay 与回合统计窗口。已完成的初始预热不重复执行；checkpoint 保存 W&B run id 后，续训自动沿用同一条曲线。
 
+新训练从探索标准差 0.025 开始，普通续训保留 checkpoint 的噪声水平。需要提高探索时使用 `--exploration-std 0.05`：先恢复已接受策略，在新噪声下重测基准和首回合；存活率低于 65% 或摔倒率高于 35% 则终止这次变更。通过后重新拟合 20 轮 critic，再允许策略更新；这一预热截止轮次也随 checkpoint 保存。采样、想象和验收使用相同噪声，W&B 的 `policy/exploration_std` 标记阶段，避免把噪声变化造成的回报差异误读为策略退化。当前第 600 轮策略通过了 0.05 的独立短测，0.075 和 0.1 未通过；尚无有效踢球进展。
+
 W&B 项目为 `mohismlab-robotics/q1-humanoid-kick-SuperMimic`。凭据读取已有登录或环境变量，禁止提交到 Git。Torch allocator 限总显存 30%，Warp 另计；1024 环境用于给并行 PPO 留出显存。
 
 ## 验收、best 和 GUI

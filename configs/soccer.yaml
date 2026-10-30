@@ -18,7 +18,6 @@ model_action_response_relative_error: 0.4
 actor_start_iteration: 50
 learning_rate: 0.0002
 exploration_std: 0.025
-exploration_progress_scale: 0.0
 save_interval: 100
 output: logs/q1_supermimic
 wandb_entity: mohismlab-robotics

@@ -1,9 +1,9 @@
 {
-  "checked_at": "2026-10-30T12:45:01.735319",
+  "checked_at": "2026-10-30T13:07:11.874402",
   "status": "repair_in_progress_not_stable",
   "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
   "tests": {
-    "passed": 85,
+    "passed": 87,
     "failed": 0
   },
   "current_implementation": [
@@ -18,10 +18,10 @@
     "Preallocated rollout buffers and chunked critic evaluation bound history memory"
   ],
   "current_run": {
-    "status": "normalization repair validated for resume; no productive kicking verified",
-    "resume_checkpoint": "logs/q1_supermimic/2026-10-30-11-35-22-064054/checkpoint_90.pt",
+    "status": "600-iteration run finished; preparing assessed exploration increase",
+    "resume_checkpoint": "logs/q1_supermimic/2026-10-30-12-46-04-229224/checkpoint_600.pt",
     "wandb_run_id": "qyfmtvgv",
-    "target_iteration": 600,
+    "target_iteration": 800,
     "productive_kicking_verified": false
   },
   "historical_failure": {
@@ -567,5 +567,55 @@
       "32_dense": 0.9583333333333334,
       "32_full": 0.9583333333333334
     }
+  },
+  "trained_exploration_check": {
+    "checkpoint": "logs/q1_supermimic/2026-10-30-12-46-04-229224/checkpoint_600.pt",
+    "evidence": "logs/current_trained_exploration_probe.json",
+    "sha256": "fd351b510325628da321c58042b1e3cf171111264661fd2494b89e1894c0efa3",
+    "worlds_per_noise": 192,
+    "duration_s": 12,
+    "results": {
+      "0.025": {
+        "survival_5s": 0.9583333333333334,
+        "fall_fraction": 0.041666666666666664,
+        "near_kick_event_rate": 0.0
+      },
+      "0.05": {
+        "survival_5s": 0.8333333333333334,
+        "fall_fraction": 0.234375,
+        "near_kick_event_rate": 0.0
+      },
+      "0.075": {
+        "survival_5s": 0.546875,
+        "fall_fraction": 0.7239583333333334,
+        "near_kick_event_rate": 0.0
+      },
+      "0.1": {
+        "survival_5s": 0.20833333333333334,
+        "fall_fraction": 0.9791666666666666,
+        "near_kick_event_rate": 0.0
+      }
+    },
+    "decision": "Use 0.05 only after fresh real-physics recheck and 20 value-fitting iterations; higher tested noise fails survival floor. No kicking success claim."
+  },
+  "contact_model_candidates": {
+    "evidence": [
+      "logs/current_contact_model_probe.json",
+      "logs/current_contact_geometry_probe.json",
+      "logs/current_ball_head_probe.json"
+    ],
+    "decision": "None adopted: event fitting, appended foot geometry and an isolated ball head did not improve held-out ball motion enough while preserving ordinary action-response quality. Actor weights were unchanged in these physics-only probes."
+  },
+  "exploration_resume_check": {
+    "run_directory": "logs/current_exploration_resume_check/2026-10-30-13-04-17-817838",
+    "iterations": [
+      601,
+      602,
+      603
+    ],
+    "value_warmup_until": 620,
+    "actor_updates_during_warmup": 0,
+    "real_recheck_survival_5s": 0.8177083333333334,
+    "real_recheck_fall_fraction": 0.203125
   }
 }

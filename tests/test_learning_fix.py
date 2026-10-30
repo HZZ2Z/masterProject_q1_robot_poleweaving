@@ -5,6 +5,37 @@ from q1_supermimic.learning import SoccerAgent, TemporalReplay, real_gae
 from q1_supermimic.safety import SafetyGate
 
 
+def test_exploration_change_rechecks_noise_and_preserves_deterministic_gate():
+    gate = object.__new__(SafetyGate)
+    gate.noise_std,gate.checks,gate.seeds,gate.progress = .025,3,(17,29),1.
+    gate.baseline = {'survival_5s':.9}
+    gate.noisy_baseline = {'survival_5s':.9}
+    gate.noisy_best = {'survival_5s':.95}
+    calls=[]
+    def measure(agent,progress,seeds,**kwargs):
+        calls.append((progress,seeds,kwargs))
+        return {'survival_5s':.7 if kwargs.get('zero') else .85,'fall_fraction':.15}
+    gate._measure=measure
+    measured=gate.recheck_exploration(None,.05)
+    assert measured['survival_5s']==.85 and gate.noisy_baseline['survival_5s']==.7
+    assert gate.noise_std==.05 and gate.checks==4
+    assert gate.baseline=={'survival_5s':.9}
+    assert all(kwargs['noise_std']==.05 for _,_,kwargs in calls)
+    assert calls[0][1]==calls[1][1]
+
+
+def test_unsafe_exploration_change_keeps_saved_gate():
+    import pytest
+    gate = object.__new__(SafetyGate)
+    gate.noise_std,gate.checks,gate.seeds,gate.progress = .025,3,(17,29),1.
+    gate.noisy_baseline=gate.noisy_best={'survival_5s':.95}
+    gate._measure=lambda *args,**kwargs: {'survival_5s':.4,'fall_fraction':.6}
+    with pytest.raises(ValueError,match='survival/fall floor'):
+        gate.recheck_exploration(None,.1)
+    assert gate.noise_std==.025 and gate.checks==3
+    assert gate.noisy_best=={'survival_5s':.95}
+
+
 def rollout(states, sign=1.):
     latent = torch.zeros(1, len(states), 22)
     latent[0, :, 0] = torch.tensor([.3, -.3] * (len(states)//2))
