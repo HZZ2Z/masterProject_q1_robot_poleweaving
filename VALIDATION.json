@@ -27,11 +27,11 @@
     "exploration_std": 0.05,
     "value_warmup_until": 620,
     "latest_checked_evaluation": {
-      "iteration": 810,
+      "iteration": 860,
       "evaluation/policy_accepted": 1.0,
-      "evaluation/exploratory_survival_5s": 0.828125,
+      "evaluation/exploratory_survival_5s": 0.8489583333333334,
       "evaluation/near_kick_event_rate": 0.0,
-      "evaluation/near_net_goal_progress_m": 0.00037650267283121747
+      "evaluation/near_net_goal_progress_m": 0.0
     }
   },
   "historical_failure": {
@@ -659,5 +659,23 @@
     "evidence": "logs/current_value_gradient_return_probe.json",
     "near_pairs_per_direction": 48,
     "conclusion": "Full-objective direction mean return gain was dominated by a rare avoided fall; these samples do not establish a systematically wrong critic gradient or productive kicking. Critic retained."
+  },
+  "visual_observation_confirmation": {
+    "constraint": "Keep PPO camera visual observations; actor receives no privileged true ball position.",
+    "evidence": "logs/current_policy_visibility_probe.json",
+    "checkpoint": "logs/q1_supermimic/2026-10-30-13-07-51-985403/checkpoint_800.pt",
+    "seeds": [
+      7810393,
+      7910399,
+      8010403
+    ],
+    "near_worlds_per_seed": 32,
+    "policy_visible_frame_fraction": [
+      0.8943684101104736,
+      0.8919095396995544,
+      0.8919654488563538
+    ],
+    "interpretation": "Visibility is conditional on frames before first episode termination. Current measurements do not support loss of ball visibility from standing upright as the cause of no kicks. No reward change based on this hypothesis.",
+    "timeout_note": "12-second near-practice timeout counts as done; unterminated fraction is not survival or fall rate. Visibility is conditioned on frames before first termination."
   }
 }
