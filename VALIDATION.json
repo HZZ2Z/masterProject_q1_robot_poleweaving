@@ -18,14 +18,21 @@
     "Preallocated rollout buffers and chunked critic evaluation bound history memory"
   ],
   "current_run": {
-    "status": "800-iteration run stopped at stalled-update watchdog; cohort repair ready to resume",
+    "status": "running after cohort repair; first changed policy accepted; kicking not verified",
     "resume_checkpoint": "logs/q1_supermimic/2026-10-30-13-07-51-985403/checkpoint_800.pt",
     "wandb_run_id": "qyfmtvgv",
     "target_iteration": 1000,
     "productive_kicking_verified": false,
-    "run_directory": "logs/q1_supermimic/2026-10-30-13-07-51-985403",
+    "run_directory": "logs/q1_supermimic/2026-10-30-13-31-39-855917",
     "exploration_std": 0.05,
-    "value_warmup_until": 620
+    "value_warmup_until": 620,
+    "latest_checked_evaluation": {
+      "iteration": 810,
+      "evaluation/policy_accepted": 1.0,
+      "evaluation/exploratory_survival_5s": 0.828125,
+      "evaluation/near_kick_event_rate": 0.0,
+      "evaluation/near_net_goal_progress_m": 0.00037650267283121747
+    }
   },
   "historical_failure": {
     "run": "logs/q1_supermimic/2026-10-30-05-21-53-498881",
