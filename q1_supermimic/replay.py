@@ -40,7 +40,7 @@ class Replay:
         self.cursor = (self.cursor + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
-    def sample(self, count, length=8, generator=None):
+    def sample(self, count, length=8, generator=None, require_contact=False):
         if count < 1 or length < 1 or self.size < length:
             raise ValueError("Insufficient replay or invalid sample shape")
         device = self.storage["state"].device
@@ -53,6 +53,10 @@ class Replay:
         allowed = ~self.storage["boundary"][indices[:, :-1]].bool().any(dim=1)
         if "valid" in self.storage:
             allowed = allowed & self.storage["valid"][indices].bool().all(dim=1)
+        if require_contact:
+            if 'contact' not in self.storage:
+                raise ValueError('Contact sampling requires actual contact labels')
+            allowed = allowed & self.storage['contact'][indices].bool().any(dim=1)
         candidates = allowed.nonzero()
         if not len(candidates):
             raise ValueError("No contiguous replay windows; collect more transitions")

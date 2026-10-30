@@ -47,6 +47,38 @@ class WarpPhysics:
         caller.wait_stream(self.torch_stream)
 
     @torch.no_grad()
+    def reset_indices(self, indices, qpos, qvel):
+        """Reset selected episodes; other worlds preserve positions and velocities."""
+        caller = torch.cuda.current_stream(self.device)
+        self.torch_stream.wait_stream(caller)
+        with torch.cuda.stream(self.torch_stream), self.wp.ScopedStream(self.stream):
+            self.qpos[indices] = qpos
+            self.qvel[indices] = qvel
+            self.ctrl[indices] = 0
+            self.wp.to_torch(self.data.qacc_warmstart)[indices] = 0
+            self.wp.to_torch(self.data.time)[indices] = 0
+            self.mjw.forward(self.model, self.data)
+        caller.wait_stream(self.torch_stream)
+
+    @torch.no_grad()
+    def ball_foot_contacts(self, ball_geom, foot_geoms):
+        """Actual active penetrations, never a foot-distance proxy."""
+        wp, data = self.wp, self.data
+        geom = wp.to_torch(data.contact.geom)
+        world = wp.to_torch(data.contact.worldid)
+        distance = wp.to_torch(data.contact.dist)
+        valid = torch.arange(geom.shape[0],device=self.device) < wp.to_torch(data.nacon)[0]
+        ball = (geom == ball_geom).any(-1)
+        foot = torch.zeros_like(ball)
+        for identifier in foot_geoms:
+            foot |= (geom == identifier).any(-1)
+        active = (wp.to_torch(data.contact.efc_address) >= 0).any(-1)
+        valid &= ball & foot & (distance <= 0) & active & (world >= 0) & (world < self.qpos.shape[0])
+        result = torch.zeros(self.qpos.shape[0],device=self.device,dtype=torch.int32)
+        result.scatter_add_(0,world.long().clamp(0,self.qpos.shape[0]-1),valid.int())
+        return result > 0
+
+    @torch.no_grad()
     def step(self, torque):
         if torque.shape != self.ctrl.shape:
             raise ValueError("Torque must match [world, actuator]")

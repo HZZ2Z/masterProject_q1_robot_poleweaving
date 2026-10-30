@@ -1,0 +1,78 @@
+{
+  "num_envs": 1024,
+  "iterations": 20000,
+  "collect_steps": 64,
+  "replay_steps": 256,
+  "warmup_steps": 256,
+  "warmup_batches": 400,
+  "model_batches": 10,
+  "model_batch_size": 2048,
+  "policy_batch_size": 512,
+  "model_width": 1024,
+  "actor_lr": 2e-05,
+  "learning_rate": 0.0002,
+  "exploration_std": 0.02,
+  "imagination_horizon": 32,
+  "evaluation_interval": 10,
+  "evaluation_episodes": 128,
+  "save_interval": 10,
+  "episode_steps": 600,
+  "memory_fraction": 0.3,
+  "threads": 4,
+  "seed": 750113,
+  "spawn_mixture": [
+    0.25,
+    0.25,
+    0.5
+  ],
+  "spawn_disk_radius": 3.5,
+  "near_foot_gap": [
+    0.1,
+    0.25
+  ],
+  "camera_position": [
+    0.04,
+    0.0,
+    0.28
+  ],
+  "camera_quaternion_wxyz": [
+    0.9762960071199334,
+    0.0,
+    0.21643961393810288,
+    0.0
+  ],
+  "camera_fov_degrees": [
+    87,
+    58
+  ],
+  "camera_delay_mean_steps": 6,
+  "camera_delay_std_steps": 1,
+  "camera_noise_base": 0.149,
+  "camera_noise_distance": 0.124,
+  "goal_xy": [
+    7.0,
+    0.0
+  ],
+  "effective_kick_progress": 0.1,
+  "recovery_steps": 50,
+  "promotion_min_episodes": 128,
+  "promotion_success_rate": 0.4,
+  "promotion_max_fall_rate": 0.2,
+  "promotion_progress_m": [
+    0.1,
+    0.5,
+    0.5
+  ],
+  "max_stalled_evaluations": 10,
+  "wandb_entity": "mohismlab-robotics",
+  "wandb_project": "q1-humanoid-kick-SuperMimic",
+  "visual_history": 50,
+  "contact_worlds": 32,
+  "contact_steps": 64,
+  "goal_input_mode": "truth",
+  "train_decoder": true,
+  "ball_position_loss_weight": 0.5,
+  "ball_velocity_loss_weight": 2.0,
+  "decoder_lr": 2e-05,
+  "minimum_approach_selection_gain_m": 0.001
+}

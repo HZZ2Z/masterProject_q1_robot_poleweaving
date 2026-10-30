@@ -55,3 +55,24 @@ def test_foot_pose_and_velocity_have_finite_joint_gradients():
     (position.square().sum() + velocity.square().sum()).backward()
     assert torch.isfinite(q.grad).all() and torch.isfinite(v.grad).all()
     assert q.grad[7:13].abs().sum() > 0
+
+
+def test_analytic_twist_gradients_match_directional_autodiff():
+    from q1_supermimic.dynamics import integrate, multiply
+    torch.manual_seed(42)
+    model = mujoco.MjModel.from_xml_path(str(SCENE))
+    fk = Kinematics(model)
+    q = torch.tensor(model.qpos0).repeat(2, 1).requires_grad_()
+    v = (torch.randn(2, model.nv, dtype=torch.float64) * .1).requires_grad_()
+    (_, rotation), (linear, qdot) = torch.func.jvp(
+        lambda tangent: fk(integrate(model, q, tangent)),
+        (torch.zeros_like(v),), (v,))
+    conjugate = torch.cat((rotation[..., :1], -rotation[..., 1:]), -1)
+    angular = 2 * multiply(qdot, conjugate)[..., 1:]
+    actual_linear, actual_angular = fk.velocities(q, v)
+    torch.testing.assert_close(actual_linear, linear, atol=1e-10, rtol=1e-10)
+    torch.testing.assert_close(actual_angular, angular, atol=1e-10, rtol=1e-10)
+    expected_grad = torch.autograd.grad(linear.square().sum()+angular.square().sum(), (q, v), retain_graph=True)
+    actual_grad = torch.autograd.grad(actual_linear.square().sum()+actual_angular.square().sum(), (q, v))
+    for actual, expected in zip(actual_grad, expected_grad):
+        torch.testing.assert_close(actual, expected, atol=1e-9, rtol=1e-9)

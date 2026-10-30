@@ -1,0 +1,15 @@
+name: q1-supermimic
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch==2.9.0+cu128
+      - mujoco==3.17.0
+      - mujoco-warp==3.17.0
+      - warp-lang==1.18.0
+      - numpy
+      - wandb>=0.31,<0.32
+      - pytest

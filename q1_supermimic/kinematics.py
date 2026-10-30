@@ -53,12 +53,53 @@ class Kinematics(nn.Module):
     def linear_velocity(self, qpos, qvel):
         return self.velocities(qpos, qvel)[0]
 
+    def state_features(self, qpos, qvel):
+        """Propagate body-origin twists analytically, including joint anchors.
+
+        This avoids a nested forward-mode AD pass during every imagined step;
+        all operations retain gradients in both configuration and velocity.
+        """
+        zero = qpos.new_zeros((*qpos.shape[:-1], 3))
+        identity = qpos.new_zeros((*qpos.shape[:-1], 4))
+        identity[..., 0] = 1
+        positions, orientations = [zero], [identity]
+        velocities, angulars = [zero], [zero]
+        for body in range(1, self.model.nbody):
+            parent = int(self.model.body_parentid[body])
+            pq, pp = orientations[parent], positions[parent]
+            pv, pw = velocities[parent], angulars[parent]
+            offset = rotate(pq, self.body_pos[body].to(qpos))
+            position = pp + offset
+            orientation = multiply(pq, self.body_quat[body].to(qpos).expand_as(pq))
+            velocity = pv + torch.linalg.cross(pw, offset)
+            angular = pw
+            if self.model.body_jntnum[body]:
+                joint = int(self.model.body_jntadr[body])
+                address = int(self.model.jnt_qposadr[joint])
+                speed = int(self.model.jnt_dofadr[joint])
+                if int(self.model.jnt_type[joint]) == int(mujoco.mjtJoint.mjJNT_FREE):
+                    position = qpos[..., address:address+3]
+                    orientation = torch.nn.functional.normalize(qpos[..., address+3:address+7], dim=-1)
+                    velocity = qvel[..., speed:speed+3]
+                    angular = rotate(orientation, qvel[..., speed+3:speed+6])
+                else:
+                    angle = qpos[..., address:address+1] - self.qpos0[address].to(qpos)
+                    axis = self.jnt_axis[joint].to(qpos)
+                    anchor = self.jnt_pos[joint].to(qpos)
+                    old_anchor = rotate(orientation, anchor)
+                    fixed_anchor = position + old_anchor
+                    anchor_velocity = velocity + torch.linalg.cross(pw, old_anchor)
+                    angular = pw + rotate(orientation, axis) * qvel[..., speed:speed+1]
+                    delta = torch.cat(((angle / 2).cos(), (angle / 2).sin() * axis), -1)
+                    orientation = multiply(orientation, delta)
+                    new_anchor = rotate(orientation, anchor)
+                    position = fixed_anchor - new_anchor
+                    velocity = anchor_velocity - torch.linalg.cross(angular, new_anchor)
+            positions.append(position)
+            orientations.append(orientation)
+            velocities.append(velocity)
+            angulars.append(angular)
+        return tuple(torch.stack(values, -2) for values in (positions,orientations,velocities,angulars))
+
     def velocities(self, qpos, qvel):
-        # Differentiate along MuJoCo's generalized-velocity tangent, not along
-        # raw quaternion coordinates. Retains higher-order gradients for BPTT.
-        zero = torch.zeros_like(qvel)
-        (_, rotation), (velocity, quaternion_dot) = torch.func.jvp(
-            lambda tangent: self(integrate(self.model, qpos, tangent)), (zero,), (qvel,))
-        conjugate = torch.cat((rotation[..., :1], -rotation[..., 1:]), -1)
-        angular = 2 * multiply(quaternion_dot, conjugate)[..., 1:]
-        return velocity, angular
+        return self.state_features(qpos, qvel)[2:]

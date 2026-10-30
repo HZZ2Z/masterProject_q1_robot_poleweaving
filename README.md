@@ -1,98 +1,67 @@
-# Q1 SuperMimic
+# Q1 Robot Soccer Supermimic
 
-正在从头重建。旧训练系统已移除，当前只有站立动作预训练入口，尚无可用的踢球训练入口，也没有已验收的踢球策略。
-旧代码保存在 Git 分支 `archive/before-rebuild-20261030`（`736548f`）；旧日志与权重留在忽略目录 `logs/`，不作为新实现的训练结果。
+Q1 足球训练实验，使用世界模型和想象轨迹更新策略。
 
-## 查阅原始方法后的决定
+## Quick Start
 
-依据 [原论文](https://arxiv.org/pdf/2610.28480) 的 §3、附录 A–G 和[作者项目页](https://supermimic.github.io/)。截至 2026-10-30，查阅的作者主页与项目页没有训练仓库链接。`3rdparty/SuperMimic` 是 PrimebotTech 的独立实现，保留供对照，新代码不导入它；不能称它为作者的 G1 训练代码。
+### 安装
 
-G1 的成果首先是参考动作跟踪。其方法是采集真实仿真转移、用连续 8 步拟合动力学、通过冻结世界模型的 32 步想象轨迹训练策略，并以 critic 延续回报。论文的下游接口通过独立目标编码器使用共享动作解码器，下游梯度不更新解码器权重。论文没有验证 Q1 的视觉踢球。
-
-旧实现直接从视觉踢球奖励寻找全身动作，没有先得到可靠的动作控制器；旧动作 CSV 也未通过动态跟踪验证。它们不能作为已经成立的技能基础。这个差异是重建路线的依据，不是对过去所有失败原因的确定归因。
-
-## Q1 实施路线
-
-1. **动作基础。** 使用本项目 Q1 模型和 MuJoCo Warp，先准备站立、重心转移、迈步、收腿恢复的小动作集。动作必须通过关节限位、碰撞、足底支撑和实际动态跟踪检查。旧 CSV 从当前树删除，不能未经验证重新导入。训练时可以使用参考动作目标；这一阶段不称为视觉踢球成功。
-2. **踢球技能。** 增加摆腿、触球、回收动作，检查触球后仍能站稳。世界模型必须学习机器人与球的接触转移；机器人跟踪模型预测准确不代表球的接触预测准确。验证按独立轨迹划分，包含多步预测和实际动作扰动响应，不能随机拆相邻帧造成数据泄漏。
-3. **视觉踢球接口。** 单独的视觉编码器调用上述动作解码器。最终输入仍受 PPO 相机视场、检测丢失、延迟和历史观测约束；不可见的球不能用真值补给 actor。真值只用于世界模型、critic、奖励和验收。参考目标只属于训练接口，不会在播放时提供给最终策略。该接口是 Q1 的设计扩展，不是论文已经证明的能力。
-
-踢球环境固定保留 25% 门线以内、25% 半径 3.5 m 圆内按面积均匀采样、50% 朝向球且脚球间隙 10–25 cm 的起点。课程改变技能目标与奖励，不能悄悄改变这三个比例。圆内半径使用 `3.5 * sqrt(U)`。近球间隙须使用脚碰撞几何，不能用根节点到球的距离代替。
-
-课程依次要求“触球并恢复站稳 → 球向门推进 → 接近球后踢出 → 进球”。近球阶段通过条件是有效踢球，不再要求远距离进球后才能解锁下一阶段。每次晋级必须有固定长度、独立种子的完整回合评估支持，不能按迭代数晋级。具体数值门槛要在动作与场景验证后固定，不能在看见评估结果后临时降低。
-
-主要汇报保持少量且可解释：有效踢球成功率（触球、向门推进、触球后保持站立）、球向门净推进距离、完整回合摔倒率、已完成评估回合数与当前课程。训练与评估分开；超时不算摔倒；没有完成回合时不报告零失败。待接回 PPO 的报告字段时核对定义，而非只复制名称。
-
-## 当前代码边界
-
-- `q1_supermimic/objectives.py`：可微存活加权回报、固定 lambda-return 目标、冻结参数但保留输入梯度。
-- `q1_supermimic/networks.py`：参考/视觉编码器与共享动作解码器。输入拼接不在网络内读取仿真真值。
-- `q1_supermimic/replay.py`：有界连续序列回放；保存执行动作和重置前状态，区分终止与超时。
-- `q1_supermimic/robot.py`：按关节名和传动映射建立 PD 控制、关节/扭矩限位与动作缩放，控制频率 50 Hz；提供短时 Warp 站立检查。
-- `q1_supermimic/physics.py`：独立 MuJoCo Warp 后端及短步长原生 MuJoCo 对照检查。
-- `resources/q1_description/`：保留机器人与球场资产及来源信息。相邻 PPO 项目不修改、不动态导入。
-
-**尚未完成：** 合格动态动作数据、动态参考跟踪、视觉踢球环境与课程、触球模型验证、完整踢球训练和 W&B 接线。因此本次检查只证明底层契约，不能据此启动长训练或宣称重建完成。
-
-## 检查
+需要 Linux、Conda 和支持 CUDA 12.8 的 NVIDIA GPU 驱动。
 
 ```bash
-./scripts/check.sh
-# 在现有环境内做 4 个世界、20 个物理步对照；不训练：
-env -u PYTHONHOME -u PYTHONPATH -u LD_LIBRARY_PATH \
-  /home/kemove/miniconda3/envs/q1-kick/bin/python -m q1_supermimic.physics
+git clone --branch SuperMimic git@github.com:MohismLab/Q1-Robot-Soccer.git
+cd Q1-Robot-Soccer
+conda env create -f environment.yml
+conda activate q1-supermimic
 ```
 
-当前底层检查：20 项单元测试通过（含原生 MuJoCo 5 秒中立姿态控制）；4 个 Warp 世界运行 20 个物理步，与原生 MuJoCo 的最大 qpos 差为 `6.13e-08`。该对照是短时自由落体检查，不是接触、站稳或踢球验收。
+### 训练
 
-共享 GPU 仍按约半卡总显存预算安排。Torch 分配限制不覆盖 Warp；启动真实训练前须同时核对进程总显存，不能只看 Torch 分配量。目标 W&B 项目为 `mohismlab-robotics/q1-humanoid-kick-SuperMimic`，凭据只从环境或本机认证读取。
-
-Warp 接触控制检查：16 个相同初态世界保持中立姿态 5 秒，16/16 根节点高度始终超过 0.3 m，最低 0.4120 m。未加入扰动和随机化，只验证控制与物理后端；不证明策略学会平衡或踢球。复现：使用同一清理环境变量的 Python 命令，模块改为 `q1_supermimic.robot`。
-
-已加入 `dynamics.py`：状态为 qpos/qvel，分别预测控制周期累计位移与末端速度变化，自由关节通过局部旋转增量积分；连续 8 步使用自回归监督。积分与原生 `mj_integratePos` 对照，并检查零旋转梯度和四元数符号等价性。物理状态尺度来自训练集，不裁剪状态。
-
-`validate_dynamics.py` 提供有界检查：16 个 Warp 世界、每世界 160 个控制步，两次独立种子采集分别用于拟合与验证；小幅动作噪声 0.05，8 步窗口、200 个模型批次、检查网络宽度 256×3。验证归一化误差 0.7121 → 0.2986，状态不变基线 0.6587。这是近站立动作覆盖检查，不是论文复现或触球模型验收。复现模块 `q1_supermimic.validate_dynamics`；结果写入 `logs/rebuild_dynamics_check.json`。当前只接通了中立站立的有界训练循环，尚缺动态动作和视觉踢球训练。
-
-`kinematics.py` 从编译后模型的刚体/关节参数建立可微运动学：支持本 Q1 场景的 free/hinge 关节，其他结构明确拒绝。全部刚体位姿与原生 MuJoCo 对照；刚体原点的线速度和世界角速度分别与 `mj_jacBody` 的线/角雅可比对照。零旋转处采用平滑局部展开，避免速度奖励反传出现二阶 NaN。
-
-`tracking.py` 提供训练专用参考跟踪头，包括刚体位置、旋转、线/角速度、根节点位姿、动作平滑与关节限位；Q1 跟踪部位明确选择骨盆、躯干、双脚和双肘。真实终止使用根高度偏差 0.25 m 或倾斜偏差 0.8；想象轨迹使用平滑概率近似。参考状态只属于动作跟踪训练接口。15 项测试通过，不构成动作跟踪策略或踢球成功证明。
-
-`observations.py` 定义动作跟踪接口的 72 维本体观测（关节位置/速度、IMU 角速度、重力、上次动作），不包含球状态或全局位置。54 维参考目标只用于训练接口，与最终视觉目标分开。`learner.py` 已接通自回归想象策略更新、存活加权回报、固定 lambda-return critic 目标及参数冻结；需要外部传入真实历史、参考序列和仿真上下文。当前尚缺传感器噪声、critic 分批拟合和动态动作接口；站立采集与恢复由 train.py 实现。
-
-32 步更新连通检查使用 2 个样本、10 帧历史及未来 10 帧静态参考，小网络/未训练世界模型，仅验证数值与梯度：想象回报 0.16294、策略梯度范数 0.07885、critic 损失 2.86192，均有限。该结果不是实际控制性能。17 项测试还确认策略/critic 更新、模型不被更新及本体输入隔离。
-
-已增加 `train.py` 有界动作预训练入口：独立 Warp 采集 → 连续 8 步模型拟合 → 32 步策略/critic 更新 → 原生 MuJoCo 评估 → 原子保存检查点。当前参考仅为中立站立，16 个仿真环境，小网络和有限批次用于实现检查；它不是视觉踢球环境，不涉及改变踢球起点配比。检查点保留三组网络/优化器、连续回放、Torch/CUDA 和采集随机状态。恢复训练通过 `--resume` 指定检查点，`--iterations` 表示追加次数。模型窗口和策略起点过滤首次终止后的无效状态，终止转移本身仍可监督。
-
-短训练验收尚未通过：早期两次更新试跑中，想象回报上升但原生 4 回合评估摔倒率升至 0.5。加入采集无效状态过滤后，从头一次更新再恢复一次的流程检查成功；另外三个种子、共 12 个 5 秒回合均未摔倒，但候选关节 MSE 约 0.000527，仍高于初始中立 PD 控制的约 0.000437。不能认定跟踪进步，更不能认定踢球进步。`last.pt` 是审计候选，元数据 `deployment_accepted=false`，没有发布 best。
+先训练动作基础，再启动踢球训练：
 
 ```bash
-# 有界动作预训练流程检查；当前只训练站立：
-env -u PYTHONHOME -u PYTHONPATH -u LD_LIBRARY_PATH \
- /home/kemove/miniconda3/envs/q1-kick/bin/python train.py --iterations 2
-# 继续一个更新，恢复同一检查点：
-env -u PYTHONHOME -u PYTHONPATH -u LD_LIBRARY_PATH \
- /home/kemove/miniconda3/envs/q1-kick/bin/python train.py --iterations 1 \
- --resume logs/motor_pretraining/last.pt
+python train.py --iterations 200 --output logs/motor
+
+python train_soccer.py --config configs/soccer_truth_joint.json \
+  --motor-checkpoint logs/motor/last.pt --output logs/soccer
 ```
 
-真实评估已使用 `TrackingHead` 对原生 MuJoCo 的完整状态/执行动作轨迹评分，统计归一化跟踪回报：每个回合奖励总和除以固定 5 秒最大奖励 25，提前摔倒不缩小分母。三个独立种子、每种子 4 回合的基线均值为 0.97762，候选为 0.97311，这仅是小样本观测，不能据此推断总体退化，更不能判断整个方法失败。关节 MSE 只保留作诊断，不代替训练目标。
+当前踢球配置使用球位置真值，联合更新目标编码器和动作解码器。配置位于 `configs/`，检查点保存为输出目录下的 `last.pt`。
 
-动态参考准备仍未通过：原生物理的 16 个直接抬腿候选（髋屈幅度 0.1–0.4 rad、横向偏移 0–0.09 rad）中，存活候选最大脚原点抬升约 2.7 mm；另 16 个先横移再抬腿候选（偏移 0.15–0.30 rad）无一满足持续站稳。脚原点抬升仅用于筛查，不等价于碰撞几何离地间隙。这些轨迹只保存在忽略日志中供审计，没有作为合格动作数据导入。Primebot 子模块也未附带动作库或权重，其说明要求另备数据；下一步需要取得或生成真正可动态跟踪的重心转移/抬腿参考。
+启用 W&B：先执行 `wandb login`，再给训练命令加 `--wandb`。
 
-## 配对评估与结论范围
-
-训练循环的默认 4 回合评估只用于流程检查。正式比较用 `audit.py`，基线和候选使用完全相同的初始扰动；按独立回合做配对 bootstrap，摔倒率使用 Wilson 区间，不能把帧数当样本数。
+### 继续训练
 
 ```bash
-env -u PYTHONHOME -u PYTHONPATH -u LD_LIBRARY_PATH \
- /home/kemove/miniconda3/envs/q1-kick/bin/python audit.py \
- logs/motor_pretraining_flow_check/last.pt --episodes 128 --seed 224173
+python train_soccer.py --config configs/soccer_truth_joint.json \
+  --motor-checkpoint logs/motor/last.pt --output logs/soccer \
+  --resume logs/soccer/last.pt
 ```
 
-当前 128 对、256 个原生回合：基线归一化回报 0.97845，候选 0.97340；配对差 -0.00505，95% bootstrap 区间 [-0.00547, -0.00467]。两者均 0/128 摔倒，摔倒率各自 95% Wilson 区间为 [0, 0.02914]。这支持当前候选在该站立初态分布下有小幅回报降低。区间只描述固定模型/固定策略、初始关节独立高斯扰动 sigma=0.005 的 5 秒站立任务，不覆盖训练随机种子、视觉、球接触、物理参数变化和长期稳定性。小幅站立回报降低不能证明整个训练方法有问题。原始逐回合数据在 logs/motor_paired_audit.json。
+### Docker
 
-支撑关系探索：通过质心投影和固定足位逆运动学生成的抬脚轨迹，在仅 PD 和加入关节重力补偿两种原生执行中都未保持站立；该批轨迹未进入合格训练集。几何可达不等于动力学可执行。
+宿主机需要 Docker、NVIDIA 驱动和 NVIDIA Container Toolkit。
 
-动作响应审计入口：用同一清理环境变量的 Python 执行 `-m q1_supermimic.response_audit logs/motor_pretraining_flow_check/last.pt`。默认 64 条独立原生轨迹，终止前在前缀 0/25/75/150 控制步保存完整仿真快照。每对正负动作从同一快照分叉，包含相同求解器 warm-start；使用实际执行的关节力矩控制。状态对按轨迹相关，不能视为独立统计回合，输出不作为自动验收阈值。
+```bash
+docker build -t q1-supermimic:local .
+mkdir -p logs
 
-本次 64 条轨迹产生 199 个终止前扰动对。真实奖励响应与模型有限差分的余弦为 0.38264、相对误差 0.97702；模型内部自动梯度与有限差分余弦约 0.999999。带固定 critic 的一步 Q 响应余弦 0.79429、相对误差 0.94458；这里的 Q 不是长程真实价值。结果说明该候选模型的动作响应拟合仍弱，不足以证明整个方法失败。采集带每关节 sigma=0.05 动作噪声，57/64 条在 3 秒内触发终止，与无动作噪声的 128 对评估分布不同。后续分别核查探索分布与动作条件拟合。完整结果在 logs/motor_response_audit.json。
+# 动作基础。
+docker run --rm --gpus all --ipc=host \
+  -v "$PWD/logs:/workspace/logs" q1-supermimic:local \
+  python train.py --iterations 200 --output logs/motor
+
+# 踢球训练。
+docker run --rm --gpus all --ipc=host \
+  -v "$PWD/logs:/workspace/logs" q1-supermimic:local \
+  python train_soccer.py --config configs/soccer_truth_joint.json \
+    --motor-checkpoint logs/motor/last.pt --output logs/soccer
+```
+
+日志、权重和凭据不打包进镜像。容器启用 W&B 时增加 `-e WANDB_API_KEY`，并给训练命令加 `--wandb`。
+
+## 来源
+
+- 方法：[SuperMimic](https://supermimic.github.io/)
+- Q1 模型：[PrimebotTech/primebot-q1-urdf](https://github.com/PrimebotTech/primebot-q1-urdf)
+- 许可证：[BSD-3-Clause](LICENSE)

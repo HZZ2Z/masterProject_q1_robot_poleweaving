@@ -34,9 +34,7 @@ class TrackingHead(nn.Module):
         self.register_buffer('bodies', torch.tensor(ids, dtype=torch.long))
 
     def features(self, state):
-        position, rotation = self.fk(state[..., :self.nq])
-        velocity, angular = self.fk.velocities(state[..., :self.nq], state[..., self.nq:])
-        return position, rotation, velocity, angular
+        return self.fk.state_features(state[..., :self.nq], state[..., self.nq:])
 
     def forward(self, state, reference, action, previous_action):
         p, q, v, w = self.features(state)

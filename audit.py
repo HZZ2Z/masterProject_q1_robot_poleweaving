@@ -21,12 +21,13 @@ def main():
     if args.episodes<2: parser.error('Need at least two paired episodes')
     torch.set_num_threads(2)
     model=mujoco.MjModel.from_xml_path(str(SCENE));observe=MotorObservation(model)
-    policy=MotorPolicy(720,540,4,22,motor_widths=(128,128),visual_widths=(64,64))
+    saved=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
+    width=saved.get('config',{}).get('policy_width',128)
+    policy=MotorPolicy(720,540,4,22,motor_widths=(width,width),visual_widths=(64,64))
     torch.nn.init.zeros_(policy.decoder[-1].weight);torch.nn.init.zeros_(policy.decoder[-1].bias)
     baseline=evaluate(model,policy,observe,args.seed,args.episodes,details=True)
     print('Baseline evaluation complete',flush=True)
-    saved=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
-    policy.load_state_dict(saved['policy'])
+    policy.load_state_dict(saved.get('accepted_policy',saved['policy']))
     candidate=evaluate(model,policy,observe,args.seed,args.episodes,details=True)
     result=dict(checkpoint=str(args.checkpoint),seed=args.seed,
                 scope='5s neutral standing; only joint reset noise sigma=0.005; no visual or soccer evaluation',

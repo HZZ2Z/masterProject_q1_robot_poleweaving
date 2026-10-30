@@ -53,3 +53,15 @@ def test_invalid_post_terminal_states_cannot_seed_any_window():
     batch = replay.sample(40,length=1)
     assert batch['state'].max() <= 1
     assert replay.sample(10,length=2)['state'][0].eq(0).all()
+
+
+def test_contact_windows_include_real_event_and_exclude_reset_boundaries():
+    replay=Replay(16)
+    for t in range(16):
+        replay.append(state=torch.ones(2,3)*t,next_state=torch.ones(2,3)*(t+1),
+             action=torch.zeros(2,1),boundary=torch.tensor([t==6,t==15]),
+             terminated=torch.tensor([t==6,False]),context=torch.zeros(2,0),
+             contact=torch.tensor([t==3,t==9]))
+    batch=replay.sample(32,length=4,require_contact=True)
+    assert batch['contact'].any(0).all()
+    assert not batch['boundary'][:-1].any()

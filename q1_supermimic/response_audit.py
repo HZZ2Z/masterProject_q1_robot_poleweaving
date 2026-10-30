@@ -37,12 +37,15 @@ def main():
     torch.set_num_threads(2)
     model=mujoco.MjModel.from_xml_path(str(SCENE))
     control=Q1Control(model); observe=MotorObservation(model); head=TrackingHead(model)
-    world=Dynamics(model,widths=(256,256,256))
-    policy=MotorPolicy(720,540,4,22,motor_widths=(128,128),visual_widths=(64,64))
-    critic=mlp(610,1,(256,128))
     saved=torch.load(args.checkpoint,map_location='cpu',weights_only=False)
+    config=saved.get('config',{})
+    mw,pw=config.get('model_width',256),config.get('policy_width',128)
+    world=Dynamics(model,widths=(mw,mw,mw))
+    policy=MotorPolicy(720,540,4,22,motor_widths=(pw,pw),visual_widths=(64,64))
+    critic=mlp(610,1,(mw,mw//2))
     for name,module in [('world',world),('policy',policy),('critic',critic)]:
         module.load_state_dict(saved[name])
+    action_noise=config.get('exploration_std',.05)
     random=np.random.default_rng(args.seed)
     reference=torch.tensor(np.r_[model.qpos0,np.zeros(model.nv)],dtype=torch.float32)
     reference[control.qpos_indices]=control.neutral
@@ -64,7 +67,7 @@ def main():
             if t in (0,25,75,150):
                 snapshots.append(copy.deepcopy(data));histories.append(history.clone())
             with torch.no_grad():
-                action=policy.track(history.flatten(),goal)+torch.tensor(random.normal(0,.05,22),dtype=torch.float32)
+                action=policy.track(history.flatten(),goal)+torch.tensor(random.normal(0,action_noise,22),dtype=torch.float32)
                 for _ in range(control.substeps):
                     state=torch.tensor(np.r_[data.qpos,data.qvel],dtype=torch.float32)
                     data.ctrl[:]=control(state[:model.nq],state[model.nq:],action).numpy()
@@ -105,7 +108,7 @@ def main():
     result=dict(seed=args.seed,independent_trajectories=args.trajectories,
                 terminated_trajectories=terminated_trajectories,pairs=count,epsilon_l2=epsilon,
                 scope='pre-terminal states from noisy native standing rollouts; samples clustered by trajectory; frozen one-step critic diagnostic; no kicking evidence',
-                collection_action_noise_std=.05,collection_seconds=3.,
+                collection_action_noise_std=action_noise,collection_seconds=3.,
                 rollout_prefix_control_steps=[0,25,75,150])
     for i,name in enumerate(('reward','critic_bootstrapped_q')):
         actual_delta=((actual[1][i]-actual[0][i])/(2*epsilon)).numpy()

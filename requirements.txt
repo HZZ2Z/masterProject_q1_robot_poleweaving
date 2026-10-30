@@ -4,3 +4,4 @@ mujoco-warp==3.17.0
 warp-lang==1.18.0
 numpy
 pytest
+wandb>=0.31,<0.32
