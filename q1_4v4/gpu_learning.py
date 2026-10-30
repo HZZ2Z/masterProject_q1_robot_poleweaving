@@ -32,11 +32,11 @@ class DeviceValueNorm(nn.Module):
 
 
 class GpuRollout:
-    def __init__(self, horizon, count, device):
+    def __init__(self, horizon, count, device, obs_dim=121):
         self.horizon, self.count, self.device = horizon, count, device
         zeros = lambda *shape: torch.zeros(shape, device=device)
         # Central critic inputs reconstructed per minibatch: don't store 8 copies of global state.
-        self.obs = zeros(horizon+1, count, 8, 121)
+        self.obs = zeros(horizon+1, count, 8, obs_dim)
         self.actions = zeros(horizon, count, 8, 22)
         self.log_probs = zeros(horizon, count, 8, 1)
         self.values = zeros(horizon+1, count, 8, 1)  # unnormalized at collection time
@@ -61,7 +61,7 @@ class GpuRollout:
         # Snapshot normalized old values before ppo_update changes ValueNorm statistics.
         old_values = norm.normalize(self.values[:-1, :, sl]).detach()
         total = self.horizon*self.count*4
-        sums = torch.zeros(6, device=self.device)
+        sums = torch.zeros(8, device=self.device)
         updates = 0
         for _ in range(args.ppo_epoch):
             eligible = valid.flatten().nonzero().flatten()
@@ -79,7 +79,10 @@ class GpuRollout:
                           self.returns[t, w, a+team*4], mask, mask, self.log_probs[t, w, a+team*4],
                           adv[t, w, a], None)
                 result = trainer.ppo_update(sample)
-                sums += torch.stack([x.detach().mean() for x in result])
+                iw=result[-1].detach()
+                approximate_kl=((iw-1)-iw.clamp(min=1e-12).log()).mean()
+                clip_fraction=((iw-1).abs()>trainer.clip_param).float().mean()
+                sums += torch.stack([x.detach().mean() for x in result]+[approximate_kl,clip_fraction])
                 updates += 1
-        names = ('value_loss', 'critic_grad_norm', 'policy_loss', 'dist_entropy', 'actor_grad_norm', 'ratio')
+        names = ('value_loss', 'critic_grad_norm', 'policy_loss', 'dist_entropy', 'actor_grad_norm', 'ratio', 'approx_kl', 'clip_fraction')
         return dict(zip(names, (sums/updates).cpu().tolist()))

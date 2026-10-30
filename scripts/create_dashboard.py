@@ -30,9 +30,27 @@ view=ws.Workspace(entity='mohismlab-robotics',project='q1-humanoid-kick-4v4',nam
         chart('正踢与侧踢','03_技能/正踢奖励','03_技能/侧踢奖励'),
         chart('有效触球与踢后恢复','03_技能/脚部触球率','03_技能/触球后恢复率'),
         chart('净推进距离','03_技能/净推进_米')]),
+    ws.Section(name='05 步态质量',is_open=True,panels=[
+        chart('支撑脚滑移：目标≤0.05m/s','05_步态/支撑脚滑移_mps'),
+        chart('接触相位匹配：目标≥80%','05_步态/接触相位匹配率'),
+        chart('左右有效落脚','05_步态/左脚有效步数','05_步态/右脚有效步数'),
+        chart('重心切换次数','05_步态/有效重心切换'),
+        chart('速度跟踪误差','05_步态/速度误差_mps'),
+        chart('足底离地高度','05_步态/足底离地_米'),
+        chart('非脚部接地','05_步态/非脚部着地比例')]),
     ws.Section(name='04 性能',is_open=False,panels=[
         chart('球场控制步/秒','04_性能/球场步每秒'),
-        chart('Warp + Torch 进程显存','04_性能/进程显存_GiB')])])
+        chart('Warp + Torch 进程显存','04_性能/进程显存_GiB'),
+        chart('PPO近似KL','debug/red_approx_kl','debug/blue_approx_kl'),
+        chart('PPO裁剪比例','debug/red_clip_fraction','debug/blue_clip_fraction')])])
+existing_path=root/'artifacts/dashboard.json'
+if existing_path.exists():
+    old_url=json.loads(existing_path.read_text())['url'].replace('/wandb/','/',1)
+    old=ws.Workspace.from_url(old_url)
+    old.sections=view.sections
+    old.runset_settings=view.runset_settings
+    old.auto_generate_panels=False
+    view=old
 view.save()
 view_url=run['url'].split('/runs/',1)[0]+'?'+view.url.split('?',1)[1]
 (root/'artifacts/dashboard.json').write_text(json.dumps({'url':view_url,'run_url':run['url'],'run_id':run['id']},indent=2))

@@ -43,7 +43,7 @@ def monitor(q: wp.array2d[float], v: wp.array2d[float], overflow: wp.array[int],
         if not wp.isfinite(v[w, j]):
             wp.atomic_or(failed, w, 2)
     if j == 0 and overflow[w] != 0:
-        wp.atomic_or(failed, w, 1)
+        wp.atomic_or(failed, w, (overflow[w] << 2) | 1)
 
 
 class WarpSoccerEnv:
@@ -212,7 +212,14 @@ class WarpSoccerEnv:
 
     def check(self):
         if (wp.to_torch(self.data.overflow).any() | (wp.to_torch(self.failure) != 0).any()).item():
-            raise RuntimeError('Warp overflow or nonfinite state latched (including before resets); inspect capacities/state')
+            from mujoco_warp._src.types import OverflowType
+            codes=wp.to_torch(self.failure).unique().cpu().tolist()
+            raw_codes=wp.to_torch(self.data.overflow).unique().cpu().tolist()
+            bits=0
+            for code in codes: bits |= int(code)>>2
+            for code in raw_codes: bits |= int(code)
+            names=[flag.name for flag in OverflowType if int(flag)&bits]
+            raise RuntimeError(f'Warp failure latched: codes={codes}, overflow={names}; resets do not clear failures')
         if not (torch.isfinite(self.qpos).all() & torch.isfinite(self.qvel).all()).item():
             raise FloatingPointError('Nonfinite Warp state')
 

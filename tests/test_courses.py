@@ -19,7 +19,7 @@ def test_disjoint_consecutive_gates_and_legacy_migration():
         assert not d.advance()
 
 
-def test_task_commands_preserve_width_and_identity():
+def test_task_commands_preserve_identity():
     assert len({tuple(command(s)) for s in COURSES})==len(COURSES)
     assert command('balance')==[1,0,0,0,0,0]
     assert all(len(command(s))==6 for s in COURSES)
@@ -39,7 +39,7 @@ def test_each_course_spawn_and_physics(env,course):
         obs,state,reward,done,trunc,info=env.step(torch.zeros((4,8,22),device=env.device))
         assert torch.isfinite(obs).all() and torch.isfinite(state).all() and torch.isfinite(reward).all()
     env.check()
-    assert obs.shape==(4,8,121) and state.shape==(4,8,972)
+    assert obs.shape==(4,8,128) and state.shape==(4,8,1028)
     assert done.shape==((4,8) if course in LOW_LEVEL else (4,))
     assert not info['success'].any()
 

@@ -2,7 +2,8 @@
 import torch
 import warp as wp
 from .warp_env import WarpSoccerEnv
-from .course_config import COURSES, LOW_LEVEL, KICKS, FAMILIES, AMPLITUDE, command
+from .course_config import COURSES, LOW_LEVEL, KICKS, FAMILIES, AMPLITUDE, command, GAIT_COURSES
+from . import gait
 
 
 @wp.kernel
@@ -22,10 +23,12 @@ def feet_contact(n: wp.array[int], geoms: wp.array[wp.vec2i], worlds: wp.array[i
 class CourseWarpEnv(WarpSoccerEnv):
     def __init__(self, count=64, device='cuda:0', seed=42, stage='balance', **kwargs):
         self.course = stage
+        self.count=count; self.device=torch.device(device)
         self.ready = False
         # Kernels are captured by parent constructor; buffers must exist before _substep.
         self.foot_hits = torch.zeros((count,8,2),device=device,dtype=torch.int32)
         self.foot_owner = None
+        gait.initialize(self)
         super().__init__(count,device,seed,FAMILIES[stage],**kwargs)
         self.agent_steps = torch.zeros((count,8),device=self.device,dtype=torch.long)
         self.heading = torch.zeros((count,8),device=self.device)
@@ -42,6 +45,11 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.received = torch.zeros(count,device=self.device,dtype=torch.bool)
         self.aligned = torch.zeros(count,device=self.device,dtype=torch.bool)
         self.active = torch.ones((count,8),device=self.device,dtype=torch.bool)
+        gait.allocate(self)
+        from gymnasium.spaces import Box
+        import numpy as np
+        self.observation_space=Box(-np.inf,np.inf,(128,),dtype=np.float32)
+        self.share_observation_space=Box(-np.inf,np.inf,(1028,),dtype=np.float32)
         self.ready = True
         self.configure(stage)
         self.reset()
@@ -58,10 +66,18 @@ class CourseWarpEnv(WarpSoccerEnv):
                     owner[torch.as_tensor(m.geom_bodyid == int(self.feet[a,f]),device=self.device)] = a*2+f
             self.foot_owner_tensor = owner
             self.foot_owner = wp.from_torch(owner)
+        wp.launch(gait.clear_ground,dim=(self.count,8,2),inputs=[wp.from_torch(self.gait_contact),
+            wp.from_torch(self.gait_contact_index)],device=self.wp_device)
         super()._substep()
         wp.launch(feet_contact,dim=self.data.contact.geom.shape[0],inputs=[self.data.nacon,
             self.data.contact.geom,self.data.contact.worldid,self.data.contact.dist,self.foot_owner,
             self.reference.ballgeom,wp.from_torch(self.foot_hits)],device=self.wp_device)
+        wp.launch(gait.ground_contacts,dim=self.data.contact.geom.shape[0],inputs=[self.data.nacon,
+            self.data.contact.geom,self.data.contact.worldid,self.data.contact.dist,self.foot_owner,self.owner_wp,
+            self.model.geom('floor').id,wp.from_torch(self.gait_contact),wp.from_torch(self.gait_contact_index),
+            wp.from_torch(self.gait_bad_contact)],device=self.wp_device)
+        wp.launch(gait.ground_points,dim=(self.count,8,2),inputs=[wp.from_torch(self.gait_contact_index),
+            self.data.contact.pos,wp.from_torch(self.gait_point)],device=self.wp_device)
 
     def configure(self, stage):
         self.course = stage; self.stage = FAMILIES[stage]
@@ -106,6 +122,8 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.start_ball[ids] = self.ball[ids]
         self.start_positions[ids] = self.qpos[ids][:,self.rootq[:,None]+torch.arange(3,device=self.device)]
         self.foot_hits[ids] = 0
+        w=ids[:,None].expand(-1,8).flatten();a=torch.arange(8,device=self.device).expand(len(ids),-1).flatten()
+        gait.reset(self,w,a)
         self.forward()
         return self.observe(),self.state()
 
@@ -141,6 +159,7 @@ class CourseWarpEnv(WarpSoccerEnv):
             self.targets[w,a,1] += torch.where(self.uniform((len(w),))>.5,.8,-.8)
         self.heading[w,a] = torch.where(a<4,0.,torch.pi)
         if self.course=='turn': self.heading[w,a] += self.uniform((len(w),),-.9,.9)
+        gait.reset(self,w,a)
         self.forward()
         return self.observe(),self.state()
 
@@ -154,13 +173,14 @@ class CourseWarpEnv(WarpSoccerEnv):
             rot=self.xmat[:,self.bodies].reshape(self.count,8,3,3)
             yaw=torch.atan2(rot[:,:,1,0],rot[:,:,0,0]);error=self.heading-yaw
             obs[:,:,106:109] = torch.stack((torch.cos(error),torch.sin(error),torch.zeros_like(error)),-1)
-        return obs
+        return torch.cat((obs[:,:,:115],gait.observations(self),obs[:,:,115:]),-1)
 
     @torch.no_grad()
     def step(self, action):
         from .curriculum import STAGES,AMPLITUDES
         controlled = action*self.active[:,:,None]
         self.foot_hits.zero_()
+        self.gait_bad_contact.zero_()
         last_action = self.previous_action.clone()
         foot_before = self.xpos[:,self.feet].clone()
         before = self.ball.clone()
@@ -171,6 +191,7 @@ class CourseWarpEnv(WarpSoccerEnv):
             force[:,self.bodies,:2] = self.uniform((self.count,8,2),-8,8)*pulse[:,:,None]
         _,_,_,term,trunc,base = super().step(controlled)
         self.agent_steps += 1
+        gait_reward,gait_objective,gait_quality=gait.measure(self,foot_before)
         pos=self.xpos[:,self.bodies]; rot=self.xmat[:,self.bodies].reshape(self.count,8,3,3)
         norm=lambda x:torch.linalg.vector_norm(x,dim=-1)
         upright=rot[:,:,2,2]
@@ -235,6 +256,8 @@ class CourseWarpEnv(WarpSoccerEnv):
         behind=(self.sign[p]*(self.ball[:,0]-pos[self.rows,p,0])>.1)
         aligned=(ball_distance[self.rows,p]<.65)&(alignerr<.25)&behind
         self.aligned |= aligned
+        if self.course=='align':
+            self.hold_steps[self.rows,p]=torch.where(aligned,self.hold_steps[self.rows,p]+1,0)
         if self.course=='align': reward[self.rows,p] += self.dt*(torch.cos(heading_goal-yaw[self.rows,p])-ball_distance[self.rows,p])
         selected=0 if self.course.endswith('left') else 1
         designated=self.ever_feet[self.rows,p,selected]
@@ -264,15 +287,27 @@ class CourseWarpEnv(WarpSoccerEnv):
             objective=self.ever_feet[self.rows,keeper].any(-1)&(base['goal']==0)&(self.ball[:,0].abs()<6.9)
             reward[self.rows,keeper] += self.dt*(6.9-self.ball[:,0].abs()).clamp(-1,2)
         else:
-            objective={'approach':ball_distance[self.rows,p]<.45,'align':self.aligned,
+            objective={'approach':ball_distance[self.rows,p]<.45,'align':self.hold_steps[self.rows,p]*self.dt>=.5,
                 'kick_left':designated&(self.progress>=.3),'kick_right':designated&(self.progress>=.3),
                 'side_left':designated&(self.progress>=.3),'side_right':designated&(self.progress>=.3),
-                'kick_recover':(self.progress>=.3)&recover,
+                'kick_recover':(self.progress>=.3)&recover&(self.gait_landings[self.rows,p].sum(-1)>=2),
                 'dribble':(self.progress>=1.5)&(self.control_steps*self.dt>=2.),
-                'pass_receive':self.received&(receiver_dist<.5)&(ball_speed<.6),
+                'pass_receive':self.received&(self.control_steps>=25),
                 'duel':touched_goal,'attack_2v1':touched_goal,'game_2v2':touched_goal,
                 'teamplay':touched_goal|((self.progress>=1.)&((self.ever_feet.any(-1)&(torch.arange(8,device=self.device)[None]//4==p[:,None]//4)).sum(-1)>=2)),
                 'match':touched_goal}.get(self.course,torch.zeros(self.count,device=self.device,dtype=torch.bool))
+        if self.course=='pass_receive':
+            caught=self.received&(receiver_dist<.5)&(ball_speed<.6)
+            self.control_steps=torch.where(caught,self.control_steps+1,0)
+            objective=caught&(self.control_steps*self.dt>=.5)
+        if self.course in GAIT_COURSES or self.course=='weight_shift':
+            reward+=gait_reward
+        if self.course in ('weight_shift','step_in_place','slow_walk','velocity_track','walk_turn','start_stop'):
+            low_success=gait_objective
+        elif self.course in ('move','backward','lateral','turn','stop'):
+            low_success &= gait_quality
+        elif self.course=='approach':
+            objective &= gait_quality[self.rows,p]
         reward -= 5*(fallen|outside)
         if self.course in LOW_LEVEL:
             terminated=fallen|outside

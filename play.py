@@ -24,13 +24,13 @@ def course_argument(value):
         if 0 <= index < len(COURSES): return COURSES[index]
     if value in COURSES: return value
     if value == 'kick': return 'kick_left'
-    raise argparse.ArgumentTypeError('课程须为0–21或课程名称，使用 --list-courses 查看')
+    raise argparse.ArgumentTypeError('课程须为0–27或课程名称，使用 --list-courses 查看')
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--checkpoint', help='Weights; defaults to current active training last.pt')
-    p.add_argument('--course', '--stage', dest='course', type=course_argument, help='Course name or index 0–21')
+    p.add_argument('--course', '--stage', dest='course', type=course_argument, help='Course name or index 0–27')
     p.add_argument('--list-courses', action='store_true', help='List supported course names and exit')
     p.add_argument('--neutral', action='store_true', help='Preview neutral PD without loading a policy')
     p.add_argument('--device', default='cuda:0', help='Warp preview device')
@@ -55,7 +55,7 @@ def main():
             if candidate.exists(): a.checkpoint=str(candidate)
     torch.set_num_threads(2)
     ckpt = torch.load(a.checkpoint, weights_only=False, map_location='cpu') if a.checkpoint else None
-    v2=ckpt is not None and ckpt.get('reward_version',1)==2
+    v2=ckpt is not None and ckpt.get('reward_version',1)>=2
     stage = a.course or (ckpt['curriculum']['stage'] if v2 else STAGES[ckpt['curriculum']['index']] if ckpt else 'match')
     if v2 or a.course is not None or ckpt is None:
         from q1_4v4.preview import CoursePreview

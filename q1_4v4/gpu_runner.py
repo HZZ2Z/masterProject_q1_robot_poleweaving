@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
 from .learning import make_args, make_team, save_team, load_team
-from .course_config import Curriculum, LOW_LEVEL, DURATIONS
+from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES
 
 
 def run(options):
@@ -26,6 +26,9 @@ def run(options):
     torch.manual_seed(options.seed)
     np.random.seed(options.seed)
     args = make_args(options.num_envs, options.horizon, options.epochs)
+    if options.learning_rate is not None:
+        if options.learning_rate<=0:raise ValueError('learning-rate must be positive')
+        args.lr=args.critic_lr=options.learning_rate
     curriculum = Curriculum(options.stage)
     checkpoint = None
     start = 0
@@ -33,6 +36,11 @@ def run(options):
         checkpoint = torch.load(options.checkpoint, map_location=device, weights_only=False)
         curriculum.load_state_dict(checkpoint['curriculum'])
         start = checkpoint['iteration']
+    if options.start_course is not None:
+        if not options.checkpoint: raise ValueError('--start-course requires --checkpoint')
+        selected = COURSES[int(options.start_course)] if options.start_course.isdigit() else options.start_course
+        if selected not in COURSES: raise ValueError('Unknown start course')
+        curriculum=Curriculum(selected)
     env = CourseWarpEnv(options.num_envs, str(device), options.seed, curriculum.stage,
                         nconmax=options.nconmax, njmax=options.njmax)
     teams = [make_team(args, env, device, gpu_rollout=True) for _ in range(2)]
@@ -41,7 +49,7 @@ def run(options):
             raise ValueError('Use a Warp checkpoint for continuation; CPU legacy runs are reference-only')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
             load_team(state, policy, trainer)
-            if checkpoint.get('reward_version',1) != 2:
+            if checkpoint.get('reward_version',1) != 3:
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
@@ -49,7 +57,13 @@ def run(options):
         torch.cuda.set_rng_state_all([x.cpu() for x in checkpoint['cuda_rng']])
         env.generator.set_state(checkpoint['env_rng'].cpu())
         np.random.set_state(checkpoint['numpy_rng'])
-    rollout = GpuRollout(options.horizon, options.num_envs, device)
+    if options.learning_rate is not None:
+        for policy,_,_ in teams:
+            for opt in (policy.actor_optimizer,policy.critic_optimizer):
+                for group in opt.param_groups:group['lr']=options.learning_rate
+    obs_dim=env.observation_space.shape[0]
+    state_dim=env.share_observation_space.shape[0]
+    rollout = GpuRollout(options.horizon, options.num_envs, device, obs_dim=obs_dim)
     rnn = torch.zeros((options.num_envs*4, 1, args.hidden_size), device=device)
     ones = torch.ones((options.num_envs*4, 1), device=device)
     out = Path(options.output)
@@ -72,14 +86,18 @@ def run(options):
         obs, _ = env.reset()
         rollout.obs[0].copy_(obs)
 
+    last_saved=start
+
     def save(iteration, name='last.pt'):
-        payload = dict(version=3, reward_version=2, backend='warp', iteration=iteration, args=vars(args),
+        nonlocal last_saved
+        payload = dict(version=4, reward_version=3, obs_dim=obs_dim, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        torch_rng=torch.get_rng_state(), cuda_rng=torch.cuda.get_rng_state_all(),
                        env_rng=env.generator.get_state(), numpy_rng=np.random.get_state())
         temp = out/(name+'.tmp')
         torch.save(payload, temp)
         temp.replace(out/name)
+        if name=='last.pt':last_saved=iteration
 
     reset_stage()
     iteration = start
@@ -100,6 +118,7 @@ def run(options):
             completed = []
             raw_reward = torch.zeros(2, device=device)
             skill_stats = torch.zeros(6,device=device)
+            gait_stats = torch.zeros(8,device=device)
             for step in range(options.horizon):
                 obs = rollout.obs[step]
                 state = env.state(obs)
@@ -107,18 +126,19 @@ def run(options):
                     for t, (policy, trainer, _) in enumerate(teams):
                         sl = slice(t*4, t*4+4)
                         trainer.prep_rollout()
-                        value, action, logprob, _, _ = policy.get_actions(state[:, sl].reshape(-1, 972),
-                            obs[:, sl].reshape(-1, 121), rnn, rnn, ones)
+                        value, action, logprob, _, _ = policy.get_actions(state[:, sl].reshape(-1, state_dim),
+                            obs[:, sl].reshape(-1, obs_dim), rnn, rnn, ones)
                         rollout.actions[step, :, sl].copy_(action.reshape(options.num_envs, 4, 22))
                         rollout.log_probs[step, :, sl].copy_(logprob.reshape(options.num_envs, 4, 1))
                         rollout.values[step, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, 4, 1))
                     terminal_obs, terminal_state, reward, terminated, truncated, info = env.step(rollout.actions[step])
+                    gait_stats += torch.stack([env.gait_metrics[k] for k in ('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact')])
                     skill_stats += torch.stack([env.last_stats[k] for k in ('upright','height','forward','side','left','right')])
                     raw_reward += reward.reshape(options.num_envs, 2, 4).mean(dim=(0, 2))
                     # Bootstrap timeout final states BEFORE resetting. No CPU value normalization.
                     for t, (policy, trainer, _) in enumerate(teams):
                         sl = slice(t*4, t*4+4)
-                        value = policy.get_values(terminal_state[:, sl].reshape(-1, 972), rnn, ones)
+                        value = policy.get_values(terminal_state[:, sl].reshape(-1, state_dim), rnn, ones)
                         timeout_mask = truncated[:,sl,None] if env.course in LOW_LEVEL else truncated[:,None,None]
                         reward[:, sl] += args.gamma*trainer.value_normalizer.denormalize(value).reshape(options.num_envs, 4, 1)*timeout_mask
                     rollout.rewards[step].copy_(reward)
@@ -149,7 +169,7 @@ def run(options):
                 state = env.state(rollout.obs[-1])
                 for t, (policy, trainer, _) in enumerate(teams):
                     sl = slice(t*4, t*4+4)
-                    value = policy.get_values(state[:, sl].reshape(-1, 972), rnn, ones)
+                    value = policy.get_values(state[:, sl].reshape(-1, state_dim), rnn, ones)
                     rollout.values[-1, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, 4, 1))
                 rollout.compute_returns(args.gamma, args.gae_lambda)
             metrics = {}
@@ -181,8 +201,11 @@ def run(options):
                            cuda_peak_allocated_gib=torch.cuda.max_memory_allocated(device)/2**30,
                            curriculum=curriculum.metrics())
             with (out/'metrics.jsonl').open('a') as stream:
-                stream.write(json.dumps(metrics)+'\n')
+                enriched=dict(metrics,gait=dict(zip(('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact'),(gait_stats/options.horizon).cpu().tolist())))
+                stream.write(json.dumps(enriched)+'\n')
             cm = curriculum.metrics()
+            gm=dict(zip(('slip_mps','phase_match','velocity_error','left_steps','right_steps','clearance_m','weight_shifts','nonfoot_contact'),(gait_stats/options.horizon).cpu().tolist()))
+            metrics['gait']=gm
             ss=dict(zip(('upright','height','forward','side','left','right'),(skill_stats/options.horizon).cpu().tolist()))
             cloud = {'iteration':iteration,
                      '01_总览/课程编号':curriculum.index,'01_总览/阶段成功率':cm['success_rate'],
@@ -201,8 +224,12 @@ def run(options):
                      '04_性能/球场步每秒':metrics['env_steps_per_second'],
                      '04_性能/进程显存_GiB':metrics.get('gpu_process_used_gib',0.),
                      '阶段名称':env.course,'晋级状态':cm['gate_reason']}
+            for key,label in [('slip_mps','支撑脚滑移_mps'),('phase_match','接触相位匹配率'),('velocity_error','速度误差_mps'),
+                              ('left_steps','左脚有效步数'),('right_steps','右脚有效步数'),('clearance_m','足底离地_米'),
+                              ('weight_shifts','有效重心切换'),('nonfoot_contact','非脚部着地比例')]:
+                cloud['05_步态/'+label]=None if key in ('phase_match','velocity_error') and env.course not in GAIT_COURSES else gm[key]
             for side in ('red','blue'):
-                for k in ('value_loss','policy_loss','dist_entropy','actor_grad_norm','critic_grad_norm','ratio'):
+                for k in ('value_loss','policy_loss','dist_entropy','actor_grad_norm','critic_grad_norm','ratio','approx_kl','clip_fraction'):
                     cloud['debug/'+side+'_'+k] = metrics[side+'/'+k]
             for k, v in cloud.items():
                 if isinstance(v, (float, int)):
@@ -225,6 +252,18 @@ def run(options):
             if stop:
                 break
         save(iteration)
+    except BaseException as error:
+        diagnostic={'error':str(error),'iteration':iteration,'last_completed_iteration':last_saved,'course':env.course}
+        try:
+            import warp as wp
+            diagnostic['latched_flags']=wp.to_torch(env.failure).cpu().tolist()
+            diagnostic['overflow_flags']=wp.to_torch(env.data.overflow).cpu().tolist()
+        except Exception as secondary: diagnostic['diagnostic_error']=str(secondary)
+        (out/'physics_failure.json').write_text(json.dumps(diagnostic,indent=2))
+        if wandb_run:
+            wandb_run.finish(exit_code=1)
+            wandb_run=None
+        raise
     finally:
         writer.close()
         if wandb_run:

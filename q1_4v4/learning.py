@@ -65,9 +65,44 @@ def save_team(policy, trainer):
                 value_normalizer=trainer.value_normalizer.state_dict())
 
 
-def load_team(state, policy, trainer):
-    policy.actor.load_state_dict(state['actor'])
-    policy.critic.load_state_dict(state['critic'])
-    policy.actor_optimizer.load_state_dict(state['actor_optimizer'])
-    policy.critic_optimizer.load_state_dict(state['critic_optimizer'])
+
+def _input_map(old_dim,new_dim,central=False):
+    """Map old proprioception/task/role columns around inserted gait observations."""
+    if old_dim==new_dim:return None
+    old_obs=(old_dim-4)//8 if central else old_dim
+    new_obs=(new_dim-4)//8 if central else new_dim
+    if old_obs!=121 or new_obs!=128:raise ValueError(f'Unsupported observation migration {old_dim}->{new_dim}')
+    local=list(range(115))+list(range(122,128))
+    if not central:return local
+    return [robot*new_obs+j for robot in range(8) for j in local]+list(range(8*new_obs,8*new_obs+4))
+
+
+def _expand_input(tensor,shape,index,is_norm=False):
+    result=torch.ones(shape,device=tensor.device,dtype=tensor.dtype) if is_norm else torch.zeros(shape,device=tensor.device,dtype=tensor.dtype)
+    if tensor.ndim==1:result[index]=tensor
+    else:result[:,index]=tensor
+    return result
+
+
+# Retain a strict path for equal-size checkpoints and migrate only supported input tensors.
+def load_team(state,policy,trainer):
+    for name,module,opt,central in [('actor',policy.actor,policy.actor_optimizer,False),
+                                   ('critic',policy.critic,policy.critic_optimizer,True)]:
+        target=module.state_dict()
+        old=state[name]
+        migrated={}
+        for key,value in old.items():
+            if value.shape==target[key].shape:
+                migrated[key]=value;continue
+            if 'feature_norm.' not in key and 'mlp.fc1.0.weight' not in key:
+                raise ValueError(f'Unexpected checkpoint shape change {name}/{key}')
+            index=_input_map(value.shape[-1],target[key].shape[-1],central)
+            migrated[key]=_expand_input(value,target[key].shape,index,is_norm=key.endswith('feature_norm.weight'))
+        module.load_state_dict(migrated)
+        opt.load_state_dict(state[name+'_optimizer'])
+        for pname,param in module.named_parameters():
+            for key,value in opt.state.get(param,{}).items():
+                if isinstance(value,torch.Tensor) and value.ndim and value.shape!=param.shape:
+                    index=_input_map(value.shape[-1],param.shape[-1],central)
+                    opt.state[param][key]=_expand_input(value,param.shape,index)
     trainer.value_normalizer.load_state_dict(state['value_normalizer'])
