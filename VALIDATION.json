@@ -1,1176 +1,243 @@
 {
-  "checked_at": "2026-10-30T05:21:40.693558",
-  "checkpoint_version": 5,
+  "checked_at": "2026-10-30T10:36:32.887078",
+  "status": "repair_in_progress_not_stable",
+  "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
   "tests": {
-    "passed": 69,
+    "passed": 82,
     "failed": 0
   },
-  "audit": {
-    "baseline_commit": "4d7d41f",
-    "fixed": [
-      "Model dynamics now participates in actor gradients; no hidden VPG fallback",
-      "Velocity-based pose integration and physics-derived observations",
-      "Independent root-pose action-response validation in addition to aggregate physical errors",
-      "Matched real/imagined exploration and four-frame policy history",
-      "Cumulative KL constrained against latest real-physics accepted policy",
-      "Finite-cohort survival regression tolerance; atomic rollback retained"
-    ],
-    "references": [
-      "https://github.com/PrimebotTech/SuperMimic",
-      "https://arxiv.org/abs/1506.02438",
-      "https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/"
-    ]
-  },
-  "validation_only_probes": {
-    "num_envs": 256,
-    "iterations": [
-      181,
-      220
-    ],
-    "run": "logs/model_actor_validation/2026-10-30-05-14-11-285548",
-    "final_model_validation": {
-      "model_validation/physical_mse": 0.09279228746891022,
-      "model_validation/persistence_ratio": 0.12551414966583252,
-      "model_validation/height_mae_m": 0.0013544426765292883,
-      "model_validation/joint_rmse_rad": 0.004370945040136576,
-      "model_validation/root_velocity_rmse": 0.08145684748888016,
-      "model_validation/action_response_cosine": 0.8566988706588745,
-      "model_validation/action_response_relative_error": 0.28803980350494385,
-      "model_validation/root_response_cosine": 0.8416063785552979,
-      "model_validation/root_response_relative_error": 0.3061244785785675,
-      "model_validation/passed": 1.0
-    },
-    "finding": "Physical tests passed, but unanchored cumulative updates still regressed and were rolled back. This prompted the final cumulative-KL correction.",
-    "earlier_findings": [
-      "Independent pose predictions: root response cosine 0.2705, relative squared error 3.9338, despite aggregate cosine 0.8591",
-      "Independent observation predictions and unmatched noise caused rejected policy updates"
-    ]
-  },
-  "final_cumulative_kl_check": {
-    "updates": 20,
-    "applied_updates": 7,
-    "max_cumulative_kl": 0.009987159632146358,
-    "before": {
-      "duration_s": 3.8212473392486572,
-      "return": -0.7925686836242676,
-      "survival_5s": 0.4375,
-      "horizon_s": 6.0,
-      "fall_fraction": 0.5625,
-      "near_approach_m": 0.010608592070639133,
-      "near_kick_event_rate": 0.0,
-      "near_net_goal_progress_m": 0.0,
-      "near_success_rate": 0.0,
-      "near_sample_count": 16,
-      "task_score": 0.010608592070639133
-    },
-    "after": {
-      "duration_s": 3.7931222915649414,
-      "return": -0.8762340545654297,
-      "survival_5s": 0.4375,
-      "horizon_s": 6.0,
-      "fall_fraction": 0.5625,
-      "near_approach_m": 0.007876033894717693,
-      "near_kick_event_rate": 0.0,
-      "near_net_goal_progress_m": 0.0,
-      "near_success_rate": 0.0,
-      "near_sample_count": 16,
-      "task_score": 0.007876033894717693
-    },
-    "after_exploration": {
-      "duration_s": 3.4049978256225586,
-      "return": -6.1855010986328125,
-      "survival_5s": 0.34375,
-      "horizon_s": 6.0,
-      "fall_fraction": 0.65625,
-      "near_approach_m": 0.01850719563663006,
-      "near_kick_event_rate": 0.0,
-      "near_net_goal_progress_m": 0.0,
-      "near_success_rate": 0.0,
-      "near_sample_count": 16,
-      "task_score": 0.01850719563663006
-    },
-    "parameter_change_l2": 0.026953800203404068
-  },
-  "resume_smoke": {
-    "passed": true,
-    "iterations": [
-      201,
-      202
-    ],
-    "run": "logs/model_actor_validation/2026-10-30-05-16-54-363065"
-  },
-  "headless_playback": {
-    "passed": true,
-    "steps": 20,
-    "actor": "accepted"
-  },
-  "limits": [
-    "No productive kick or convergence demonstrated by bounded validation",
-    "Final cumulative-KL test preserved deterministic survival, but did not improve it; exploration survival decreased by one of 32 cases",
-    "Independent football adaptation, not full upstream motion-tracking/AMP training",
-    "Visual visibility and observation residuals are held fixed during short imagination",
-    "Formal run must start fresh without validation or old training checkpoints"
+  "current_implementation": [
+    "Normalize dynamics by one-step velocity increments",
+    "Compact physical critic without noisy history or absolute field translation",
+    "Latest completed five-second trial per world for curriculum",
+    "Paired rotating real-physics candidate/incumbent comparison; retain critic learning on actor rejection",
+    "Advance exact football feedback from FK: near/far idle timers, hysteresis, stalls and approach anchors; reward uses post-transition feedback"
   ],
-  "fresh_gpu_smoke": {
-    "passed": true,
-    "num_envs": 1024,
-    "iterations": [
-      1,
-      2
-    ],
-    "run": "logs/model_actor_validation/2026-10-30-05-19-42-740650",
-    "checkpoint_loaded": false,
-    "process_memory_mib_observed": 4382,
-    "torch_peak_allocated_gib": 3.8028674125671387,
-    "wandb": false
+  "current_run": {
+    "status": "bounded football continuation",
+    "resume_checkpoint": "logs/current_football_validation/2026-10-30-10-21-55-817064/checkpoint_240.pt",
+    "target_iteration": 400,
+    "live_status_file": "logs/active_validation.json",
+    "productive_kicking_verified": false
   },
-  "status": "repair_in_progress_not_stable",
-  "runtime_audit": {
-    "checked_at": "2026-10-30T08:41:56.589861",
+  "historical_failure": {
     "run": "logs/q1_supermimic/2026-10-30-05-21-53-498881",
     "stopped_at_iteration": 2300,
     "last_applied_actor_iteration": 489,
     "consecutive_inactive_iterations": 1811,
     "actual_optimizer_steps": 228,
-    "gradient_probe": {
-      "dense_gradient_norm": 0.07157734781503677,
-      "terminal_value_gradient_norm": 9.023085594177246,
-      "value_to_dense_norm_ratio": 126.06063079833984,
-      "gradient_cosine": 0.08042985945940018,
-      "actor_2300_sha256": "431a90f2809131d1a84ba40301e53a9726dba3af9c6eb721590b6b151e89d9e5",
-      "actor_500_sha256": "431a90f2809131d1a84ba40301e53a9726dba3af9c6eb721590b6b151e89d9e5",
-      "identical_actor_since_500": true
-    },
-    "backend_evaluations": {
-      "checkpoint": "/home/kemove/workspace/Q1Robot/q1-humanoid-kick-SuperMimic/logs/q1_supermimic/2026-10-30-05-21-53-498881/checkpoint_2300.pt",
-      "iteration": 2300,
-      "evaluations": [
-        {
-          "device": "cpu",
-          "seed": 104729,
-          "survival": 0.6171875,
-          "group_survival": [
-            0.59375,
-            0.5625,
-            0.65625
-          ],
-          "duration": 4.5206217765808105
-        },
-        {
-          "device": "cpu",
-          "seed": 204731,
-          "survival": 0.6796875,
-          "group_survival": [
-            0.71875,
-            0.65625,
-            0.671875
-          ],
-          "duration": 4.773746490478516
-        },
-        {
-          "device": "cpu",
-          "seed": 304737,
-          "survival": 0.625,
-          "group_survival": [
-            0.625,
-            0.53125,
-            0.671875
-          ],
-          "duration": 4.582027912139893
-        },
-        {
-          "device": "cuda:0",
-          "seed": 104729,
-          "survival": 0.6875,
-          "group_survival": [
-            0.53125,
-            0.6875,
-            0.765625
-          ],
-          "duration": 4.790933609008789
-        },
-        {
-          "device": "cuda:0",
-          "seed": 204731,
-          "survival": 0.6796875,
-          "group_survival": [
-            0.65625,
-            0.53125,
-            0.765625
-          ],
-          "duration": 4.786089897155762
-        },
-        {
-          "device": "cuda:0",
-          "seed": 304737,
-          "survival": 0.5546875,
-          "group_survival": [
-            0.53125,
-            0.4375,
-            0.625
-          ],
-          "duration": 4.327028274536133
-        }
-      ],
-      "action_response": [
-        {
-          "device": "cpu",
-          "all": {
-            "cosine": 0.8607126474380493,
-            "relative_error": 0.25945931673049927
-          },
-          "root_pose": {
-            "cosine": 0.8667779564857483,
-            "relative_error": 0.2677832543849945
-          },
-          "root_velocity": {
-            "cosine": 0.9142542481422424,
-            "relative_error": 0.1643710434436798
-          },
-          "smooth_reward": {
-            "cosine": 0.3655508756637573,
-            "relative_error": 1.0502506494522095
-          }
-        }
-      ]
-    },
-    "cohort_probe": {
-      "seconds": 40.0,
-      "first_cohort_survival": 0.65625,
-      "all_episode_trials_survival": 0.3102678656578064,
-      "equal_world_survival": 0.721097469329834,
-      "reported_survival": 0.3084822892965825,
-      "trials": 448.0,
-      "world_trials_min_max": [
-        1.0,
-        25.0
-      ],
-      "world_mean_resets": 2.59375
-    },
-    "findings": [
+    "scene_hash_matches_ppo": true
+  },
+  "independent_balance_check": {
+    "checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_100.pt",
+    "seeds": [
+      410009,
+      510007,
+      610031
+    ],
+    "survival_gains": [
+      0.171875,
+      0.265625,
+      0.203125
+    ],
+    "return_gains": [
+      5.38610577583313,
+      8.205508708953857,
+      6.539775192737579
+    ],
+    "interpretation": "Balance improvement only; not football acceptance."
+  },
+  "curriculum_statistics": {
+    "reason": "Current checkpoint 100 achieved 69.14% and 67.58% fresh Warp survival; stale eight-trial per-world history reported only 60.64% by iteration 130. Keep 65% threshold and use latest completed trial per world.",
+    "fresh_warp_results": [
       {
-        "severity": "P0",
-        "issue": "Model-quality hard gate froze the actor, without recovery or stop",
-        "evidence": "Actor identical at checkpoints 500 and 2300; 1811 iterations without an actor step",
-        "location": "train.py model readiness / actor_enabled"
+        "seed": 42,
+        "count": 256,
+        "first_cohort_survival_5s": 0.69140625,
+        "reset_trial_ema": 0.69140625
       },
       {
-        "severity": "P0",
-        "issue": "State-action response accuracy does not validate the reward/value optimization direction",
-        "evidence": "32 CPU paired cases: root pose cosine 0.867, but smooth reward-response cosine 0.366 and relative squared error 1.05; terminal critic gradient norm 126x dense reward gradient in one diagnostic batch",
-        "limit": "These probes do not alone establish that every critic gradient is wrong; full return-gradient validity remains unproven"
-      },
-      {
-        "severity": "P1",
-        "issue": "Curriculum and evaluation use different survival estimands",
-        "evidence": "Same 128-world Warp policy: first-cohort survival 0.656; 40-second episode-weighted resolved-trial survival 0.310; individual worlds contribute 1 to 25 trials",
-        "limit": "Episode-weighted rate is not arithmetically incorrect; comparing it directly to equal-world first-episode acceptance is misleading"
-      },
-      {
-        "severity": "P1",
-        "issue": "Football rewards never activated",
-        "evidence": "balance_phase remains 1; task_progress is 0; no valid soccer-best checkpoint"
-      },
-      {
-        "severity": "P1",
-        "issue": "Repeated unchanged-policy evaluations were reported as newly accepted policies",
-        "fix": "policy_accepted now requires changed actor parameters"
-      },
-      {
-        "severity": "P1",
-        "issue": "Structural deviations from upstream are not validated for this task",
-        "evidence": "Local raw absolute-state dynamics and 256-wide model; 8-step actor horizon; real-GAE critic instead of upstream imagined lambda-return critic; no motion-reference tracking goal or AMP",
-        "limit": "These are risks and design differences, not individually proven causes"
+        "seed": 710041,
+        "count": 256,
+        "first_cohort_survival_5s": 0.67578125,
+        "reset_trial_ema": 0.67578125
       }
     ],
-    "protections_added": [
-      "Report actual applied optimizer steps, not merely a satisfied update gate",
-      "Require changed actor for new acceptance reporting",
-      "Save and stop after 200 iterations without applied or retained actor updates"
-    ],
-    "guard_integration_test": {
-      "passed": true,
-      "configured_budget": 1,
-      "planned_iterations": 3,
-      "stopped_iteration": 1,
-      "checkpoint_saved": true,
-      "run": "logs/audit_guard_validation/2026-10-30-08-40-17-861651"
-    },
-    "not_resolved": [
-      "Task-return gradient validity",
-      "World-model representation and training coverage",
-      "Critic gradient calibration",
-      "Aligned curriculum/evaluation survival cohorts",
-      "Productive football behavior"
-    ],
-    "next_validation_order": [
-      "Use consistent randomized reset cohorts for training/evaluation",
-      "Validate model-induced reward/return changes against paired real-physics perturbations, not just state deltas",
-      "Rework compact physical dynamics/context and critic targets; test ablations before changing safety thresholds",
-      "Require retained policy improvement on unseen seeds and productive near-ball behavior before another long run"
-    ],
-    "backend_probe_limit": "CUDA paired-seed branches were not bitwise identical; their derivative result was discarded. CPU paired derivative data only; both backend survival tests completed.",
-    "scene_hash_matches_ppo": true,
-    "references": [
-      "https://github.com/PrimebotTech/SuperMimic/blob/118338b19dcd14f768d1e7de5a48d04b78987688/src/supermimic/algorithm.py",
-      "https://mujoco.readthedocs.io/en/stable/mjwarp/index.html"
-    ],
-    "regression_tests": {
-      "passed": 71,
-      "failed": 0
-    }
+    "threshold_unchanged": 0.65
   },
-  "v6_physical_revision": {
-    "status": "under_validation_not_ready_for_actor",
-    "tests": {
-      "passed": 76,
-      "failed": 0
+  "football_context_audit": {
+    "uses_exact_next_physical_state": true,
+    "steps": 160,
+    "before_max_error": {
+      "near_idle_s": 0.0200001001,
+      "far_idle_s": 2.0,
+      "near_active": 1.0,
+      "near_stall": 0.01333341,
+      "far_stall": 0.020000219,
+      "approach_window_s": 1.9799999
     },
-    "changes": [
-      "Complete per-body centre of mass and inertia in privileged state",
-      "Translation-invariant physical-only velocity model inputs",
-      "Physical-state/root-velocity supervision without sensor/history losses",
-      "Detached reward/termination auxiliary heads",
-      "World-frame angular acceleration reward parity"
-    ],
-    "bounded_probe": {
-      "pid": 235247,
-      "run": "logs/v6_model_validation/2026-10-30-08-52-35-860397",
-      "iterations": 120,
-      "num_envs": 256,
-      "actor_updates": false
+    "after_max_error": {
+      "near_idle_s": 0.0,
+      "far_idle_s": 0.0,
+      "near_active": 0.0,
+      "near_stall": 0.0,
+      "far_stall": 0.0,
+      "approach_window_s": 0.0
     },
-    "iteration_40_response": {
-      "checkpoint": "logs/v6_model_validation/2026-10-30-08-52-35-860397/checkpoint_40.pt",
-      "iteration": 40,
-      "paired_cases_per_seed": 32,
-      "results": [
-        {
-          "seed": 130363,
-          "root_pose": {
-            "cosine": 0.6857350468635559,
-            "relative_error": 0.926413357257843
-          },
-          "physical": {
-            "cosine": 0.882086992263794,
-            "relative_error": 0.31844913959503174
-          },
-          "smooth_reward": {
-            "cosine": 0.36154240369796753,
-            "relative_error": 1.6712929010391235
-          }
-        },
-        {
-          "seed": 230363,
-          "root_pose": {
-            "cosine": 0.8186572790145874,
-            "relative_error": 0.34307652711868286
-          },
-          "physical": {
-            "cosine": 0.8669272661209106,
-            "relative_error": 0.2691511809825897
-          },
-          "smooth_reward": {
-            "cosine": -0.08688201010227203,
-            "relative_error": 3.62996768951416
-          }
-        },
-        {
-          "seed": 330373,
-          "root_pose": {
-            "cosine": 0.860038161277771,
-            "relative_error": 0.2632388174533844
-          },
-          "physical": {
-            "cosine": 0.8622162938117981,
-            "relative_error": 0.2840411961078644
-          },
-          "smooth_reward": {
-            "cosine": -0.10834599286317825,
-            "relative_error": 1.892337679862976
-          }
-        }
-      ]
-    },
-    "next": "Paired real-action supervision; objective gradient validation; critic and curriculum remain unresolved"
+    "test": "test_football_feedback_projection_and_dense_rewards_match_real_transitions; also verifies actor backward path"
   },
-  "current_mainline": {
-    "checked_at": "2026-10-30T10:00:11.657711",
-    "status": "football_open_but_no_productive_kicks",
-    "changes": [
-      "Normalize dynamics by one-step velocity increments",
-      "Compact physical critic without noisy history or absolute field translation",
-      "Latest completed five-second trial per world for curriculum",
-      "Paired rotating real-physics candidate/incumbent comparison; retain critic learning on actor rejection",
-      "Advance exact football feedback from FK: near/far idle timers, hysteresis, stalls and approach anchors; reward uses post-transition feedback"
-    ],
-    "candidate_experiment": {
-      "source_model": "logs/v7_model_validation/2026-10-30-09-14-41-942873/checkpoint_80.pt",
-      "model_weights_frozen": true,
-      "actor_baseline": "zero mean; no old trained actor loaded",
-      "variants": {
-        "real_targets": {
-          "applied_steps": 6,
-          "kl_max": 0.009990952908992767,
-          "evaluation": [
-            {
-              "duration_s": 4.205934524536133,
-              "return": -0.16238903999328613,
-              "survival_5s": 0.546875,
-              "horizon_s": 6.0,
-              "fall_fraction": 0.453125,
-              "near_approach_m": 0.015646174550056458,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.015646174550056458
-            },
-            {
-              "duration_s": 4.206246852874756,
-              "return": -0.14508700370788574,
-              "survival_5s": 0.546875,
-              "horizon_s": 6.0,
-              "fall_fraction": 0.453125,
-              "near_approach_m": 0.020369257777929306,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.020369257777929306
-            },
-            {
-              "duration_s": 4.065934181213379,
-              "return": -1.0186330080032349,
-              "survival_5s": 0.515625,
-              "horizon_s": 6.0,
-              "fall_fraction": 0.484375,
-              "near_approach_m": 0.019290342926979065,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.019290342926979065
-            }
-          ]
-        },
-        "real_and_model_targets": {
-          "applied_steps": 6,
-          "kl_max": 0.009991807863116264,
-          "evaluation": [
-            {
-              "duration_s": 4.2237467765808105,
-              "return": -0.11717557907104492,
-              "survival_5s": 0.546875,
-              "horizon_s": 6.0,
-              "fall_fraction": 0.453125,
-              "near_approach_m": 0.01579289883375168,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.01579289883375168
-            },
-            {
-              "duration_s": 4.186246871948242,
-              "return": -0.19708353281021118,
-              "survival_5s": 0.546875,
-              "horizon_s": 6.0,
-              "fall_fraction": 0.453125,
-              "near_approach_m": 0.020709838718175888,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.020709838718175888
-            },
-            {
-              "duration_s": 4.065622329711914,
-              "return": -1.0268714427947998,
-              "survival_5s": 0.515625,
-              "horizon_s": 6.0,
-              "fall_fraction": 0.484375,
-              "near_approach_m": 0.01884801685810089,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.01884801685810089
-            }
-          ]
-        }
-      },
-      "baseline": [
-        {
-          "duration_s": 3.9184346199035645,
-          "return": -2.493642807006836,
-          "survival_5s": 0.46875,
-          "horizon_s": 6.0,
-          "fall_fraction": 0.53125,
-          "near_approach_m": 0.015864921733736992,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0,
-          "near_success_rate": 0.0,
-          "near_sample_count": 32,
-          "task_score": 0.015864921733736992
-        },
-        {
-          "duration_s": 4.015934467315674,
-          "return": -1.6128332614898682,
-          "survival_5s": 0.5,
-          "horizon_s": 6.0,
-          "fall_fraction": 0.5,
-          "near_approach_m": 0.020211443305015564,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0,
-          "near_success_rate": 0.0,
-          "near_sample_count": 32,
-          "task_score": 0.020211443305015564
-        },
-        {
-          "duration_s": 3.9321846961975098,
-          "return": -2.021904230117798,
-          "survival_5s": 0.484375,
-          "horizon_s": 6.0,
-          "fall_fraction": 0.515625,
-          "near_approach_m": 0.01889539137482643,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0,
-          "near_success_rate": 0.0,
-          "near_sample_count": 32,
-          "task_score": 0.01889539137482643
-        }
-      ]
+  "exploration_audit": {
+    "evidence": {
+      "path": "logs/current_exploration_audit.json",
+      "sha256": "6e3202d022cbabb156784b1601225130ed501689dc1ca4bced2597c93f235caf"
     },
-    "interpretation": "Small real-target critic candidate improved survival and return on all three seeds; no kicks and no evidence yet of sustained learning. Imagined critic auxiliary had no clear benefit and was not added.",
-    "cohort_experiment": {
-      "seconds": 40.0,
-      "first_cohort_survival": 0.65625,
-      "all_episode_trials_survival": 0.29010990262031555,
-      "equal_world_survival": 0.7243590354919434,
-      "reported_survival": 0.7356503009796143,
-      "trials": 455.0,
-      "world_trials_min_max": [
-        1.0,
-        25.0
+    "survival_by_noise": {
+      "0.025": [
+        0.8125,
+        0.8125
       ],
-      "world_mean_resets": 2.6484375
-    },
-    "failed_experiment": "Paired one-step reward-response supervision did not consistently improve held-out response and was removed.",
-    "tests": {
-      "passed": 82,
-      "failed": 0
-    },
-    "learner_checkpoint": "logs/current_football_validation/2026-10-30-10-21-55-817064/checkpoint_240.pt",
-    "independent_balance_audit": {
-      "checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_100.pt",
-      "sha256": "07c90b40d35a62f6f7c4a5e03cdd9cad3ee0f5d0db4426ff44c3e179a6b55edb",
-      "iteration": 100,
-      "count_per_seed": 64,
-      "steps": 300,
-      "noise_std": 0.025,
-      "phase": "balance",
-      "pairs": [
-        {
-          "seed": 410009,
-          "neutral": {
-            "duration_s": 3.997809410095215,
-            "return": -1.4853994846343994,
-            "survival_5s": 0.5,
-            "horizon_s": 6.0,
-            "fall_fraction": 0.5,
-            "near_approach_m": 0.022077469155192375,
-            "near_kick_event_rate": 0.0,
-            "near_net_goal_progress_m": 0.0,
-            "near_success_rate": 0.0,
-            "near_sample_count": 32,
-            "task_score": 0.022077469155192375
-          },
-          "accepted": {
-            "duration_s": 4.735933780670166,
-            "return": 3.9007062911987305,
-            "survival_5s": 0.671875,
-            "horizon_s": 6.0,
-            "fall_fraction": 0.328125,
-            "near_approach_m": 0.01933160051703453,
-            "near_kick_event_rate": 0.0,
-            "near_net_goal_progress_m": 0.0,
-            "near_success_rate": 0.0,
-            "near_sample_count": 32,
-            "task_score": 0.01933160051703453
-          },
-          "survival_gain": 0.171875,
-          "return_gain": 5.38610577583313
-        },
-        {
-          "seed": 510007,
-          "neutral": {
-            "duration_s": 3.8434348106384277,
-            "return": -3.276419162750244,
-            "survival_5s": 0.4375,
-            "horizon_s": 6.0,
-            "fall_fraction": 0.5625,
-            "near_approach_m": 0.017003361135721207,
-            "near_kick_event_rate": 0.0,
-            "near_net_goal_progress_m": 0.0,
-            "near_success_rate": 0.0,
-            "near_sample_count": 32,
-            "task_score": 0.017003361135721207
-          },
-          "accepted": {
-            "duration_s": 4.911246299743652,
-            "return": 4.929089546203613,
-            "survival_5s": 0.703125,
-            "horizon_s": 6.0,
-            "fall_fraction": 0.296875,
-            "near_approach_m": 0.021923745051026344,
-            "near_kick_event_rate": 0.0,
-            "near_net_goal_progress_m": 0.0,
-            "near_success_rate": 0.0,
-            "near_sample_count": 32,
-            "task_score": 0.021923745051026344
-          },
-          "survival_gain": 0.265625,
-          "return_gain": 8.205508708953857
-        },
-        {
-          "seed": 610031,
-          "neutral": {
-            "duration_s": 3.2765603065490723,
-            "return": -6.784276008605957,
-            "survival_5s": 0.328125,
-            "horizon_s": 6.0,
-            "fall_fraction": 0.671875,
-            "near_approach_m": 0.009122376330196857,
-            "near_kick_event_rate": 0.0,
-            "near_net_goal_progress_m": 0.0,
-            "near_success_rate": 0.0,
-            "near_sample_count": 32,
-            "task_score": 0.009122376330196857
-          },
-          "accepted": {
-            "duration_s": 4.241246700286865,
-            "return": -0.24450081586837769,
-            "survival_5s": 0.53125,
-            "horizon_s": 6.0,
-            "fall_fraction": 0.46875,
-            "near_approach_m": 0.014210082590579987,
-            "near_kick_event_rate": 0.0,
-            "near_net_goal_progress_m": 0.0,
-            "near_success_rate": 0.0,
-            "near_sample_count": 32,
-            "task_score": 0.014210082590579987
-          },
-          "survival_gain": 0.203125,
-          "return_gain": 6.539775192737579
-        }
-      ]
-    },
-    "warp_fresh_cohorts": {
-      "checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_100.pt",
-      "results": [
-        {
-          "seed": 42,
-          "count": 256,
-          "first_cohort_survival_5s": 0.69140625,
-          "reset_trial_ema": 0.69140625
-        },
-        {
-          "seed": 710041,
-          "count": 256,
-          "first_cohort_survival_5s": 0.67578125,
-          "reset_trial_ema": 0.67578125
-        }
-      ]
-    },
-    "curriculum_fix_reason": "Current checkpoint 100 achieved 69.14% and 67.58% fresh Warp survival; stale eight-trial per-world history reported only 60.64% by iteration 130. Keep 65% threshold and use latest completed trial per world.",
-    "acceptance_requirement": "Progress in actual football curriculum, including productive kicks, net goal-directed ball movement and success improvement; balance checks alone are not acceptance.",
-    "football_context_audit": {
-      "uses_exact_next_physical_state": true,
-      "steps": 160,
-      "before_max_error": {
-        "near_idle_s": 0.0200001001,
-        "far_idle_s": 2.0,
-        "near_active": 1.0,
-        "near_stall": 0.01333341,
-        "far_stall": 0.020000219,
-        "approach_window_s": 1.9799999
-      },
-      "after_max_error": {
-        "near_idle_s": 0.0,
-        "far_idle_s": 0.0,
-        "near_active": 0.0,
-        "near_stall": 0.0,
-        "far_stall": 0.0,
-        "approach_window_s": 0.0
-      },
-      "test": "test_football_feedback_projection_and_dense_rewards_match_real_transitions; also verifies actor backward path"
-    },
-    "exploration_audit": {
-      "checkpoint": "logs/current_learner_validation/2026-10-30-10-00-45-882279/checkpoint_140.pt",
-      "results": [
-        {
-          "noise_std": 0.025,
-          "seed": 810001,
-          "duration_s": 10.141319274902344,
-          "return": 4.889128684997559,
-          "survival_5s": 0.8125,
-          "horizon_s": 12.0,
-          "fall_fraction": 0.1875,
-          "near_approach_m": 0.04394979029893875,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0,
-          "near_success_rate": 0.0,
-          "near_sample_count": 16,
-          "task_score": 0.04394979029893875
-        },
-        {
-          "noise_std": 0.025,
-          "seed": 910003,
-          "duration_s": 10.17569351196289,
-          "return": 4.916586875915527,
-          "survival_5s": 0.8125,
-          "horizon_s": 12.0,
-          "fall_fraction": 0.1875,
-          "near_approach_m": 0.02540244162082672,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0,
-          "near_success_rate": 0.0,
-          "near_sample_count": 16,
-          "task_score": 0.02540244162082672
-        },
-        {
-          "noise_std": 0.05,
-          "seed": 810001,
-          "duration_s": 7.555663108825684,
-          "return": -17.84217071533203,
-          "survival_5s": 0.625,
-          "horizon_s": 12.0,
-          "fall_fraction": 0.625,
-          "near_approach_m": 0.02741284668445587,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0,
-          "near_success_rate": 0.0,
-          "near_sample_count": 16,
-          "task_score": 0.02741284668445587
-        },
-        {
-          "noise_std": 0.05,
-          "seed": 910003,
-          "duration_s": 8.203797340393066,
-          "return": -16.41683006286621,
-          "survival_5s": 0.65625,
-          "horizon_s": 12.0,
-          "fall_fraction": 0.46875,
-          "near_approach_m": 0.022279150784015656,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.004752069711685181,
-          "near_success_rate": 0.0,
-          "near_sample_count": 16,
-          "task_score": 0.03178329020738602
-        },
-        {
-          "noise_std": 0.1,
-          "seed": 810001,
-          "duration_s": 2.7006239891052246,
-          "return": -40.850650787353516,
-          "survival_5s": 0.0625,
-          "horizon_s": 12.0,
-          "fall_fraction": 1.0,
-          "near_approach_m": 0.04315055161714554,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": -0.00021666288375854492,
-          "near_success_rate": 0.0,
-          "near_sample_count": 16,
-          "task_score": 0.04271722584962845
-        },
-        {
-          "noise_std": 0.1,
-          "seed": 910003,
-          "duration_s": 2.4981234073638916,
-          "return": -37.220481872558594,
-          "survival_5s": 0.03125,
-          "horizon_s": 12.0,
-          "fall_fraction": 1.0,
-          "near_approach_m": 0.042261894792318344,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0006749629974365234,
-          "near_success_rate": 0.0,
-          "near_sample_count": 16,
-          "task_score": 0.04361182078719139
-        }
-      ]
-    },
-    "football_step_audit": {
-      "checkpoint": "logs/current_football_validation/2026-10-30-10-21-55-817064/checkpoint_200.pt",
-      "phase": "football",
-      "seeds": [
-        1110011,
-        1210013,
-        1310027
+      "0.05": [
+        0.625,
+        0.65625
       ],
-      "count": 64,
-      "steps": 600,
-      "noise_std": 0.025,
-      "variants": {
-        "0.01": {
-          "updates": [
-            {
-              "loss": 0.21698248386383057,
-              "learning/policy_kl": 0.0043390230275690556,
-              "learning/update_fraction": 0.125
-            },
-            {
-              "loss": 0.21332067251205444,
-              "learning/policy_kl": 0.009940644726157188,
-              "learning/update_fraction": 0.0625
-            },
-            {
-              "loss": 0.21397137641906738,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.00048828125
-            },
-            {
-              "loss": 0.21158844232559204,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.21088168025016785,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.21255239844322205,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.20995405316352844,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.21175241470336914,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.2103019803762436,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.2106914520263672,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.21243822574615479,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.21155735850334167,
-              "learning/policy_kl": 0.00999300368130207,
-              "learning/update_fraction": 0.0
-            }
-          ],
-          "evaluation": [
-            {
-              "duration_s": 10.646947860717773,
-              "return": 5.584420204162598,
-              "survival_5s": 0.859375,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.140625,
-              "near_approach_m": 0.023401180282235146,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0003014802932739258,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.024004140868782997
-            },
-            {
-              "duration_s": 10.37975788116455,
-              "return": 5.390824794769287,
-              "survival_5s": 0.828125,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.171875,
-              "near_approach_m": 0.04056239873170853,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.001269519329071045,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.043101437389850616
-            },
-            {
-              "duration_s": 9.566937446594238,
-              "return": 3.3795905113220215,
-              "survival_5s": 0.765625,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.265625,
-              "near_approach_m": 0.02974351868033409,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0013911128044128418,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.032525744289159775
-            }
-          ]
-        },
-        "0.1": {
-          "updates": [
-            {
-              "loss": 0.21698248386383057,
-              "learning/policy_kl": 0.07313210517168045,
-              "learning/update_fraction": 0.5
-            },
-            {
-              "loss": 0.2063339650630951,
-              "learning/policy_kl": 0.0931364968419075,
-              "learning/update_fraction": 0.0625
-            },
-            {
-              "loss": 0.20695018768310547,
-              "learning/policy_kl": 0.098439060151577,
-              "learning/update_fraction": 0.015625
-            },
-            {
-              "loss": 0.2042984962463379,
-              "learning/policy_kl": 0.09979096055030823,
-              "learning/update_fraction": 0.00390625
-            },
-            {
-              "loss": 0.20339645445346832,
-              "learning/policy_kl": 0.09996175765991211,
-              "learning/update_fraction": 0.00048828125
-            },
-            {
-              "loss": 0.2051769345998764,
-              "learning/policy_kl": 0.09996175765991211,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.20261764526367188,
-              "learning/policy_kl": 0.09996175765991211,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.20441831648349762,
-              "learning/policy_kl": 0.09996175765991211,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.20297281444072723,
-              "learning/policy_kl": 0.09996175765991211,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.20321732759475708,
-              "learning/policy_kl": 0.09996175765991211,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.20497950911521912,
-              "learning/policy_kl": 0.09996175765991211,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.2042611986398697,
-              "learning/policy_kl": 0.09996175765991211,
-              "learning/update_fraction": 0.0
-            }
-          ],
-          "evaluation": [
-            {
-              "duration_s": 10.052254676818848,
-              "return": 4.428463935852051,
-              "survival_5s": 0.796875,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.203125,
-              "near_approach_m": 0.01818666234612465,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0035677924752235413,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.02532224729657173
-            },
-            {
-              "duration_s": 9.858501434326172,
-              "return": 3.0283899307250977,
-              "survival_5s": 0.765625,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.234375,
-              "near_approach_m": 0.03305526450276375,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.001402437686920166,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.03586013987660408
-            },
-            {
-              "duration_s": 9.7081880569458,
-              "return": 3.10360050201416,
-              "survival_5s": 0.78125,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.25,
-              "near_approach_m": 0.023985544219613075,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.0012886673212051392,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.026562878862023354
-            }
-          ]
-        },
-        "0.5": {
-          "updates": [
-            {
-              "loss": 0.21698248386383057,
-              "learning/policy_kl": 0.3132241368293762,
-              "learning/update_fraction": 1.0
-            },
-            {
-              "loss": 0.1970362663269043,
-              "learning/policy_kl": 0.4962395131587982,
-              "learning/update_fraction": 0.25
-            },
-            {
-              "loss": 0.19417589902877808,
-              "learning/policy_kl": 0.49938803911209106,
-              "learning/update_fraction": 0.00390625
-            },
-            {
-              "loss": 0.19175730645656586,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.00048828125
-            },
-            {
-              "loss": 0.19071093201637268,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.19270336627960205,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.19022610783576965,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.19203659892082214,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.19061622023582458,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.19056741893291473,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.19236984848976135,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.0
-            },
-            {
-              "loss": 0.19196321070194244,
-              "learning/policy_kl": 0.49978214502334595,
-              "learning/update_fraction": 0.0
-            }
-          ],
-          "evaluation": [
-            {
-              "duration_s": 7.548481464385986,
-              "return": -5.7552490234375,
-              "survival_5s": 0.53125,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.484375,
-              "near_approach_m": 0.0178211759775877,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.013234853744506836,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.04429088346660137
-            },
-            {
-              "duration_s": 7.982547760009766,
-              "return": -5.7340497970581055,
-              "survival_5s": 0.59375,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.4375,
-              "near_approach_m": 0.017242703586816788,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.006395958364009857,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.030034620314836502
-            },
-            {
-              "duration_s": 7.9572343826293945,
-              "return": -2.1304850578308105,
-              "survival_5s": 0.59375,
-              "horizon_s": 12.0,
-              "fall_fraction": 0.453125,
-              "near_approach_m": 0.018872182816267014,
-              "near_kick_event_rate": 0.0,
-              "near_net_goal_progress_m": 0.004150107502937317,
-              "near_success_rate": 0.0,
-              "near_sample_count": 32,
-              "task_score": 0.027172397822141647
-            }
-          ]
-        }
-      },
-      "baseline": [
-        {
-          "duration_s": 10.920388221740723,
-          "return": 6.494123458862305,
-          "survival_5s": 0.890625,
-          "horizon_s": 12.0,
-          "fall_fraction": 0.109375,
-          "near_approach_m": 0.027047691866755486,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0,
-          "near_success_rate": 0.0,
-          "near_sample_count": 32,
-          "task_score": 0.027047691866755486
-        },
-        {
-          "duration_s": 10.279443740844727,
-          "return": 5.196874141693115,
-          "survival_5s": 0.8125,
-          "horizon_s": 12.0,
-          "fall_fraction": 0.1875,
-          "near_approach_m": 0.037597186863422394,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0001967400312423706,
-          "near_success_rate": 0.0,
-          "near_sample_count": 32,
-          "task_score": 0.037990666925907135
-        },
-        {
-          "duration_s": 9.789440155029297,
-          "return": 3.529425621032715,
-          "survival_5s": 0.78125,
-          "horizon_s": 12.0,
-          "fall_fraction": 0.234375,
-          "near_approach_m": 0.031204093247652054,
-          "near_kick_event_rate": 0.0,
-          "near_net_goal_progress_m": 0.0013599097728729248,
-          "near_success_rate": 0.0,
-          "near_sample_count": 32,
-          "task_score": 0.0339239127933979
-        }
+      "0.1": [
+        0.0625,
+        0.03125
       ]
     },
-    "football_step_conclusion": "Larger noise or KL did not produce productive kicks and reduced survival. Keep original noise and KL; repair task-context implementation instead."
-  }
+    "productive_kicks_all_cases": 0,
+    "conclusion": "Larger noise worsened survival without productive kicks; not adopted."
+  },
+  "football_step_audit": {
+    "evidence": {
+      "path": "logs/current_football_validation/2026-10-30-10-21-55-817064/football_step_audit_200.json",
+      "sha256": "939c42c377a8af5445d1a15e160a7226a87278c42cf43699f0de69b855fbf27a"
+    },
+    "baseline": {
+      "survival_5s": [
+        0.890625,
+        0.8125,
+        0.78125
+      ],
+      "near_approach_m": [
+        0.027047691866755486,
+        0.037597186863422394,
+        0.031204093247652054
+      ],
+      "near_kick_event_rate": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "near_net_goal_progress_m": [
+        0.0,
+        0.0001967400312423706,
+        0.0013599097728729248
+      ],
+      "near_success_rate": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "variants": {
+      "0.01": {
+        "survival_5s": [
+          0.859375,
+          0.828125,
+          0.765625
+        ],
+        "near_approach_m": [
+          0.023401180282235146,
+          0.04056239873170853,
+          0.02974351868033409
+        ],
+        "near_kick_event_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "near_net_goal_progress_m": [
+          0.0003014802932739258,
+          0.001269519329071045,
+          0.0013911128044128418
+        ],
+        "near_success_rate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "0.1": {
+        "survival_5s": [
+          0.796875,
+          0.765625,
+          0.78125
+        ],
+        "near_approach_m": [
+          0.01818666234612465,
+          0.03305526450276375,
+          0.023985544219613075
+        ],
+        "near_kick_event_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "near_net_goal_progress_m": [
+          0.0035677924752235413,
+          0.001402437686920166,
+          0.0012886673212051392
+        ],
+        "near_success_rate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "0.5": {
+        "survival_5s": [
+          0.53125,
+          0.59375,
+          0.59375
+        ],
+        "near_approach_m": [
+          0.0178211759775877,
+          0.017242703586816788,
+          0.018872182816267014
+        ],
+        "near_kick_event_rate": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "near_net_goal_progress_m": [
+          0.013234853744506836,
+          0.006395958364009857,
+          0.004150107502937317
+        ],
+        "near_success_rate": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "conclusion": "Larger noise or KL did not produce productive kicks and reduced survival. Keep original noise and KL; repair task-context implementation instead."
+  },
+  "limits": [
+    "No productive kicking or success-rate improvement has been demonstrated.",
+    "Physical model is approximate, including held visibility and sensor residuals during imagination.",
+    "This is a football adaptation, without AMP; not a full upstream tracking trainer or paper reproduction."
+  ],
+  "historical_evidence": {
+    "git_commit": "16d1960c25dd491ccca1b14e662582cb36c8a5ea",
+    "file": "VALIDATION.json",
+    "note": "Full prior probe outputs preserved in this Git revision; current report retains decision-relevant summaries."
+  },
+  "references": [
+    "https://github.com/PrimebotTech/SuperMimic",
+    "https://arxiv.org/abs/1506.02438",
+    "https://gymnasium.farama.org/tutorials/gymnasium_basics/handling_time_limits/"
+  ]
 }
