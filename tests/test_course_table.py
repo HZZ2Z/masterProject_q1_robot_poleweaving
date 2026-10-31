@@ -44,9 +44,25 @@ def test_serial_mode_does_not_present_old_values_as_current_measurements():
     assert rows[0]['状态']=='已通过·无复测' and rows[0]['当前成功率']=='—'
     assert rows[3]['状态']=='主训' and rows[3]['当前成功率']=='0.00%'
     assert rows[4]['状态']=='待训练'
+    assert rows[0]['足球场数']=='0' and rows[0]['占比']=='0.00%'
+    assert rows[3]['足球场数']=='100' and rows[3]['占比']=='100.00%'
 
 
-def test_html_has_four_columns_and_iteration_and_no_external_runtime():
+def test_global_field_allocation_is_not_counted_once_per_robot_or_per_gpu():
+    summary={'04_性能/并行球场总数':20480,'04_性能/GPU数量':5}
+    allocation={'balance':685,'balance_push':685,'weight_shift':685,
+                'step_in_place':16365,'slow_walk':1030,'turn':1030}
+    for name,worlds in allocation.items():sample(summary,name,worlds=worlds)
+    rows=course_rows(summary)
+    assert sum(int(r['足球场数']) for r in rows)==20480
+    assert rows[3]['足球场数']=='16365' and rows[3]['占比']=='79.91%'
+    assert rows[4]['足球场数']=='1030' and rows[4]['占比']=='5.03%'
+    assert rows[27]['足球场数']=='0' and rows[27]['占比']=='0.00%'
+    page=course_table_html(summary,1029)
+    assert '20,480个' in page and '正在采样：6门课程' in page
+
+
+def test_html_has_six_columns_and_iteration_and_no_external_runtime():
     from html.parser import HTMLParser
     class Counter(HTMLParser):
         heads=0;rows=0
@@ -55,7 +71,7 @@ def test_html_has_four_columns_and_iteration_and_no_external_runtime():
             if tag=='tr':self.rows+=1
     page=course_table_html({},123)
     parsed=Counter();parsed.feed(page)
-    assert parsed.heads==4 and parsed.rows==29
+    assert parsed.heads==6 and parsed.rows==29
     assert '第123轮' in page and '<script' not in page and 'https://' not in page
     import wandb
     media=wandb.Html(page,inject=False,data_is_not_path=True)

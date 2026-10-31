@@ -1,11 +1,11 @@
-"""Four-column curriculum snapshots rendered as standard W&B HTML media."""
+"""Curriculum quality and global field allocations as standard W&B HTML media."""
 from html import escape
 from math import isfinite
 from .course_config import COURSES,SUCCESS
 from .parallel_curriculum import PREREQUISITES
 
 COURSE_TABLE_KEY='00_课程表/实时课程状态'
-COLUMNS=('课程','当前成功率','稳定率','状态')
+COLUMNS=('课程','足球场数','占比','当前成功率','稳定率','状态')
 LABELS=('站立','扰动站立','重心转移','原地踏步','慢走','前进','后退','侧移',
         '速度跟踪','转向','行走转向','停步','启停','接近球','对齐','左脚正踢','右脚正踢',
         '左脚侧踢','右脚侧踢','踢后恢复','盘带','传接球','守门','1v1','2v1','2v2','团队配合','4v4比赛')
@@ -19,6 +19,9 @@ def percent(value):
 def course_rows(summary,parallel=True):
     def metric(name,key):return summary.get('06_课程/'+name+'/'+key)
     rows=[];current=summary.get('01_总览/课程编号')
+    counts={name:int(metric(name,'球场数') or 0) if parallel or current==i else 0
+            for i,name in enumerate(COURSES)}
+    total=summary.get('04_性能/并行球场总数') or sum(counts.values())
     for i,name in enumerate(COURSES):
         success=metric(name,'成功率');stable=metric(name,'稳定率')
         if parallel:
@@ -32,12 +35,16 @@ def course_rows(summary,parallel=True):
         else:
             status='主训' if current==i else '已通过·无复测' if current is not None and i<current else '待训练'
             if current!=i:success=stable=None
-        rows.append(dict(zip(COLUMNS,(f'{i} {LABELS[i]}',percent(success),percent(stable),status))))
+        worlds=counts[name]
+        rows.append(dict(zip(COLUMNS,(f'{i} {LABELS[i]}',str(worlds),percent(worlds/total if total else 0),
+                                      percent(success),percent(stable),status))))
     return rows
 
 
 def course_table_html(summary,iteration,parallel=True):
     rows=course_rows(summary,parallel)
+    total=int(summary.get('04_性能/并行球场总数') or sum(int(r['足球场数']) for r in rows))
+    sampled=sum(int(r['足球场数'])>0 for r in rows)
     # Place currently sampled courses first, retaining each course number in its label.
     rows.sort(key=lambda r:r['状态'] in ('未解锁','待训练'))
     header=''.join('<th>'+escape(c)+'</th>' for c in COLUMNS)
@@ -49,8 +56,9 @@ def course_table_html(summary,iteration,parallel=True):
 h3{{margin:0 0 6px}}p{{font-size:12px;opacity:.75;margin:6px 0 12px}}
 table{{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}}
 th,td{{padding:8px 12px;border-bottom:1px solid #8884;text-align:left}}
-th{{position:sticky;top:0;background:Canvas}}td:nth-child(2),td:nth-child(3){{text-align:right}}
+th{{position:sticky;top:0;background:Canvas}}td:nth-child(n+2):nth-child(-n+5){{text-align:right}}
 .regression{{background:#ffb02025}}.training{{background:#2196f320}}
 </style></head><body><h3>实时课程表 · 第{int(iteration)}轮</h3>
+<p>全局足球场：{total:,}个 · 正在采样：{sampled}门课程。场数为全部GPU合计，占比为本课程场数÷全局总场数。</p>
 <p>随每轮训练更新。成功率和稳定率使用各课近期回合窗口；退化是复习提示，不自动改变认证。</p>
 <table><thead><tr>{header}</tr></thead><tbody>{body}</tbody></table></body></html>"""
