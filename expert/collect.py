@@ -1,4 +1,4 @@
-"""Collect complete native-MuJoCo expert episodes, preserving unsuccessful runs.
+"""Collect complete native-MuJoCo expert episodes, discarding unsuccessful runs.
 
 This runs a frozen teacher only. No SuperMimic policy/world-model optimization.
 """
@@ -188,7 +188,7 @@ def main():
        privileged_fields=['qpos','qvel','qacc_warmstart','contact labels'],
        state_precision='float64',physics='native MuJoCo nominal',
        policy_imitation_rule='goal + real foot contact + >=0.1m post-contact goalward progress + >=1s recovery; no fall',
-       world_model_rule='all finite completed transitions, including failure and timeout episodes',
+       world_model_rule='strict successful episodes only',selection_rule='strict_success_only',
        split_rule='sha256(checkpoint_hash:episode_seed), disjoint entire episodes; 70/10/20 train/validation/test',
        control_contract='joint_target_and_torque_limits_v1' if args.bounded_targets else 'original_expert',
        training_started=False,status='collecting')
@@ -200,7 +200,7 @@ def main():
         player_class=SoccerPlayer
     (args.output/'index.jsonl').touch(exist_ok=False)
     atomic_json(args.output/'manifest.json',manifest)
-    totals=Counter();seed_cursor=args.seed;started=time.perf_counter();summary_rows=[]
+    totals=Counter();seed_cursor=args.seed;started=time.perf_counter();summary_rows=[];attempts=Counter()
     for episode in range(args.episodes):
         if stop:break
         group=[0,1,2,2][episode%4];seed=episode_seed(seed_cursor,group);seed_cursor=seed+1
@@ -208,6 +208,11 @@ def main():
         if player.spawn_kind!=group:raise AssertionError('Original reset seed does not realize required cohort')
         initial_rng=json.loads(json.dumps(player.rng.bit_generator.state))
         arrays,meta=collect_episode(player,lambda:stop,args.max_control_steps)
+        attempts[meta['termination']]+=1
+        if not (meta['verified_success'] and meta['policy_imitation_eligible'] and meta['termination']=='goal'):
+            manifest.update(attempted_episodes=sum(attempts.values()),discarded_attempts=sum(attempts.values())-len(summary_rows),attempt_outcomes=dict(attempts))
+            atomic_json(args.output/'manifest.json',manifest)
+            continue
         identifier=f'episode_{episode+1:06d}'
         meta.update(control_contract=manifest['control_contract'],episode_id=identifier,seed=seed,split=split_for(seed,checkpoint_hash),
                     checkpoint_sha256=checkpoint_hash,initial_sensor_rng=initial_rng,
@@ -227,6 +232,7 @@ def main():
         atomic_json(args.output/'manifest.json',manifest)
         print(json.dumps(record),flush=True)
     manifest.update(status='interrupted' if stop else 'complete',elapsed_seconds=time.perf_counter()-started,
+           attempted_episodes=sum(attempts.values()),discarded_attempts=sum(attempts.values())-len(summary_rows),attempt_outcomes=dict(attempts),
            total_transitions=sum(r['steps'] for r in summary_rows),
            policy_imitation_episodes=sum(r['policy_imitation_eligible'] for r in summary_rows),
            splits=dict(Counter(r['split'] for r in summary_rows)))

@@ -70,3 +70,46 @@ def native_sensors(arrays, cache_dir):
         np.save(stream, sensors, allow_pickle=False)
     temporary.replace(cache)
     return sensors
+
+
+def _prepare_shard(task):
+    path, cache_dir = task
+    with np.load(path, allow_pickle=False) as shard:
+        arrays = {name: shard[name] for name in shard.files}
+    native_sensors(arrays, cache_dir)
+    return 1
+
+
+def prepare_dataset(directory, workers=8):
+    from concurrent.futures import ProcessPoolExecutor
+    import multiprocessing
+    import json
+
+    directory = Path(directory)
+    rows = [
+        json.loads(line)
+        for line in (directory / "index.jsonl").read_text().splitlines()
+    ]
+    tasks = [
+        (str(directory / (row["episode_id"] + ".npz")), str(directory / "sensor_cache"))
+        for row in rows
+    ]
+    with ProcessPoolExecutor(
+        max_workers=workers, mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
+        for count, _ in enumerate(pool.map(_prepare_shard, tasks), 1):
+            if count % 100 == 0 or count == len(rows):
+                print(f"Native sensor replay verified: {count}/{len(rows)}", flush=True)
+    return len(rows)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Prepare and verify native sensor cache without policy training"
+    )
+    parser.add_argument("dataset", type=Path)
+    parser.add_argument("--workers", type=int, default=8)
+    args = parser.parse_args()
+    prepare_dataset(args.dataset, args.workers)

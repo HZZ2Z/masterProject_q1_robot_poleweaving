@@ -98,3 +98,19 @@ def test_critic_labels_are_real_finite_episode_returns_without_bootstrap():
     torch.testing.assert_close(
         captured[0], torch.tensor([1 + 0.99 + 0.99**2, 1 + 0.99])
     )
+
+
+def test_changed_dataset_evaluation_seeds_require_a_new_baseline():
+    from q1_soccer.train import compatible_baseline
+
+    baseline = {"seeds": [1, 2], "verified_success_rate": 0.5}
+    assert compatible_baseline(baseline, [1, 2]) is baseline
+    assert compatible_baseline(baseline, [1, 3]) is None
+
+
+def test_rollback_never_exits_training_when_limit_is_disabled():
+    from q1_soccer.train import TrainConfig, rejection_limit_reached
+
+    assert not rejection_limit_reached(TrainConfig(max_rejections=0), 10000)
+    assert not rejection_limit_reached(TrainConfig(max_rejections=10), 9)
+    assert rejection_limit_reached(TrainConfig(max_rejections=10), 10)

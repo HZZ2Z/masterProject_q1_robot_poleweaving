@@ -57,7 +57,8 @@ class TrainConfig:
     bootstrap_weight: float = 0.05
     trust_action_rms: float = 0.01
     trust_action_max: float = 0.05
-    max_rejections: int = 10
+    max_rejections: int = 0
+    reset_actor_optimizer_on_resume: bool = False
     save_every: int = 50
     max_joint_position_rmse: float = 0.06
     max_base_height_rmse: float = 0.02
@@ -114,7 +115,8 @@ class TrainConfig:
                 "Repaired training requires evaluation after each candidate actor update"
             )
         if (
-            min(result.critic_warmup, result.max_rejections, result.save_every) < 1
+            min(result.critic_warmup, result.save_every) < 1
+            or result.max_rejections < 0
             or min(
                 result.actor_learning_rate,
                 result.trust_action_rms,
@@ -198,6 +200,20 @@ def build(cfg, replay):
             )
         algorithm.model.load_state_dict(source["model"], strict=True)
     return algorithm
+
+
+def compatible_baseline(baseline, seeds):
+    """Only compare scores measured on the same evaluation scenes."""
+    return (
+        baseline
+        if baseline is not None and baseline.get("seeds") == list(seeds)
+        else None
+    )
+
+
+def rejection_limit_reached(cfg, count):
+    """Zero disables automatic exits; failed candidates are still rolled back."""
+    return cfg.max_rejections > 0 and count >= cfg.max_rejections
 
 
 @torch.no_grad()
@@ -300,6 +316,10 @@ def train(cfg, resume=None):
     if output.exists():
         raise FileExistsError("Use a fresh output directory, including when resuming")
     replay = ExpertReplay(cfg.dataset, seed=cfg.seed)
+    expert_episode_count = len(replay.episodes)
+    expert_transition_count = sum(
+        len(episode["actions"]) for episode in replay.episodes
+    )
     validation = ExpertReplay(cfg.dataset, split="validation", seed=123)
     if (
         hashlib.sha256(Path(cfg.checkpoint).read_bytes()).hexdigest()
@@ -334,6 +354,8 @@ def train(cfg, resume=None):
             "model_optimizer",
             "critic_optimizer",
         ]:
+            if name == "actor_optimizer" and cfg.reset_actor_optimizer_on_resume:
+                continue
             getattr(algorithm, name).load_state_dict(saved[name])
         start = saved["iteration"]
         baseline = saved["baseline"]
@@ -369,7 +391,10 @@ def train(cfg, resume=None):
         json.dumps(
             {
                 "policy": "strict_success_only_v1",
-                "expert_training_episodes": len(replay.episodes),
+                "expert_training_episodes": expert_episode_count,
+                "expert_training_transitions": expert_transition_count,
+                "restored_online_training_episodes": len(replay.episodes)
+                - expert_episode_count,
                 "excluded_unsuccessful_expert_episodes": replay.excluded_unsuccessful,
                 "training_transitions": sum(len(e["actions"]) for e in replay.episodes),
                 "unsuccessful_training_episodes": sum(
@@ -389,6 +414,9 @@ def train(cfg, resume=None):
         episode["meta"]["seed"]
         for episode in validation.episodes[: cfg.evaluate_episodes]
     ]
+    # Appended/cleaned datasets can change held-out reset seeds. Re-evaluate the
+    # retained actor instead of comparing scores measured on different scenes.
+    baseline = compatible_baseline(baseline, evaluation_seeds)
     stopped = False
 
     def request_stop(*_):
@@ -414,6 +442,8 @@ def train(cfg, resume=None):
     trust = PolicyTrust(algorithm, cfg.trust_action_rms, cfg.trust_action_max)
     trust.accepted_updates = saved.get("accepted_policy_updates", 0)
     trust.consecutive_rejections = saved.get("consecutive_rejections", 0)
+    if cfg.reset_actor_optimizer_on_resume:
+        trust.consecutive_rejections = 0
     save(
         output / "last.pt",
         algorithm,
@@ -558,7 +588,7 @@ def train(cfg, resume=None):
                     not replay.is_success(e["meta"]) for e in replay.episodes
                 ),
             )
-            if trust.consecutive_rejections >= cfg.max_rejections:
+            if rejection_limit_reached(cfg, trust.consecutive_rejections):
                 record["stop_reason"] = "consecutive_candidate_regressions"
             if (
                 evaluate_candidate
@@ -621,7 +651,7 @@ def train(cfg, resume=None):
             online_seed,
             trust,
         )
-        if not trust.consecutive_rejections >= cfg.max_rejections:
+        if not rejection_limit_reached(cfg, trust.consecutive_rejections):
             (output / "status.json").write_text(
                 json.dumps(
                     {

@@ -33,7 +33,7 @@ python -m q1_soccer.verify --device cpu --smoke
 python train.py --config configs/soccer.json
 ```
 
-配置位于 `configs/soccer.json`。首次训练没有旧 World Model 时，将 `warm_start_model` 设为 `null`。run 名称和目录统一为 `q1-robot-supermimic-<YYYYMMDD-HHMMSS>`，`logs/latest` 指向当前运行；检查点为 `logs/latest/{best,last}.pt`。World Model 按实际想象步数验收，Critic 先学习真实轨迹回报；每个 Actor 小步更新都经动作偏移检查和完整回合评估，退步时只回滚 Actor。训练使用 CUDA，在线采集和评估使用 CPU 多进程。GPU 显存预算和预留量可在配置中设置；空闲显存不足会退出。
+配置位于 `configs/soccer.json`。首次训练没有旧 World Model 时，将 `warm_start_model` 设为 `null`。run 名称和目录统一为 `q1-robot-supermimic-<YYYYMMDD-HHMMSS>`，`logs/latest` 指向当前运行；检查点为 `logs/latest/{best,last}.pt`。World Model 按实际想象步数验收，Critic 先学习真实轨迹回报；每个 Actor 小步更新都经动作偏移检查和完整回合评估，退步时只回滚 Actor。默认不因连续回滚退出训练。训练使用 CUDA，在线采集和评估使用 CPU 多进程。GPU 显存预算和预留量可在配置中设置；空闲显存不足会退出。
 
 续训时在配置中改用新的 `output`，然后执行：
 

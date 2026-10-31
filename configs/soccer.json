@@ -17,15 +17,16 @@
   "gpu_reserve_gb": 4.0,
   "wandb": true,
   "critic_warmup": 100,
-  "actor_learning_rate": 1e-06,
+  "actor_learning_rate": 1e-07,
   "anchor_weight": 50.0,
   "bootstrap_weight": 0.05,
   "trust_action_rms": 0.01,
   "trust_action_max": 0.05,
   "warm_start_model": null,
-  "max_rejections": 10,
+  "max_rejections": 0,
   "save_every": 50,
   "max_joint_position_rmse": 0.06,
   "max_base_height_rmse": 0.02,
-  "max_base_orientation_rmse": 0.12
+  "max_base_orientation_rmse": 0.12,
+  "reset_actor_optimizer_on_resume": true
 }
