@@ -11,3 +11,6 @@ MUJOCO_LOG.TXT
 *.log
 .env.*
 .netrc
+video/
+videos/
+*.mp4

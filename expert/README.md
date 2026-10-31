@@ -22,6 +22,15 @@ python -m expert.verify_teacher expert/datasets/new_batch
 
 ## 数据
 
+在已有的纯成功数据集里额外采集 1500 个成功回合（CPU 并行，可与训练同时运行）：
+
+```bash
+python -m expert.success_collection --output expert/datasets/q1_bounded_v1 \
+  --successes 1500 --workers 8
+```
+
+`--successes` 是新增成功数量；失败尝试不保存，也不占用名额。
+
 每个回合一个 `.npz` 和一个 `.json`，`index.jsonl` 汇总全部回合，`manifest.json` 记录权重、配置和代码哈希。物理状态使用 float64，观测和策略动作使用 float32。
 
 - `qpos/qvel/qacc_warmstart/time`：T+1 个状态，保留重置前末状态。
