@@ -6,12 +6,13 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from q1_4v4.course_config import COURSES
 from q1_4v4.telemetry import dashboard_specs
+from q1_4v4.course_table import course_table_config
 
 
 def main():
     import wandb
     import wandb_workspaces.workspaces as ws
-    from wandb_workspaces.reports.v2 import LinePlot
+    from wandb_workspaces.reports.v2 import LinePlot,WeavePanel,Layout
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--run-id')
     args=parser.parse_args()
@@ -28,6 +29,9 @@ def main():
         sections.append(ws.Section(name=title,is_open=i==0,pinned=i==0,panels=[
             LinePlot(title=p['title'],x='iteration',y=p['keys'],
                      smoothing_factor=.2,smoothing_type='exponential') for p in panels]))
+    if per_course:
+        sections.insert(0,ws.Section(name='00 实时课程表 · 随训练更新',is_open=True,pinned=True,
+            panels=[WeavePanel(config=course_table_config(parallel),layout=Layout(w=24,h=18))]))
     if not per_course:
         sections[0].panels[2].title='03 红蓝平均单步奖励（旧采集口径含全部机器人）'
     view=ws.Workspace(entity='mohismlab-robotics',project='q1-humanoid-kick-4v4',
