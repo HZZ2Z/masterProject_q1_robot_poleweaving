@@ -17,6 +17,7 @@ from .gait import METRIC_NAMES, REWARD_REVISION
 from .parallel_curriculum import ParallelCurriculum
 from .mixed_env import MixedCourseEnv, ended_rows
 from .telemetry import SKILL_NAMES, active_team_reward, course_metrics, macro_metrics
+from .course_table import COURSE_TABLE_KEY,course_table_html
 
 
 def run(options):
@@ -347,6 +348,7 @@ def run(options):
                     writer.add_scalar(k, v, iteration)
             if writer:writer.flush()
             if wandb_run:
+                cloud[COURSE_TABLE_KEY]=wandb.Html(course_table_html(cloud,iteration,parallel),inject=False,data_is_not_path=True)
                 wandb_run.log(cloud, step=iteration)
             if distributed.primary:print(json.dumps(metrics), flush=True)
             stop = bool(distributed.maximum(int(stop)))

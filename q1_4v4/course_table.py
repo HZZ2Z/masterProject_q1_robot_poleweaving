@@ -1,90 +1,56 @@
-"""Live W&B query table: rows derive from summary metrics, never frozen snapshots.
-
-Uses the same query-panel node protocol as wandb_workspaces.WeavePanel.
-No training-side logger, artifact writer, polling service or training restart is needed.
-"""
+"""Four-column curriculum snapshots rendered as standard W&B HTML media."""
+from html import escape
+from math import isfinite
 from .course_config import COURSES,SUCCESS
 from .parallel_curriculum import PREREQUISITES
 
+COURSE_TABLE_KEY='00_课程表/实时课程状态'
 COLUMNS=('课程','当前成功率','稳定率','状态')
 LABELS=('站立','扰动站立','重心转移','原地踏步','慢走','前进','后退','侧移',
         '速度跟踪','转向','行走转向','停步','启停','接近球','对齐','左脚正踢','右脚正踢',
         '左脚侧踢','右脚侧踢','踢后恢复','盘带','传接球','守门','1v1','2v1','2v2','团队配合','4v4比赛')
-MAYBE_NUMBER={'type':'union','members':['none','number']}
-
-
-def const(value):
-    return {'nodeType':'const','type':'boolean' if isinstance(value,bool) else 'number' if isinstance(value,(int,float)) else 'string','val':value}
-
-
-def op(name,kind,**inputs):
-    return {'nodeType':'output','type':kind,'fromOp':{'name':name,'inputs':inputs}}
-
-
-def record(fields):
-    return op('dict',{'type':'typedDict','propertyTypes':{k:v['type'] for k,v in fields.items()}},**fields)
-
-
-def pick(obj,key,kind=MAYBE_NUMBER):
-    return op('pick',kind,obj=obj,key=const(key))
-
-
-def compare(name,lhs,rhs):return op('number-'+name,'boolean',lhs=lhs,rhs=const(rhs))
-
-
-def all_of(values):
-    result=const(True)
-    for value in values:result=op('and','boolean',lhs=result,rhs=value)
-    return result
-
-
-def choose(cases,default):
-    cases=[*cases,(const(True),const(default))]
-    return op('cond','string',cases=record({str(i):a for i,(a,_) in enumerate(cases)}),
-              results=record({str(i):b for i,(_,b) in enumerate(cases)}))
 
 
 def percent(value):
-    rounded=op('number-toFixed',MAYBE_NUMBER,**{'in':op('number-mult',MAYBE_NUMBER,lhs=value,rhs=const(100)),'digits':const(2)})
-    formatted=op('string-add','string',lhs=op('number-toString','string',**{'in':rounded}),rhs=const('%'))
-    return choose([(compare('greaterEqual',value,0),formatted)],'—')
+    if value is None or not isinstance(value,(int,float)) or not isfinite(value):return '—'
+    return f'{value*100:.2f}%'
 
 
-def course_table_config(parallel=True):
-    runs={'nodeType':'var','type':{'type':'list','objectType':'run'},'varName':'runs'}
-    run=op('index','run',arr=runs,index=const(0))
-    summary=op('run-summary',{'type':'typedDict','propertyTypes':{}},run=run)
-    metric=lambda name,key:pick(summary,'06_课程/'+name+'/'+key)
-    current=pick(summary,'01_总览/课程编号')
-    rows=[]
+def course_rows(summary,parallel=True):
+    def metric(name,key):return summary.get('06_课程/'+name+'/'+key)
+    rows=[];current=summary.get('01_总览/课程编号')
     for i,name in enumerate(COURSES):
         success=metric(name,'成功率');stable=metric(name,'稳定率')
         if parallel:
-            known=all_of([compare('greaterEqual',metric(name,key),0) for key in
-                          ('红队成功率','蓝队成功率','红队稳定率','蓝队稳定率')])
-            passed=all_of([compare('greaterEqual',metric(name,key),target) for key,target in
-                           (('红队成功率',SUCCESS[name]),('蓝队成功率',SUCCESS[name]),('红队稳定率',.9),('蓝队稳定率',.9))])
-            review=choose([(known,choose([(passed,const('复习·达标'))],'复习·退化'))],'复习·待采样')
-            ready=all_of([compare('equal',metric(parent,'已掌握'),1) for parent in PREREQUISITES[name]])
-            status=choose([(compare('equal',metric(name,'已掌握'),1),review),
-                           (ready,choose([(all_of([known,passed]),const('主训·达标待认证'))],'主训')),
-                           (compare('greater',metric(name,'球场数'),0),const('预习'))],'未解锁')
-            success_text=percent(success);stable_text=percent(stable)
+            values=[metric(name,k) for k in ('红队成功率','蓝队成功率','红队稳定率','蓝队稳定率')]
+            known=all(v is not None and isinstance(v,(int,float)) and isfinite(v) for v in values)
+            passed=known and all(v>=t for v,t in zip(values,(SUCCESS[name],SUCCESS[name],.9,.9)))
+            if metric(name,'已掌握')==1:status='复习·待采样' if not known else '复习·达标' if passed else '复习·退化'
+            elif all(metric(parent,'已掌握')==1 for parent in PREREQUISITES[name]):status='主训·达标待认证' if passed else '主训'
+            elif (metric(name,'球场数') or 0)>0:status='预习'
+            else:status='未解锁'
         else:
-            active=compare('equal',current,i)
-            status=choose([(active,const('主训')),(compare('greater',current,i),const('已通过·无复测'))],'待训练')
-            success_text=choose([(active,percent(success))],'—')
-            stable_text=choose([(active,percent(stable))],'—')
-        rows.append(record(dict(zip(COLUMNS,(const(f'{i} {LABELS[i]}'),success_text,stable_text,status)))))
-    row_type=rows[0]['type']
-    expression=op('list',{'type':'list','objectType':row_type},**{str(i):r for i,r in enumerate(rows)})
-    row={'nodeType':'var','type':row_type,'varName':'row'}
-    table_state={'autoColumns':False,'columns':{str(i):{'panelId':''} for i in range(4)},
-                 'columnNames':{str(i):name for i,name in enumerate(COLUMNS)},
-                 'columnSelectFunctions':{str(i):pick(row,name,'string') for i,name in enumerate(COLUMNS)},
-                 'preFilterFunction':{'nodeType':'void','type':'invalid'},'order':[str(i) for i in range(4)],
-                 'groupBy':[],'sort':[],'pageSize':28,'page':0}
-    return {'panel2Config':{'exp':dict(expression,__userInput=True),'panelId':'table',
-            'panelConfig':{'tableState':table_state,'rowSize':1,'indexOffset':0,
-                           'columnWidths':{'0':210,'1':150,'2':150,'3':230},'pinnedRows':{},'pinnedColumns':[],
-                           'activeRowForGrouping':{},'simpleTable':True}}}
+            status='主训' if current==i else '已通过·无复测' if current is not None and i<current else '待训练'
+            if current!=i:success=stable=None
+        rows.append(dict(zip(COLUMNS,(f'{i} {LABELS[i]}',percent(success),percent(stable),status))))
+    return rows
+
+
+def course_table_html(summary,iteration,parallel=True):
+    rows=course_rows(summary,parallel)
+    # Place currently sampled courses first, retaining each course number in its label.
+    rows.sort(key=lambda r:r['状态'] in ('未解锁','待训练'))
+    header=''.join('<th>'+escape(c)+'</th>' for c in COLUMNS)
+    body=''.join('<tr class="'+('regression' if '退化' in r['状态'] else 'training' if '主训' in r['状态'] else '')+'">'+
+                 ''.join('<td>'+escape(r[c])+'</td>' for c in COLUMNS)+'</tr>' for r in rows)
+    return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>
+:root{{color-scheme:light dark}}body{{font:14px system-ui,sans-serif;margin:12px}}
+h3{{margin:0 0 6px}}p{{font-size:12px;opacity:.75;margin:6px 0 12px}}
+table{{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}}
+th,td{{padding:8px 12px;border-bottom:1px solid #8884;text-align:left}}
+th{{position:sticky;top:0;background:Canvas}}td:nth-child(2),td:nth-child(3){{text-align:right}}
+.regression{{background:#ffb02025}}.training{{background:#2196f320}}
+</style></head><body><h3>实时课程表 · 第{int(iteration)}轮</h3>
+<p>随每轮训练更新。成功率和稳定率使用各课近期回合窗口；退化是复习提示，不自动改变认证。</p>
+<table><thead><tr>{header}</tr></thead><tbody>{body}</tbody></table></body></html>"""
