@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import torch
 from q1_4v4.course_env import CourseWarpEnv
+from q1_4v4.course_config import DURATIONS
 from q1_4v4.learning import make_args,make_team,load_team,with_team_identity
 
 
@@ -17,7 +18,7 @@ def main():
     options=p.parse_args();torch.set_num_threads(2)
     ck=torch.load(options.checkpoint,map_location='cuda:0',weights_only=False)
     legacy=options.case.startswith('legacy')
-    env=CourseWarpEnv(count=8,stage='step_in_place',seed=42,marching_target_observation='legacy' if legacy else 'origin')
+    env=CourseWarpEnv(count=8,stage='step_in_place',seed=42,episode_steps=DURATIONS['step_in_place'],marching_target_observation='legacy' if legacy else 'origin')
     env.generator.manual_seed(42);env.reset()
     if options.case.endswith('2cm'):env.gait_height.fill_(.02)
     elif options.case.endswith('high'):env.gait_height.copy_(.03+2*(env.gait_height-.02))
@@ -53,7 +54,7 @@ def main():
                 elif options.case.endswith('high'):
                     w,a=ended[:,0],ended[:,1];env.gait_height[w,a]=.03+2*(env.gait_height[w,a]-.02)
     env.check()
-    result={'case':options.case,'checkpoint_iteration':ck['iteration'],'robots':64,'steps':step+1,
+    result={'case':options.case,'checkpoint_iteration':ck['iteration'],'robots':64,'steps':step+1,'episode_limit_seconds':env.episode_steps*env.dt,
             'fall_rate':falls.float().mean().item(),'observation_mode':env.marching_target_observation,
             'source_sha256':{name:hashlib.sha256((Path(__file__).resolve().parents[1]/name).read_bytes()).hexdigest() for name in ('q1_4v4/gait.py','q1_4v4/course_env.py','resources/Q1.yaml')},'means':{k:v/count for k,v in total.items()},
             'episode':{k:{'mean':v.mean().item(),'max':v.max().item()} for k,v in saved.items()}}
