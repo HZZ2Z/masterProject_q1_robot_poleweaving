@@ -140,3 +140,13 @@ class Curriculum:
         self.history.clear(); self.monitor.clear()
         self.stage_updates = 0; self.passed_windows = 0; self.completed_total = 0
         self.last_reason = reason
+
+
+def marching_observation_mode(requested=None,checkpoint=None):
+    """Keep old actors on their learned auxiliary target input distribution."""
+    saved=checkpoint.get('marching_target_observation','legacy') if checkpoint else 'origin'
+    selected=requested or saved
+    if selected not in ('legacy','origin'):raise ValueError('Unknown marching target observation mode')
+    if checkpoint and selected!=saved:
+        raise ValueError('Changing marching target observations requires a fresh run; resume preserves the actor input interface')
+    return selected

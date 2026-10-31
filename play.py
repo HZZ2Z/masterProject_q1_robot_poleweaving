@@ -59,7 +59,8 @@ def main():
     stage = a.course or (ckpt['curriculum']['stage'] if v2 else STAGES[ckpt['curriculum']['index']] if ckpt else 'match')
     if v2 or a.course is not None or ckpt is None:
         from q1_4v4.preview import CoursePreview
-        env = CoursePreview(stage,device=a.device)
+        from q1_4v4.course_config import marching_observation_mode
+        env = CoursePreview(stage,device=a.device,marching_target_observation=marching_observation_mode(checkpoint=ckpt))
     else:
         env = SoccerEnv(stage=stage)
     print({'course':stage,'checkpoint':a.checkpoint,'control':'policy' if ckpt else 'neutral PD',

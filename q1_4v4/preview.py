@@ -7,8 +7,8 @@ from .course_config import LOW_LEVEL, DURATIONS
 
 class CoursePreview:
     dt=.02
-    def __init__(self,stage,device='cuda:0'):
-        self.env=CourseWarpEnv(count=1,device=device,stage=stage,episode_steps=DURATIONS[stage])
+    def __init__(self,stage,device='cuda:0',marching_target_observation='origin'):
+        self.env=CourseWarpEnv(count=1,device=device,stage=stage,episode_steps=DURATIONS[stage],marching_target_observation=marching_target_observation)
         self.model=self.env.model
         self.data=mujoco.MjData(self.model)
         for key in ('observation_space','share_observation_space','action_space'):

@@ -227,6 +227,7 @@ def parser():
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--checkpoint')
     p.add_argument('--curriculum-mode',choices=('serial','parallel'),help='Parallel requires Warp and per-course prerequisite gates')
+    p.add_argument('--marching-target-observation',choices=('legacy','origin'),help='Fresh runs use origin; resume retains checkpoint input semantics')
     p.add_argument('--policy-sharing',choices=('shared','independent'),help='Default shared for fresh runs; resume uses checkpoint layout')
     p.add_argument('--start-course', help='Override checkpoint course by name or zero-based index; reset course gates')
     p.add_argument('--save-interval', type=int, default=50)

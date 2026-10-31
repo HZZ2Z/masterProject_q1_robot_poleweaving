@@ -3,9 +3,44 @@ import torch
 import warp as wp
 from .course_config import GAIT_COURSES,LOW_LEVEL
 
-REWARD_REVISION = 4
+REWARD_REVISION = 5
 METRIC_NAMES = ('slip_mps','phase_match','velocity_error','left_steps','right_steps',
-                'clearance_m','weight_shifts','nonfoot_contact','alternations','phase_lift')
+                'clearance_m','weight_shifts','nonfoot_contact','alternations','phase_lift',
+                'knee_lift','position_drift','heading_error','stance_width')
+
+
+def marching_shaping(feetlocal, kneelocal, neutral_knee, clearance, targetheight,
+                     contact, expected, drift, yawerror, linear_error, angular_error):
+    """Pelvis-relative knee lift cannot be earned by raising the whole body."""
+    rise = kneelocal[..., 2] - neutral_knee[..., 2]
+    # A common rise of both knees from crouching is not a swing-knee lift.
+    stance_rise=(rise*expected).sum(-1)/expected.sum(-1).clamp(min=1)
+    rise=(rise-stance_rise.clamp(min=0)[...,None]).clamp(min=0)
+    forward = (kneelocal[..., 0] - neutral_knee[..., 0]).clamp(min=0)
+    target = .5*targetheight
+    support = (contact & expected).float().sum(-1)/expected.sum(-1).clamp(min=1)
+    knee = ((rise/target.clamp(min=.005)).clamp(0,1)
+            *torch.exp(-((rise-target)/.02).square())
+            *(forward/.025).clamp(0,1)*(~expected))
+    # A lifted knee with a dragging foot does not count as a marching step.
+    knee_credit = support*(knee*(clearance/.015).clamp(0,1)).sum(-1)
+    width = feetlocal[...,0,1]-feetlocal[...,1,1]
+    knee_width = kneelocal[...,0,1]-kneelocal[...,1,1]
+    # Leave room for weight transfer; penalize sustained widening, not the sway itself.
+    width_error = (width-.1754).abs().sub(.025).clamp(min=0)
+    knee_error = (knee_width-.1817).abs().sub(.035).clamp(min=0)
+    def cost(error,scale):
+        x2=(error/scale).square()
+        return x2/(1+x2)
+    penalty = (.35*cost(drift,.10)+.15*cost(yawerror,.20)
+               +.15*cost(linear_error,.10)+.10*cost(angular_error,.20)
+               +.25*cost(width_error,.06)+.15*cost(knee_error,.06))
+    return knee_credit, penalty, width
+
+
+def marching_success(quality, landings, alternations, max_drift, max_heading, mean_knee):
+    return (quality & (landings.amin(-1)>=4) & (alternations>=7)
+            & (max_drift<.10) & (max_heading<.25) & (mean_knee>.15))
 
 
 def phase_lift_credit(clearance, contact, expected, targetheight):
@@ -95,6 +130,8 @@ def allocate(env):
     env.gait_nonfoot=z(n,8)
     env.gait_cross=z(n,8);env.gait_bad_clearance=z(n,8)
     env.gait_walk_mode=torch.zeros((n,8),device=d,dtype=torch.bool)
+    env.gait_drift_max=z(n,8);env.gait_heading_max=z(n,8)
+    env.gait_knee_credit=z(n,8)
     env.gait_previous_velocity=z(n,8,22)
     env.gait_stop_hold=z(n,8);env.gait_stop_count=z(n,8)
     env.gait_stop_latched=torch.zeros((n,8),device=d,dtype=torch.bool)
@@ -107,6 +144,9 @@ def allocate(env):
     l,h=bounds
     from .scene import PREFIXES
     env.knees=torch.tensor([[env.model.body(prefix+side+'_knee_link').id for side in ('left','right')] for prefix in PREFIXES],device=d)
+    ref=env.reference.data
+    root=env.model.body(PREFIXES[0]+'pelvis').id
+    env.neutral_knee=env.tensor((ref.xpos[env.knees[0].cpu().numpy()]-ref.xpos[root])@ref.xmat[root].reshape(3,3))
     env.foot_roots=torch.as_tensor(env.model.body_rootid[env.feet.cpu().numpy()],device=d,dtype=torch.long)
     env.sole=env.tensor([[x,y,l[2]] for x in (l[0],h[0]) for y in (l[1],h[1])])
 
@@ -116,7 +156,8 @@ def reset(env,w,a):
     for name in ('gait_air','gait_peak','gait_landings','gait_switches','gait_match','gait_samples','gait_slip',
                  'gait_stance','gait_slip_bad','gait_error','gait_yaw_error','gait_flight','gait_flight_max',
                  'gait_cross','gait_bad_clearance','gait_previous_velocity','gait_stop_hold','gait_stop_count',
-                 'gait_weight_count','gait_nonfoot','gait_command_distance','gait_actual_distance','gait_double'):
+                 'gait_weight_count','gait_nonfoot','gait_command_distance','gait_actual_distance','gait_double',
+                 'gait_drift_max','gait_heading_max','gait_knee_credit'):
         getattr(env,name)[w,a]=0
     env.gait_last_contact[w,a]=False;env.gait_stop_latched[w,a]=False
     env.gait_last_landing[w,a]=-1;env.gait_support_last[w,a]=-1
@@ -124,6 +165,7 @@ def reset(env,w,a):
     env.gait_period[w,a]=env.uniform((n,),.8,1.2)
     env.gait_offset[w,a]=env.uniform((n,),0.,1.)
     env.gait_height[w,a]=env.uniform((n,),.01,.03)
+    if env.course=='step_in_place':env.gait_height[w,a]=env.uniform((n,),.02,.03)
     env.gait_contact[w,a]=0;env.gait_bad_contact[w,a]=0
     commands=env.gait_command
     commands[w,a]=0
@@ -186,6 +228,9 @@ def measure(env,before_foot):
     targetlocal=torch.einsum('nai,naij->naj',torch.cat((targetdelta,torch.zeros_like(targetdelta[:,:,:1])),-1),rot)
     yaw=torch.atan2(rot[:,:,1,0],rot[:,:,0,0])
     yawerror=torch.atan2(torch.sin(env.heading-yaw),torch.cos(env.heading-yaw))
+    drift=norm(pos[:,:,:2]-env.start_positions[:,:,:2])
+    env.gait_drift_max=torch.maximum(env.gait_drift_max,drift)
+    env.gait_heading_max=torch.maximum(env.gait_heading_max,yawerror.abs())
     if c in ('move','backward','lateral','stop','approach'):
         if c=='approach':
             targetlocal=torch.einsum('nai,naij->naj',env.ball[:,None]-pos,rot)
@@ -237,6 +282,9 @@ def measure(env,before_foot):
     kneelocal=torch.einsum('nafi,naij->nafj',env.xpos[:,env.knees]-pos[:,:,None],rot)
     knee_separation=kneelocal[:,:,0,1]-kneelocal[:,:,1,1]
     crossed=(separation<.045)|(separation>.30)|(knee_separation<.03)|(knee_separation>.26)
+    if c=='step_in_place':
+        # Q1 feet are 6.59 cm wide and shank collision cylinders 7.6 cm across.
+        crossed=(separation<.09)|(separation>.23)|(knee_separation<.09)|(knee_separation>.24)
     env.gait_cross+=crossed
     env.gait_nonfoot+=env.gait_bad_contact.bool()
     env.gait_bad_clearance+=((clearance>.08).any(-1)&walking)
@@ -260,15 +308,22 @@ def measure(env,before_foot):
         +.7*(1-mismatch)+.4*lift.sum(-1)-.25*stance_slip-.3*crossed-.3*flight)
     if c=='step_in_place':
         healthy=(rot[:,:,2,2]>.8)&(pos[:,:,2]>.30)&(pos[:,:,2]<.52)&~env.gait_bad_contact.bool()
+        knee_credit,stationary_penalty,_=marching_shaping(feetlocal,kneelocal,env.neutral_knee,
+            clearance,targetheight,contact,expected,drift,yawerror,linear_error,angular_error)
+        knee_credit*=healthy
+        env.gait_knee_credit+=knee_credit
         reward=stepping_reward(env.dt,credit,contact,expected,linear_error,angular_error,
                               stance_slip,crossed,healthy,land,alternating)
+        reward+=env.dt*(.8*knee_credit-stationary_penalty)
     qv=env.qvel[:,env.vidx]
     reward-=env.dt*.002*((qv-env.gait_previous_velocity)/env.dt).square().mean(-1).clamp(max=25)
     env.gait_previous_velocity.copy_(qv)
     # Small pose prior on the upper body; legs remain free to execute the gait.
     reward-=env.dt*.1*(env.qpos[:,env.qidx][:,:,12:]-env.neutral[12:]).square().mean(-1)
     objective=quality&velocity_ok
-    if c=='step_in_place':objective=quality&(env.gait_landings.amin(-1)>=4)&(env.gait_switches>=7)&(norm(pos[:,:,:2]-env.start_positions[:,:,:2])<.25)
+    if c=='step_in_place':
+        objective=marching_success(quality,env.gait_landings,env.gait_switches,
+            env.gait_drift_max,env.gait_heading_max,env.gait_knee_credit/env.agent_steps.clamp(min=1))
     if c=='slow_walk':objective&=env.gait_landings.sum(-1)>=6
     if c=='walk_turn':objective&=env.gait_yaw_error/env.gait_samples.clamp(min=1)<=.15
     if c=='start_stop':
@@ -299,5 +354,7 @@ def measure(env,before_foot):
         'velocity_error':(env.gait_error/env.gait_samples.clamp(min=1)).mean(),
         'left_steps':env.gait_landings[:,:,0].mean(),'right_steps':env.gait_landings[:,:,1].mean(),
         'nonfoot_contact':(env.gait_nonfoot>0).float().mean(),'clearance_m':clearance.mean(),'weight_shifts':env.gait_weight_count.mean(),
-        'alternations':env.gait_switches.mean(),'phase_lift':credit.mean()}
+        'alternations':env.gait_switches.mean(),'phase_lift':credit.mean(),
+        'knee_lift':(env.gait_knee_credit/env.agent_steps.clamp(min=1)).mean(),
+        'position_drift':drift.mean(),'heading_error':yawerror.abs().mean(),'stance_width':separation.mean()}
     return reward,objective,quality

@@ -40,6 +40,20 @@ def test_neutral_six_seconds(env):
     assert (env.data.xpos[env.bodies, 2] > .3).all()
 
 
+def test_neutral_stance_geometry(env):
+    env.stage='balance';env.reset()
+    for prefix in ('red0_','blue0_'):
+        root=env.data.body(prefix+'pelvis')
+        R=root.xmat.reshape(3,3)
+        feet=[env.data.body(prefix+s+'_ankle_roll_link') for s in ('left','right')]
+        separation=(feet[0].xpos-feet[1].xpos)@R
+        assert separation[1]==pytest.approx(.1753964,abs=1e-6)
+        for f in feet:
+            local=R.T@f.xmat.reshape(3,3)
+            assert local[2,2]>np.cos(np.deg2rad(1))
+            assert abs(np.arctan2(local[1,0],local[0,0]))<np.deg2rad(5)
+
+
 @pytest.mark.parametrize('stage', STAGES)
 def test_stage_spawn_and_step(stage, env):
     env.stage = stage

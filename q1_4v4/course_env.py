@@ -21,8 +21,10 @@ def feet_contact(n: wp.array[int], geoms: wp.array[wp.vec2i], worlds: wp.array[i
 
 
 class CourseWarpEnv(WarpSoccerEnv):
-    def __init__(self, count=64, device='cuda:0', seed=42, stage='balance', **kwargs):
+    def __init__(self, count=64, device='cuda:0', seed=42, stage='balance', marching_target_observation='origin', **kwargs):
         self.course = stage
+        if marching_target_observation not in ('legacy','origin'):raise ValueError('Unknown marching target observation mode')
+        self.marching_target_observation=marching_target_observation
         self.count=count; self.device=torch.device(device)
         self.ready = False
         # Kernels are captured by parent constructor; buffers must exist before _substep.
@@ -178,6 +180,7 @@ class CourseWarpEnv(WarpSoccerEnv):
 
     def _targets(self, ids):
         n = len(ids)
+        if self.course=='step_in_place' and self.marching_target_observation=='origin':self.targets[ids]=self.start_positions[ids]
         if self.course == 'backward': self.targets[ids,:,0] = self.start_positions[ids,:,0]-self.sign*.8
         if self.course == 'lateral':
             self.targets[ids,:,:2] = self.start_positions[ids,:,:2]
@@ -202,7 +205,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.start_positions[w,a] = self.qpos[w[:,None],self.rootq[a,None]+torch.arange(3,device=self.device)]
         self.targets[w,a] = self.start_positions[w,a]
         dx = -.8 if self.course=='backward' else .8
-        self.targets[w,a,0] += self.sign[a]*dx
+        if self.course!='step_in_place' or self.marching_target_observation=='legacy':self.targets[w,a,0] += self.sign[a]*dx
         if self.course=='lateral':
             self.targets[w,a,0] = self.start_positions[w,a,0]
             self.targets[w,a,1] += torch.where(self.uniform((len(w),))>.5,.8,-.8)

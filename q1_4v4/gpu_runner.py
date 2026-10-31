@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
 from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity
-from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS
+from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS, marching_observation_mode
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
 from .parallel_curriculum import ParallelCurriculum
@@ -38,6 +38,7 @@ def run(options):
         args.lr=args.critic_lr=options.learning_rate
     checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
     options.curriculum_mode = getattr(options,'curriculum_mode',None) or (checkpoint.get('curriculum_mode','serial') if checkpoint else 'serial')
+    options.marching_target_observation=marching_observation_mode(getattr(options,'marching_target_observation',None),checkpoint)
     parallel = options.curriculum_mode=='parallel'
     curriculum = ParallelCurriculum() if parallel else Curriculum(options.stage)
     start = 0
@@ -66,10 +67,10 @@ def run(options):
     if parallel:
         if not shared:raise ValueError('Parallel curricula require a shared policy')
         env = MixedCourseEnv(options.num_envs,str(device),options.seed,curriculum.allocation(options.num_envs),
-                             nconmax=options.nconmax,njmax=options.njmax,episode_steps=options.episode_steps)
+                             nconmax=options.nconmax,njmax=options.njmax,episode_steps=options.episode_steps,marching_target_observation=options.marching_target_observation)
     else:
         env = CourseWarpEnv(options.num_envs, str(device), options.seed, curriculum.stage,
-                            nconmax=options.nconmax, njmax=options.njmax)
+                            nconmax=options.nconmax, njmax=options.njmax,marching_target_observation=options.marching_target_observation)
     teams = [make_team(args, env, device, gpu_rollout=True,shared=shared) for _ in groups]
     if checkpoint:
         if checkpoint.get('backend') != 'warp':
@@ -163,7 +164,7 @@ def run(options):
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
-        payload = dict(version=4, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
+        payload = dict(version=4, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
                        policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,

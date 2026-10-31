@@ -40,9 +40,10 @@ class MixedCourseEnv:
     """Independent episode state per group; GPU streams use explicit dependencies."""
     dt=.02
     course='parallel'
-    def __init__(self,count,device,seed,allocations,nconmax=1536,njmax=6144,episode_steps=None):
+    def __init__(self,count,device,seed,allocations,nconmax=1536,njmax=6144,episode_steps=None,marching_target_observation='origin'):
         self.count=count;self.device=torch.device(device)
         self.generator=torch.Generator(device=self.device).manual_seed(seed)
+        self.marching_target_observation=marching_target_observation
         self.seed=seed;self.capacities={'nconmax':nconmax,'njmax':njmax}
         self.episode_override=episode_steps
         self.groups={};self.allocations={};self._seeded=False;self._pending=[]
@@ -75,7 +76,8 @@ class MixedCourseEnv:
             if name not in allocations:continue
             count=allocations[name]
             env=CourseWarpEnv(count=count,device=str(self.device),seed=self.seed+COURSES.index(name)*1009,
-                              stage=name,episode_steps=self.episode_override or DURATIONS[name],**self.capacities)
+                              stage=name,episode_steps=self.episode_override or DURATIONS[name],
+                              marching_target_observation=self.marching_target_observation,**self.capacities)
             common.wait_stream(env.torch_stream)
             if name in rng:env.generator.set_state(rng[name])
             elif self._seeded:
