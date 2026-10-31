@@ -1,10 +1,10 @@
 {
   "dataset": "expert/datasets/q1_bounded_v1",
   "checkpoint": "expert/checkpoints/best.pth",
-  "output": "logs/vendor_soccer_repair",
+  "output": "logs/auto",
   "device": "cuda:0",
   "iterations": 10000,
-  "model_warmup": 20,
+  "model_warmup": 500,
   "model_batches": 10,
   "batch_size": 512,
   "horizon": 8,

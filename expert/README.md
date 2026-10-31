@@ -52,4 +52,4 @@ python -m expert.verify_teacher expert/datasets/new_batch
 
 采集时加 `--bounded-targets`。当前带限幅数据 `datasets/q1_bounded_v1/` 共 256 回合、158411 个控制步，219 次严格成功、19 次超时、14 次出界、4 次摔倒。原数据中约 1.97% 的目标角越界，因此训练入口会拒绝直接混用旧版数据。
 
-训练先选择 `split=train`，只有成功回合用于模仿与参考；失败、超时仍用于 World Model。验证和测试划分不用于拟合。传感器缓存按原生物理过程恢复，保持 MuJoCo 最后一个子步的 IMU/相机时序。
+训练先选择 `split=train`，再过滤严格成功回合；World Model、Critic、模仿与参考全部只使用成功数据。在线未成功回合不进入 replay，也不写入新运行的在线训练归档。原始采集记录仅作历史存档，不参与训练。验证和测试划分不用于拟合。传感器缓存按原生物理过程恢复，保持 MuJoCo 最后一个子步的 IMU/相机时序。

@@ -90,3 +90,35 @@ def test_insufficient_gpu_headroom_exits_before_tensor_allocation(monkeypatch):
     monkeypatch.setattr(torch.cuda, "set_per_process_memory_fraction", unexpected)
     with pytest.raises(RuntimeError, match="Insufficient free VRAM"):
         reserve_device(TrainConfig(gpu_memory_gb=3.0, gpu_reserve_gb=3.0))
+
+
+@pytest.mark.parametrize(
+    "cause", ["fall", "out", "timeout", "collector_limit", "interrupted", "invalid"]
+)
+def test_unsuccessful_online_episode_is_discarded_before_loading_arrays(cause):
+    replay = ExpertReplay.__new__(ExpertReplay)
+    replay.episodes = []
+    assert (
+        replay.add(
+            {},
+            {
+                "termination": cause,
+                "verified_success": False,
+                "task_success": False,
+                "policy_imitation_eligible": False,
+            },
+        )
+        is False
+    )
+    assert replay.episodes == []
+
+
+def test_run_name_is_generated_with_the_requested_prefix_and_timestamp(tmp_path):
+    import re
+    from pathlib import Path
+    from q1_soccer.train import TrainConfig
+
+    path = tmp_path / "config.json"
+    path.write_text('{"output":"logs/auto"}')
+    cfg = TrainConfig.load(path)
+    assert re.fullmatch(r"q1-robot-supermimic-\d{8}-\d{6}", Path(cfg.output).name)

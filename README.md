@@ -33,12 +33,12 @@ python -m q1_soccer.verify --device cpu --smoke
 python train.py --config configs/soccer.json
 ```
 
-配置位于 `configs/soccer.json`。首次训练没有旧 World Model 时，将 `warm_start_model` 设为 `null`。检查点保存为 `logs/vendor_soccer_repair/{best,last}.pt`。World Model 按实际想象步数验收，Critic 先学习真实轨迹回报；每个 Actor 小步更新都经动作偏移检查和完整回合评估，退步时只回滚 Actor。训练使用 CUDA，在线采集和评估使用 CPU 多进程。GPU 显存预算和预留量可在配置中设置；空闲显存不足会退出。
+配置位于 `configs/soccer.json`。首次训练没有旧 World Model 时，将 `warm_start_model` 设为 `null`。run 名称和目录统一为 `q1-robot-supermimic-<YYYYMMDD-HHMMSS>`，`logs/latest` 指向当前运行；检查点为 `logs/latest/{best,last}.pt`。World Model 按实际想象步数验收，Critic 先学习真实轨迹回报；每个 Actor 小步更新都经动作偏移检查和完整回合评估，退步时只回滚 Actor。训练使用 CUDA，在线采集和评估使用 CPU 多进程。GPU 显存预算和预留量可在配置中设置；空闲显存不足会退出。
 
 续训时在配置中改用新的 `output`，然后执行：
 
 ```bash
-python train.py --config configs/soccer.json --resume logs/vendor_soccer_repair/last.pt
+python train.py --config configs/soccer.json --resume logs/latest/last.pt
 ```
 
 续训需要保留原运行目录里的 `online/` 数据。W&B：先 `wandb login`，再在配置中设置 `"wandb": true`。
@@ -46,10 +46,10 @@ python train.py --config configs/soccer.json --resume logs/vendor_soccer_repair/
 GUI 回放训练后的学生（支持 `.pt` / `.ckpt`）：
 
 ```bash
-python play_mujoco.py --ckpt logs/vendor_soccer_repair/best.pt
+python play_mujoco.py --ckpt logs/latest/best.pt
 
 # 同时逐回合保存 MP4。
-python play_mujoco.py --ckpt logs/vendor_soccer_repair/best.pt --out-video video
+python play_mujoco.py --ckpt logs/latest/best.pt --out-video video
 ```
 
 GUI 默认跟随机器人，按 `F` 切换相机视野显示。回放使用 CPU 推理、训练时的目标角与力矩限幅；进球、摔倒、出界或超时后自动开始下一回合。
@@ -72,7 +72,7 @@ docker run --rm --gpus all --ipc=host \
 - `q1_soccer/`：Q1 V3、球动力学、专家数据与训练入口的适配层。继承厂家的 SuperMimic 更新核心。
 - `expert/`：专家推理、回合采集和验证，详见 [说明](expert/README.md)。
 
-策略输入保持专家的 79 维观测 × 50 帧历史，包括视野、噪声和延迟；真实状态仅用于 World Model、Critic 和参考监督。这里的视觉接口是模拟球检测特征，尚未接 RGB 检测器。只有验证成功的专家回合进入动作模仿，失败和超时回合仍用于动力学学习。
+策略输入保持专家的 79 维观测 × 50 帧历史，包括视野、噪声和延迟；真实状态仅用于 World Model、Critic 和参考监督。这里的视觉接口是模拟球检测特征，尚未接 RGB 检测器。World Model、Critic 和动作模仿都只使用严格成功的训练回合；学生在线回合未成功则直接丢弃。验证回合仅用于评估，不参与拟合。
 
 厂家原项目面向 Q1 V2；本项目使用专家配套 V3 模型。厂家源码要求的完整环境见其 README，本项目适配层在 Python 3.11、PyTorch 2.9、MuJoCo 3.17 环境验证。
 

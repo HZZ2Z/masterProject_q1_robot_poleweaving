@@ -1,6 +1,10 @@
 """Expert-guided soccer training using PrimebotTech's SuperMimic core."""
 
 import argparse
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import re
+import os
 from dataclasses import asdict, dataclass, fields
 import hashlib
 import json
@@ -25,7 +29,7 @@ from .trust import PolicyTrust
 class TrainConfig:
     dataset: str = "expert/datasets/q1_bounded_v1"
     checkpoint: str = "expert/checkpoints/best.pth"
-    output: str = "logs/vendor_soccer"
+    output: str = "logs/auto"
     device: str = "cuda:0"
     iterations: int = 10000
     model_warmup: int = 500
@@ -70,6 +74,17 @@ class TrainConfig:
         for name in ["dataset", "checkpoint", "output"]:
             value = Path(getattr(result, name))
             setattr(result, name, str(value if value.is_absolute() else ROOT / value))
+        if Path(result.output).name == "auto":
+            name = "q1-robot-supermimic-" + datetime.now(
+                ZoneInfo("Asia/Shanghai")
+            ).strftime("%Y%m%d-%H%M%S")
+            result.output = str(Path(result.output).parent / name)
+        if not re.fullmatch(
+            r"q1-robot-supermimic-\d{8}-\d{6}", Path(result.output).name
+        ):
+            raise ValueError(
+                "Run directory must be q1-robot-supermimic-<YYYYMMDD-HHMMSS>; use output=logs/auto"
+            )
         if result.warm_start_model:
             path = Path(result.warm_start_model)
             result.warm_start_model = str(path if path.is_absolute() else ROOT / path)
@@ -177,6 +192,10 @@ def build(cfg, replay):
         )
         if source.get("format") != "primebot_supermimic_soccer_v1":
             raise ValueError("Wrong world-model warm-start format")
+        if source.get("training_data_policy") != "strict_success_only_v1":
+            raise ValueError(
+                "World-model warm start must also use strictly successful trajectories only"
+            )
         algorithm.model.load_state_dict(source["model"], strict=True)
     return algorithm
 
@@ -264,6 +283,7 @@ def save(
             online_seed=online_seed,
             online_archives=getattr(replay, "online_archives", []),
             training_revision="real_critic_trust_v2",
+            training_data_policy="strict_success_only_v1",
             accepted_policy_updates=trust.accepted_updates if trust else 0,
             consecutive_rejections=trust.consecutive_rejections if trust else 0,
         ),
@@ -298,6 +318,10 @@ def train(cfg, resume=None):
         if saved.get("training_revision") != "real_critic_trust_v2":
             raise ValueError(
                 "Use warm_start_model for checkpoints predating this repair"
+            )
+        if saved.get("training_data_policy") != "strict_success_only_v1":
+            raise ValueError(
+                "Cannot resume a checkpoint trained with unsuccessful episodes; start fresh"
             )
         for name in ["dataset", "checkpoint", "horizon", "seed"]:
             if saved["config"][name] != getattr(cfg, name):
@@ -337,6 +361,28 @@ def train(cfg, resume=None):
                     json.loads(metadata_path.read_text()),
                 )
     output.mkdir(parents=True)
+    latest = output.parent / "latest"
+    temporary_link = output.parent / f".latest-{os.getpid()}"
+    temporary_link.symlink_to(output.name, target_is_directory=True)
+    temporary_link.replace(latest)
+    (output / "data_policy.json").write_text(
+        json.dumps(
+            {
+                "policy": "strict_success_only_v1",
+                "expert_training_episodes": len(replay.episodes),
+                "excluded_unsuccessful_expert_episodes": replay.excluded_unsuccessful,
+                "training_transitions": sum(len(e["actions"]) for e in replay.episodes),
+                "unsuccessful_training_episodes": sum(
+                    not replay.is_success(e["meta"]) for e in replay.episodes
+                ),
+                "online_unsuccessful": "discarded before replay and disk archive",
+                "validation_episodes": len(validation.episodes),
+                "validation_used_for_fitting": False,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     (output / "config.json").write_text(json.dumps(asdict(cfg), indent=2) + "\n")
     (output / "hardware.json").write_text(json.dumps(resources, indent=2) + "\n")
     evaluation_seeds = [
@@ -466,8 +512,8 @@ def train(cfg, resume=None):
                     <= baseline["fall_rate"] + cfg.max_fall_increase
                 )
                 record.update(evaluation=evaluation, accepted=accepted)
-                # Keep failed candidate experience on training-only seeds. Never
-                # add the validation episodes above to dynamics or critic fitting.
+                # Only strictly successful training rollouts may enter replay.
+                # Validation episodes are never used for fitting.
                 if cfg.online_episodes:
                     seeds = []
                     while len(seeds) < cfg.online_episodes:
@@ -478,8 +524,13 @@ def train(cfg, resume=None):
                             seeds.append(online_seed)
                         online_seed += 1
                     episodes = rollouts.run(algorithm.actor, seeds)
+                    record["online_successes_added"] = 0
+                    record["online_unsuccessful_discarded"] = 0
                     for arrays, meta in episodes:
-                        replay.add(arrays, meta)
+                        if not replay.add(arrays, meta):
+                            record["online_unsuccessful_discarded"] += 1
+                            continue
+                        record["online_successes_added"] += 1
                         import numpy as np
 
                         archive = output / "online"
@@ -502,6 +553,10 @@ def train(cfg, resume=None):
                 accepted_policy_updates=trust.accepted_updates,
                 consecutive_rejections=trust.consecutive_rejections,
                 actor_learning_rate=algorithm.actor_optimizer.param_groups[0]["lr"],
+                training_replay_episodes=len(replay.episodes),
+                training_unsuccessful_episodes=sum(
+                    not replay.is_success(e["meta"]) for e in replay.episodes
+                ),
             )
             if trust.consecutive_rejections >= cfg.max_rejections:
                 record["stop_reason"] = "consecutive_candidate_regressions"

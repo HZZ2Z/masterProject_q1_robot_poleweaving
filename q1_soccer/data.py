@@ -19,8 +19,19 @@ CONTROL_CONTRACT = "joint_target_and_torque_limits_v1"
 class ExpertReplay:
     dt = 0.02
 
+    @staticmethod
+    def is_success(meta):
+        return (
+            meta.get("termination") == "goal"
+            and meta.get("verified_success") is True
+            and meta.get("task_success") is True
+            and meta.get("policy_imitation_eligible") is True
+        )
+
     def __init__(self, directory, *, split="train", seed=0):
         self.directory = Path(directory)
+        self.successful_only = split == "train"
+        self.excluded_unsuccessful = 0
         self.manifest = json.loads((self.directory / "manifest.json").read_text())
         if self.manifest["status"] != "complete":
             raise ValueError("Expert collection is incomplete")
@@ -61,6 +72,9 @@ class ExpertReplay:
             identifier = row["episode_id"]
             path = self.directory / (identifier + ".npz")
             meta = json.loads((self.directory / (identifier + ".json")).read_text())
+            if self.successful_only and not self.is_success(meta):
+                self.excluded_unsuccessful += 1
+                continue
             if (
                 hashlib.sha256(path.read_bytes()).hexdigest()
                 != meta["trajectory_sha256"]
@@ -186,9 +200,11 @@ class ExpertReplay:
 
     def add(self, arrays, meta):
         """Online training episodes share this same contract and boundary logic."""
+        if not self.is_success(meta):
+            return False
         validate_arrays(arrays, meta)
         if not meta["steps"]:
-            return
+            return False
         n = meta["steps"]
         context = np.concatenate(
             (
@@ -212,3 +228,4 @@ class ExpertReplay:
             )
         )
         # Online successes are dynamics data. Expert references remain frozen.
+        return True
