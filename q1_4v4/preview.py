@@ -27,6 +27,17 @@ class CoursePreview:
         return self.observe(),self.state()
     def step(self,action):
         o,s,r,d,t,info=self.env.step(torch.as_tensor(action,device=self.env.device,dtype=torch.float32)[None])
+        preview_info={'stage':self.env.course}
+        if self.env.course in LOW_LEVEL:
+            # Match training: a completed robot must not interrupt its seven peers.
+            pairs=(d|t).nonzero(as_tuple=False)
+            if len(pairs):
+                preview_info.update(reset_agents=pairs[:,1].cpu().tolist(),
+                                    terminated_agents=d[0].nonzero().flatten().cpu().tolist(),
+                                    truncated_agents=t[0].nonzero().flatten().cpu().tolist())
+                o,s=self.env.reset_agents(pairs)
+            done=truncated=False  # Robot resets are handled here, not by play.py's world reset.
+        else:
+            done,truncated=bool(d.any()),bool(t.any())
         self.env.check();self.sync()
-        # Preview reopens the entire rally on a fall; training uses independent low-level resets.
-        return o[0].cpu().numpy(),s[0].cpu().numpy(),r[0].cpu().numpy(),bool(d.any()),bool(t.any()),{'stage':self.env.course}
+        return o[0].cpu().numpy(),s[0].cpu().numpy(),r[0].cpu().numpy(),done,truncated,preview_info

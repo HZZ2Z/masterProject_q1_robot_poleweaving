@@ -133,6 +133,8 @@ def main():
             if done or truncated:
                 print(info, flush=True)
                 env.reset()
+            elif info.get('reset_agents'):
+                print(info, flush=True)
             step += 1
         print({'steps': step, 'stage': stage, 'checkpoint': a.checkpoint})
     finally:

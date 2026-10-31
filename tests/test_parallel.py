@@ -46,6 +46,53 @@ def test_advantage_moments_are_separate_for_each_course_and_ignore_inactive():
     assert normalize_by_course(x,valid,ids)[0,1,0]==0
 
 
+def test_parallel_finish_resets_only_ended_robots_and_leaves_other_course_untouched(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from q1_4v4.mixed_env import MixedCourseEnv
+    # Exercise the production dispatcher on CPU; only CUDA stream calls are stubbed.
+    monkeypatch.setattr(torch.cuda,'set_stream',lambda stream:None)
+    stream=SimpleNamespace(wait_stream=lambda other:None)
+    groups={}
+    pending=[]
+    observations=[]
+    for name,offset in [('step_in_place',0),('slow_walk',2)]:
+        obs=torch.arange(offset*8,(offset+2)*8,dtype=torch.float32).reshape(2,8,1)+1
+        term=torch.zeros((2,8),dtype=torch.bool)
+        trunc=torch.zeros_like(term)
+        if name=='step_in_place':
+            term[1,6]=True
+            trunc[0,2]=True
+        info={key:torch.zeros((2,8),dtype=torch.bool) for key in ('stable','success','touch')}
+        info.update(fallen=term,duration=torch.full((2,8),4.))
+        group=SimpleNamespace(course=name,device='cpu',torch_stream=stream,
+            active=torch.ones((2,8),dtype=torch.bool),
+            reset=Mock(side_effect=AssertionError('Must not reset whole worlds')))
+        def reset_agents(pairs,obs=obs):
+            obs[pairs[:,0],pairs[:,1]]=0
+            return obs,None
+        group.reset_agents=Mock(side_effect=reset_agents)
+        sl=slice(offset,offset+2)
+        groups[name]=(sl,group)
+        pending.append((sl,group,term,trunc,info))
+        observations.append(obs)
+    mixed=MixedCourseEnv.__new__(MixedCourseEnv)
+    mixed.device='cpu';mixed.groups=groups;mixed.torch_stream=stream
+    mixed._obs=torch.cat(observations);mixed._pending=pending
+    before=mixed._obs.clone()
+    next_obs,records=mixed.finish_step()
+    expected=before.clone();expected[0,2]=0;expected[1,6]=0
+    torch.testing.assert_close(next_obs,expected)
+    assert records.shape==(2,10) and records[:,-1].tolist()==[3.,3.]
+    assert records[:,-2].tolist()==[0.,1.]  # Endings retain their own team identity.
+    stepping=groups['step_in_place'][1]
+    assert stepping.reset_agents.call_args.args[0].tolist()==[[0,2],[1,6]]
+    stepping.reset.assert_not_called()
+    walking=groups['slow_walk'][1]
+    walking.reset_agents.assert_not_called();walking.reset.assert_not_called()
+    assert not mixed._pending
+
+
 @pytest.fixture(scope='module')
 def env():
     if os.environ.get('Q1_TEST_WARP')!='1':pytest.skip('Explicit CUDA opt-in')
