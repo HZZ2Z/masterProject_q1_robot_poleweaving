@@ -9,14 +9,39 @@ from q1_4v4.telemetry import MATCH_TERM_LABELS,match_reward_specs
 
 def test_control_requires_both_teams_and_persists_its_window():
     control=MatchControl()
-    for _ in range(7):control.update([.99,.99],[1.,1.])
-    resumed=MatchControl(control.state_dict());resumed.update([.96,.95],[6.,5.])
-    assert resumed.amplitude==.475 and resumed.windows==0
-    resumed.update([.99,.5],[0.,0.]);assert resumed.windows==0
+    good={k:16. for k in ('near_red','near_blue','touch_red','touch_blue',
+                          'advance_red','advance_blue','quality_red','quality_blue')}
+    for _ in range(23):control.update([.99,.99],[1.,1.],good)
+    resumed=MatchControl(control.state_dict())
+    for _ in range(25):resumed.update([.99,.99],[1.,1.],good)
+    assert resumed.level==1 and resumed.amplitude==.475 and resumed.windows==0
+    # Stable standing alone cannot certify even the first touch stage.
+    stationary=MatchControl()
+    for _ in range(64):stationary.update([1.,1.],[0.,0.])
+    assert stationary.level==0 and stationary.amplitude==.45
     resumed.update([.99,.99],[0.,13.]);assert resumed.amplitude==.45
-    for _ in range(8):resumed.update([.99,.99],[0.,7.])
-    assert resumed.amplitude==.45
     with pytest.raises(ValueError):MatchControl({'amplitude':.2})
+
+
+def test_bad_team_and_standard_rehearsal_cannot_supply_near_ball_certification():
+    good={k:16. for k in ('near_red','near_blue','touch_red','touch_blue',
+                          'advance_red','advance_blue','quality_red','quality_blue')}
+    good['touch_blue']=0.
+    c=MatchControl()
+    for _ in range(64):c.update([1.,1.],[0.,0.],good)
+    assert c.level==0 and c.reason=='touch' and c.windows==0
+    only_standard=dict(standard_red=1000.,standard_blue=1000.,standard_touch_red=1000.,standard_touch_blue=1000.)
+    c=MatchControl()
+    for _ in range(64):c.update([1.,1.],[0.,0.],only_standard)
+    assert c.level==0 and c.reason=='samples'
+
+
+def test_crouched_wide_pose_loses_survival_quality_and_has_bounded_costs():
+    up=torch.ones(2);z=torch.tensor([.417,.35]);width=torch.tensor([.1754,.59])
+    quality,healthy,height_cost,width_cost=MatchTask.posture(up,z,width,torch.zeros(2,dtype=torch.bool))
+    assert quality[0]==1 and healthy.tolist()==[True,False]
+    assert quality[1]<1e-5 and height_cost[1]>.5 and width_cost[1]>.9
+    assert (.2*quality[1]-.6*height_cost[1]-.4*width_cost[1])<0
 
 
 def test_potential_has_no_discounted_closed_loop_windfall():
@@ -47,7 +72,7 @@ def test_reward_dashboard_accounts_for_every_component_once_per_team():
     _,plots=match_reward_specs('match')
     keys=[k for plot in plots for k in plot['keys']]
     assert len(plots)==6 and len(keys)==len(set(keys))==2*len(MatchTask.terms)
-    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==17
+    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==20
 
 
 @pytest.fixture(scope='module')
@@ -84,6 +109,7 @@ def test_fall_preserves_ball_peers_world_clock_and_failure_evidence(env):
     assert torch.equal(q[1],env.qpos[1]) and torch.equal(v[1],env.qvel[1])
     assert torch.equal(clock,env.steps) and env.match_task.failures[0,0]==1
     env.steps.fill_(250)
+    env.match_task.quality_steps.fill_(250)
     *_,info=measure(env)
     assert info['team_stable'][0].tolist()==[False,True]
     assert info['team_fallen'][0].tolist()==[True,False]
@@ -121,7 +147,7 @@ def test_first_foot_bonus_cannot_be_farmed_by_respawning_or_body_contact(env):
     env.reset();env.foot_hits[0,2,0]=1
     *_,info=measure(env)
     bonus=MatchTask.terms.index('foot_contact')
-    assert env.match_task.last_terms[bonus,0].item()==pytest.approx(.0125)
+    assert env.match_task.last_terms[bonus,0].item()==pytest.approx(.25)
     assert env.match_task.foot_valid[0] and env.match_task.has_foot[0]
     # Moving the potential origin to the first touch does not give a free own-half bonus.
     assert env.match_task.last_terms[MatchTask.terms.index('ball_potential')].abs().max()<1e-6
@@ -157,3 +183,48 @@ def test_negative_potential_cannot_be_repeatedly_collected_on_robot_respawns(env
     # No +6 inherited potential payment on the new individual trajectory.
     assert reward[0,2,0]<-4.9
     assert task.has_foot[0]  # Team history is preserved.
+
+
+def test_kickoff_curriculum_moves_robots_and_keeps_midfield_ball_and_eight_players(env):
+    import warp as wp
+    env.match_layout='curriculum';env.reset()
+    assert env.active.all() and not env.match_task.standard.any()
+    assert (env.ball[:,:2].abs()<=.2).all()
+    before=env.ball.clone()
+    pos=env.qpos[:,env.rootq[:,None]+torch.arange(2,device=env.device)]
+    distance=(pos[:,:,0]-env.ball[:,0:1]).abs().reshape(2,2,4)[:,:,1:].amin(-1)
+    owner=env.match_task.kickoff_team
+    own=distance[torch.arange(2,device=env.device),owner]
+    assert (own>=.23).all() and (own<=.31).all()
+    n=int(wp.to_torch(env.data.nacon)[0].item())
+    geoms=wp.to_torch(env.data.contact.geom)[:n]
+    mask=(geoms==env.reference.ballgeom).any(-1)
+    assert not (wp.to_torch(env.data.contact.dist)[:n][mask]<=0).any()
+    env.match_task.control.level=2;env.reset()
+    pos=env.qpos[:,env.rootq[:,None]+torch.arange(2,device=env.device)]
+    distance=(pos[:,:,0]-env.ball[:,0:1]).abs().reshape(2,2,4)[:,:,1:].amin(-1)
+    own=distance[torch.arange(2,device=env.device),env.match_task.kickoff_team]
+    assert (own>=.8).all() and (own<=1.1).all()
+    assert (env.ball[:,:2].abs()<=.2).all()
+    env.match_task.control=MatchControl();env.match_layout='mixed';env.reset()
+
+
+def test_standard_rehearsal_is_preserved_and_has_separate_episode_evidence(env):
+    env.reset();assert env.match_task.standard.tolist()==[True,False]
+    env.steps.fill_(1500);env.match_task.quality_steps.fill_(1500)
+    *_,info=measure(env)
+    metrics=dict(zip(MatchTask.metrics,env.match_task.last_metrics.tolist()))
+    assert metrics['standard_red']==metrics['standard_blue']==1
+    assert metrics['near_red']+metrics['near_blue']==1
+    assert metrics['touch_red']==metrics['touch_blue']==0
+
+
+def test_unhealthy_closest_player_cannot_drop_its_chasing_responsibility(env):
+    env.match_layout='standard';env.reset()
+    env.qpos[0,env.rootq[2]]=env.ball[0,0]-.7
+    env.qpos[0,env.rootq[2]+1]=env.ball[0,1]
+    env.qpos[0,env.rootq[2]+2]=.28
+    measure(env)
+    penalty=env.match_task.last_terms[MatchTask.terms.index('approach_distance'),0]
+    assert penalty<0
+    env.match_layout='mixed';env.reset()

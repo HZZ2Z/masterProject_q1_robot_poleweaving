@@ -73,6 +73,15 @@ def test_missing_team_is_unknown_and_bad_team_cannot_hide_in_average():
     assert c.stage==stage and c.stage_updates==0 and len(c.monitor)==0
 
 
+def test_final_match_never_reports_a_stability_only_pass():
+    c=Curriculum('match')
+    for _ in range(64):
+        for team in (0,1):
+            for _ in range(32):c.record(dict(stage='match',team=team,stable=True,success=False))
+        assert not c.advance()
+    assert c.stage=='match' and c.last_reason=='final_training' and c.passed_windows==0
+
+
 @pytest.fixture(scope='module')
 def env():
     if os.environ.get('Q1_TEST_WARP')!='1': pytest.skip('Explicit CUDA opt-in')

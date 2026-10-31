@@ -3,6 +3,44 @@ import torch
 from q1_4v4.env import SoccerEnv
 from q1_4v4.learning import make_args, make_team, save_team, load_team
 from q1_4v4.learning import MarchingGaussian
+from q1_4v4.learning import MatchGaussian
+
+
+def test_match_distribution_desaturates_actions_and_preserves_other_tasks():
+    from onpolicy.algorithms.utils.distributions import DiagGaussian
+    head=DiagGaussian(8,22)
+    with torch.no_grad():
+        head.fc_mean.weight.zero_();head.fc_mean.bias.fill_(16.)
+        head.logstd._bias[:12].fill_(-4.);head.logstd._bias[12:].fill_(2.)
+    wrapped=MatchGaussian(head)
+    x=torch.zeros((2,9));x[1,-1]=2
+    dist=wrapped(x);old=head(x[:,:-1])
+    torch.testing.assert_close(dist.mean[0],old.mean[0],rtol=0,atol=0)
+    torch.testing.assert_close(dist.stddev[0],old.stddev[0],rtol=0,atol=0)
+    assert (dist.mean[1].abs()<1.5).all()
+    assert (dist.stddev[1,:12]>.2).all() and (dist.stddev[1,:12]<.65).all()
+    assert (dist.stddev[1,12:]>.05).all() and (dist.stddev[1,12:]<.35).all()
+    (dist.mean[1].sum()+dist.stddev[1].sum()).backward()
+    assert (head.fc_mean.bias.grad>0).all() and (head.logstd._bias.grad>0).all()
+    assert set(wrapped.state_dict())==set(head.state_dict())
+
+
+def test_match_sampling_likelihood_and_checkpoint_are_identical():
+    from types import SimpleNamespace
+    from gymnasium.spaces import Box
+    from q1_4v4.course_config import command
+    env=SimpleNamespace(observation_space=Box(-np.inf,np.inf,(128,),dtype=np.float32),
+        share_observation_space=Box(-np.inf,np.inf,(1028,),dtype=np.float32),action_space=Box(-1.,1.,(22,),dtype=np.float32))
+    args=make_args(1,8,1);args.marching_exploration_revision=1;args.match_exploration_revision=1
+    p,t,_=make_team(args,env,torch.device('cpu'),gpu_rollout=True,shared=True)
+    obs=torch.zeros((8,130));obs[:4,109:115]=torch.tensor(command('match'));obs[4:,109:115]=torch.tensor(command('balance'))
+    rnn=torch.zeros((8,1,args.hidden_size));mask=torch.ones((8,1))
+    action,old_logprob,_=p.actor(obs,rnn,mask)
+    new_logprob,_=p.actor.evaluate_actions(obs,rnn,action,mask)
+    torch.testing.assert_close(old_logprob,new_logprob,rtol=0,atol=0)
+    p2,t2,_=make_team(args,env,torch.device('cpu'),gpu_rollout=True,shared=True)
+    load_team(save_team(p,t),p2,t2)
+    torch.testing.assert_close(p.act(obs,rnn,mask,deterministic=True)[0],p2.act(obs,rnn,mask,deterministic=True)[0],rtol=0,atol=0)
 
 
 def test_role_gradients_and_checkpoint_roundtrip():

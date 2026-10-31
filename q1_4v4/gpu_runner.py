@@ -10,7 +10,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
-from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity, MARCHING_EXPLORATION_REVISION, MarchingGaussian
+from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity, MARCHING_EXPLORATION_REVISION, MATCH_EXPLORATION_REVISION, MarchingGaussian
 from .course_config import make_curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS, marching_observation_mode, FULL_MATCHES, MATCH_TASK_REVISION
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
@@ -34,6 +34,7 @@ def run(options):
     np.random.seed(options.seed)
     args = make_args(options.num_envs, options.horizon, options.epochs)
     args.marching_exploration_revision=MARCHING_EXPLORATION_REVISION
+    args.match_exploration_revision=MATCH_EXPLORATION_REVISION
     if options.learning_rate is not None:
         if options.learning_rate<=0:raise ValueError('learning-rate must be positive')
         args.lr=args.critic_lr=options.learning_rate
@@ -181,6 +182,7 @@ def run(options):
         if not distributed.primary:
             return
         payload = dict(version=4, match_task_revision=MATCH_TASK_REVISION,
+                       match_exploration_revision=MATCH_EXPLORATION_REVISION,
                        match_controls={name:group.match_task.control.state_dict() for name,group in match_groups()},
                        direct_start_course=direct_start, marching_recovery_start=recovery_start, marching_exploration_mix=args.marching_exploration_mix, marching_exploration_revision=args.marching_exploration_revision, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
                        policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode, backend='warp', iteration=iteration, args=vars(args),
@@ -202,7 +204,9 @@ def run(options):
                 dir=str(out.resolve()), settings=wandb.Settings(init_timeout=60))
             wandb_run.config.update(dict(vars(options), world_size=distributed.world_size,
                 total_num_envs=options.num_envs*distributed.world_size,
-                reward_revision=REWARD_REVISION, match_task_revision=MATCH_TASK_REVISION, marching_exploration_revision=args.marching_exploration_revision, curriculum_window_policy='per_team', per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION), allow_val_change=True)
+                reward_revision=REWARD_REVISION, match_task_revision=MATCH_TASK_REVISION,
+                match_exploration_revision=MATCH_EXPLORATION_REVISION,
+                marching_exploration_revision=args.marching_exploration_revision, curriculum_window_policy='per_team', per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION), allow_val_change=True)
             wandb_run.define_metric('iteration')
             wandb_run.define_metric('*', step_metric='iteration')
             wandb_run.define_metric('debug/*', hidden=True)
@@ -364,8 +368,12 @@ def run(options):
                 for name,group in match_groups():
                     index=COURSES.index(name)
                     values=dict(zip(MatchTask.metrics,match_values[index]))
-                    cloud.update(match_metrics(name,values,reward_values[index],group.course_amplitude))
-                    group.match_task.control.update(match_values[index][:2],match_values[index][2:4])
+                    used_amplitude=group.course_amplitude
+                    evidence={key:values[key]*options.horizon*distributed.world_size for key in MatchControl.counters}
+                    group.match_task.control.update(match_values[index][:2],match_values[index][2:4],evidence)
+                    standard=round(distributed.mean(group.match_task.standard.float().sum()).item()*distributed.world_size)
+                    cloud.update(match_metrics(name,values,reward_values[index],used_amplitude,
+                        group.match_task.control,standard,group.count*distributed.world_size-standard))
                     group.course_amplitude=group.match_task.control.amplitude
                     sl=env.groups[name][0] if parallel else slice(None)
                     rollout.obs[-1,sl,:,-1]=group.course_amplitude

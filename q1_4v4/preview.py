@@ -8,11 +8,12 @@ from .match_task import MatchControl
 
 class CoursePreview:
     dt=.02
-    def __init__(self,stage,device='cuda:0',marching_target_observation='origin',match_control=None):
-        self.env=CourseWarpEnv(count=1,device=device,stage=stage,episode_steps=DURATIONS[stage],marching_target_observation=marching_target_observation)
+    def __init__(self,stage,device='cuda:0',marching_target_observation='origin',match_control=None,match_layout='curriculum'):
+        self.env=CourseWarpEnv(count=1,device=device,stage=stage,episode_steps=DURATIONS[stage],marching_target_observation=marching_target_observation,match_layout=match_layout)
         if stage in FULL_MATCHES:
             self.env.match_task.control=MatchControl(match_control)
             self.env.course_amplitude=self.env.match_task.control.amplitude
+            self.env.reset()
         self.model=self.env.model
         self.data=mujoco.MjData(self.model)
         for key in ('observation_space','share_observation_space','action_space'):

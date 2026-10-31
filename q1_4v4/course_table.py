@@ -30,6 +30,7 @@ def course_rows(summary,parallel=True):
             known=all(v is not None and isinstance(v,(int,float)) and isfinite(v) for v in values)
             passed=known and all(v>=t for v,t in zip(values,(SUCCESS[name],SUCCESS[name],.9,.9)))
             if metric(name,'已掌握')==1:status='复习·待采样' if not known else '复习·达标' if passed else '复习·退化'
+            elif name=='match' and counts[name]>0:status='终局训练'
             elif all(metric(parent,'已掌握')==1 for parent in PREREQUISITES[name]):status='主训·达标待认证' if passed else '主训'
             elif (metric(name,'球场数') or 0)>0:status='预习'
             else:status='未解锁'
@@ -47,6 +48,14 @@ def course_table_html(summary,iteration,parallel=True):
     rows=course_rows(summary,parallel)
     total=int(summary.get('04_性能/并行球场总数') or sum(int(r['足球场数']) for r in rows))
     sampled=sum(int(r['足球场数'])>0 for r in rows)
+    match_detail=''
+    for name in ('teamplay','match'):
+        p='06_课程/'+name+'/'
+        if p+'比赛子阶段' not in summary:continue
+        reasons={'samples':'等待完整回合','posture':'姿态或复位未达标','touch':'脚触球未达标',
+                 'advance':'有效推进未达标','goals':'标准比赛进球未达标','pass':'累计通过窗口','expanded':'已扩大接近距离'}
+        reason=reasons.get(summary.get(p+'子阶段门控'),'等待采样')
+        match_detail+=f'<p>{escape(name)} 子阶段：{int(summary[p+"比赛子阶段"])}/4 · 近球训练场：{int(summary.get(p+"近球训练球场数",0)):,} · 标准阵型场：{int(summary.get(p+"标准阵型球场数",0)):,} · 距离上限：{summary.get(p+"近球距离上限_米",0):.2f}m · 门控：{reason} · 连续窗口：{int(summary.get(p+"子阶段连续通过窗口",0))}/3</p>'
     # Place currently sampled courses first, retaining each course number in its label.
     rows.sort(key=lambda r:(int(r['足球场数'])==0,r['状态'] in ('未解锁','待训练','本次跳过')))
     header=''.join('<th>'+escape(c)+'</th>' for c in COLUMNS)
@@ -62,5 +71,6 @@ th{{position:sticky;top:0;background:Canvas}}td:nth-child(n+2):nth-child(-n+5){{
 .regression{{background:#ffb02025}}.training{{background:#2196f320}}
 </style></head><body><h3>实时课程表 · 第{int(iteration)}轮</h3>
 <p>全局足球场：{total:,}个 · 正在采样：{sampled}门课程。场数为全部GPU合计，占比为本课程场数÷全局总场数。</p>
+{match_detail}
 <p>随每轮训练更新。成功率和稳定率使用各课近期回合窗口；退化是复习提示，不自动改变认证。</p>
 <table><thead><tr>{header}</tr></thead><tbody>{body}</tbody></table></body></html>"""

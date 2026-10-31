@@ -11,7 +11,7 @@ LEGACY_COURSES = ('balance','balance_push','move','backward','lateral','turn','s
 LOW_LEVEL = set(COURSES[:13])
 CONTESTS = {'duel','attack_2v1','game_2v2','teamplay','match'}
 FULL_MATCHES = {'teamplay','match'}
-MATCH_TASK_REVISION = 1
+MATCH_TASK_REVISION = 2
 BALL_TASK_REVISION = 1
 GAIT_COURSES = set(COURSES[3:13]) | {'approach'}
 KICKS = {'kick_left','kick_right','side_left','side_right','kick_recover'}
@@ -126,6 +126,9 @@ class Curriculum:
 
     def advance(self, promote=True):
         self.stage_updates += 1
+        if self.stage=='match':
+            self.passed_windows=0;self.last_reason='final_training'
+            return False
         if self.stage_updates % 16: return False
         m = self.metrics()
         required = SUCCESS[self.stage]

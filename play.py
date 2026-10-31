@@ -34,6 +34,8 @@ def main():
     p.add_argument('--list-courses', action='store_true', help='List supported course names and exit')
     p.add_argument('--neutral', action='store_true', help='Preview neutral PD without loading a policy')
     p.add_argument('--device', default='cuda:0', help='Warp preview device')
+    p.add_argument('--match-layout',choices=('curriculum','standard'),default='curriculum',
+                   help='Preview current near-ball kickoff curriculum or standard full-pitch kickoff')
     p.add_argument('--steps', type=int, default=None, help='Control steps; GUI defaults to unlimited, headless to 300')
     p.add_argument('--speed', type=float, default=1., help='GUI playback speed, e.g. 0.5')
     p.add_argument('--image', help='Save initial scene PNG and exit')
@@ -61,7 +63,7 @@ def main():
         from q1_4v4.preview import CoursePreview
         from q1_4v4.course_config import marching_observation_mode
         env = CoursePreview(stage,device=a.device,marching_target_observation=marching_observation_mode(checkpoint=ckpt),
-            match_control=ckpt.get('match_controls',{}).get(stage) if ckpt else None)
+            match_control=ckpt.get('match_controls',{}).get(stage) if ckpt else None,match_layout=a.match_layout)
     else:
         env = SoccerEnv(stage=stage)
     print({'course':stage,'checkpoint':a.checkpoint,'control':'policy' if ckpt else 'neutral PD',
@@ -73,6 +75,7 @@ def main():
         args.hidden_size = ckpt['args']['hidden_size']
         args.marching_exploration_revision=ckpt.get('marching_exploration_revision',0)
         args.marching_exploration_mix=ckpt.get('marching_exploration_mix',.25)
+        args.match_exploration_revision=ckpt.get('match_exploration_revision',0)
         for state in ckpt['teams']:
             policy, trainer, _ = make_team(args, env, torch.device('cpu'), gpu_rollout=ckpt.get('backend') == 'warp',shared=shared)
             load_team(state, policy, trainer)

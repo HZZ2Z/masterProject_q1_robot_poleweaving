@@ -12,6 +12,7 @@ from onpolicy.algorithms.utils.distributions import FixedNormal
 from .course_config import command
 
 MARCHING_EXPLORATION_REVISION=1
+MATCH_EXPLORATION_REVISION=1
 
 
 class RoleBase(nn.Module):
@@ -26,14 +27,20 @@ class RoleBase(nn.Module):
 
 class MarchingRoleBase(RoleBase):
     """Carry a nonlearned course flag to the Gaussian, retaining all saved parameters."""
-    def __init__(self,base,hidden):
+    def __init__(self,base,hidden,match_exploration=False):
         super().__init__(base,hidden)
+        self.match_exploration=match_exploration
         self.register_buffer('marching_command',torch.tensor(command('step_in_place')),persistent=False)
+        self.register_buffer('match_commands',torch.tensor([command('teamplay'),command('match')]),persistent=False)
 
     def forward(self,obs):
         features=super().forward(obs)
         marching=(obs[...,109:115]-self.marching_command).abs().amax(-1,keepdim=True)<1e-5
-        return torch.cat((features,marching.to(features.dtype)),-1)
+        flag=marching.to(features.dtype)
+        if self.match_exploration:
+            match=(obs[...,None,109:115]-self.match_commands).abs().amax(-1).amin(-1,keepdim=True)<1e-5
+            flag=torch.where(match,2.,flag)
+        return torch.cat((features,flag),-1)
 
 
 class MarchingGaussian(nn.Module):
@@ -56,7 +63,7 @@ class MarchingGaussian(nn.Module):
 
     def forward(self,features):
         mean=self.fc_mean(features[...,:-1])
-        active=(features[...,-1:]>0.5)&self.marching_joints
+        active=(features[...,-1:]==1)&self.marching_joints
         # Softsign retains a useful derivative even for inherited saturated logits.
         bounded=mean/(1+mean.abs()/self.mean_limit)
         mean=torch.where(active,(1-self.mean_mix)*mean+self.mean_mix*bounded,mean)
@@ -67,6 +74,20 @@ class MarchingGaussian(nn.Module):
     @staticmethod
     def mixing_at(iteration,start):
         return .25+.75*min(max((iteration-start)/128,0.),1.)
+
+
+class MatchGaussian(MarchingGaussian):
+    """Recover saturated match actions without replacing learned parameters."""
+    def forward(self,features):
+        original=super().forward(features)
+        active=features[...,-1:]==2
+        mean=original.mean/(1+original.mean.abs()/1.5)
+        joint=torch.arange(mean.shape[-1],device=mean.device)
+        low=torch.where(joint<12,.20,.05)
+        high=torch.where(joint<12,.65,.35)
+        std=low+(high-low)*torch.sigmoid(original.stddev.log())
+        return FixedNormal(torch.where(active,mean,original.mean),
+                           torch.where(active,std,original.stddev))
 
 
 def make_args(num_envs=4, horizon=128, epochs=5, hidden=128):
@@ -88,6 +109,7 @@ def make_args(num_envs=4, horizon=128, epochs=5, hidden=128):
     args.max_grad_norm = 1.
     args.marching_exploration_revision=0  # Explicitly restored by training/play checkpoint readers.
     args.marching_exploration_mix=.25
+    args.match_exploration_revision=0
     return args
 
 
@@ -122,9 +144,14 @@ def make_team(args, env, device, gpu_rollout=False, shared=False):
     if exploration not in (0,MARCHING_EXPLORATION_REVISION):raise ValueError('Unknown marching exploration revision')
     if exploration and (args.use_recurrent_policy or args.use_naive_recurrent_policy):
         raise ValueError('Marching course flag requires the feedforward MAPPO actor')
-    base=MarchingRoleBase if exploration else RoleBase
-    policy.actor.base = base(policy.actor.base, args.hidden_size).to(device)
-    if exploration:policy.actor.act.action_out=MarchingGaussian(policy.actor.act.action_out,args.marching_exploration_mix).to(device)
+    match=getattr(args,'match_exploration_revision',0)
+    if match not in (0,MATCH_EXPLORATION_REVISION):raise ValueError('Unknown match exploration revision')
+    if match and not exploration:raise ValueError('Match exploration requires task-aware actor')
+    policy.actor.base=(MarchingRoleBase(policy.actor.base,args.hidden_size,bool(match)) if exploration else
+                       RoleBase(policy.actor.base,args.hidden_size)).to(device)
+    if exploration:
+        head=MatchGaussian if match else MarchingGaussian
+        policy.actor.act.action_out=head(policy.actor.act.action_out,args.marching_exploration_mix).to(device)
     policy.actor_optimizer = torch.optim.Adam(policy.actor.parameters(), lr=args.lr, eps=args.opti_eps)
     trainer = R_MAPPO(args, policy, device)
     if gpu_rollout:

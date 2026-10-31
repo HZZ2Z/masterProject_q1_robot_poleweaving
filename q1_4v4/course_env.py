@@ -25,8 +25,10 @@ def feet_contact(n: wp.array[int], geoms: wp.array[wp.vec2i], worlds: wp.array[i
 
 
 class CourseWarpEnv(WarpSoccerEnv):
-    def __init__(self, count=64, device='cuda:0', seed=42, stage='balance', marching_target_observation='origin', **kwargs):
+    def __init__(self, count=64, device='cuda:0', seed=42, stage='balance', marching_target_observation='origin', match_layout='mixed', **kwargs):
         self.course = stage
+        if match_layout not in ('mixed','curriculum','standard'):raise ValueError('Unknown match layout')
+        self.match_layout=match_layout
         if marching_target_observation not in ('legacy','origin'):raise ValueError('Unknown marching target observation mode')
         self.marching_target_observation=marching_target_observation
         self.count=count; self.device=torch.device(device)
@@ -178,6 +180,7 @@ class CourseWarpEnv(WarpSoccerEnv):
                 receiver_yaw=torch.where(p<4,torch.pi,0.)+self.uniform((n,),-.2,.2)
                 self.qpos[ids,self.rootq[receiver]+3]=torch.cos(receiver_yaw/2)
                 self.qpos[ids,self.rootq[receiver]+6]=torch.sin(receiver_yaw/2)
+        if self.course in FULL_MATCHES:self.match_task.spawn_curriculum(ids)
         self.start_ball[ids] = self.ball[ids]
         self.start_positions[ids] = self.qpos[ids][:,self.rootq[:,None]+torch.arange(3,device=self.device)]
         self.foot_hits[ids] = 0

@@ -4,28 +4,42 @@ from .match_task import MatchTask
 
 SKILL_NAMES=('upright','height','forward','side','left','right','task_distance')
 MATCH_TERM_LABELS=('存活','直立','基座高度','关节速度','动作平滑','支撑滑移','非脚部着地',
-                   '追球','角色移动','角色站位','合法控球Potential','首次脚触球','有效进球','实际失球','机器人复位','球出界','非脚部触球')
+                   '追球','角色移动','角色站位','合法控球Potential','首次脚触球','有效进球','实际失球','机器人复位','球出界','非脚部触球',
+                   '站距','追球距离','首次推进')
 assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)
 
 
-def match_metrics(name,values,terms,amplitude):
+def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,near_worlds=0):
     prefix='06_课程/'+name+'/'
     data={prefix+'红队站立时间占比':values['standing_red'],prefix+'蓝队站立时间占比':values['standing_blue'],
           prefix+'红队每机器人分钟复位次数':values['respawns_red_per_min'],
           prefix+'蓝队每机器人分钟复位次数':values['respawns_blue_per_min'],
           prefix+'红队每机器人分钟摔倒次数':values['falls_red_per_min'],
           prefix+'蓝队每机器人分钟摔倒次数':values['falls_blue_per_min'],
+          prefix+'红队追球者球距_米':values['chaser_distance_red'],
+          prefix+'蓝队追球者球距_米':values['chaser_distance_blue'],
           prefix+'控制动作幅度':amplitude,'debug/'+name+'_reward_sum_residual':values['reward_residual']}
+    if control is not None:
+        data.update({prefix+'比赛子阶段':control.level,prefix+'近球距离上限_米':control.distances[control.level][1],
+                     prefix+'子阶段连续通过窗口':control.windows,prefix+'子阶段门控':control.reason,
+                     prefix+'近球训练球场数':near_worlds,prefix+'标准阵型球场数':standard_worlds,
+                     prefix+'标准阵型占比':standard_worlds/max(standard_worlds+near_worlds,1)})
+        rates=control.rates()
+        for team,label in (('red','红队'),('blue','蓝队')):
+            for key,title in (('touch','近球开球队脚触球率'),('advance','近球开球队有效推进率'),
+                              ('quality','近球开球队姿态稳定率'),('standard_touch','标准阵型脚触球率'),
+                              ('standard_goal','标准阵型有效进球率')):
+                data[prefix+label+title]=rates[key+'_'+team]
     for label,pair in zip(MATCH_TERM_LABELS,terms):
         for team,value in zip(('红队','蓝队'),pair):data[f'07_Reward/{name}/{team}/{label}']=value
     return data
 
 
 def match_reward_specs(name):
-    groups=[('01 基础姿态',('存活','直立','基座高度')),
+    groups=[('01 基础姿态',('存活','直立','基座高度','站距')),
             ('02 动作与支撑约束',('关节速度','动作平滑','支撑滑移','非脚部着地')),
-            ('03 追球与角色',('追球','角色移动','角色站位')),
-            ('04 合法控球与首次脚触球',('合法控球Potential','首次脚触球')),
+            ('03 追球与角色',('追球','追球距离','角色移动','角色站位')),
+            ('04 合法控球与首次触球推进',('合法控球Potential','首次脚触球','首次推进')),
             ('05 进球与失球',('有效进球','实际失球')),
             ('06 复位、出界和非法触球',('机器人复位','球出界','非脚部触球'))]
     return (f'{COURSES.index(name):02d} Reward分解 · {name}',[
@@ -115,10 +129,10 @@ def dashboard_specs(names,parallel=True,per_course=True):
                     panel('03 稳定率与摔倒率（近期窗口）',p+'红队稳定率',p+'蓝队稳定率',p+'摔倒率',p+'目标稳定率'),
                     panel('04 配额与认证进度（0—1；资格1表示达标）',p+'球场占比',p+'窗口认证进度',p+'样本资格',p+'更新资格',p+'已掌握')]
             if name=='match':
-                charts[1]=panel('02 红蓝有效进球回合比例（终局课程）',p+'红队成功率',p+'蓝队成功率')
-                charts[3]=panel('04 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数')
-                charts[2]=panel('03 站立时间占比与无复位稳定率',p+'红队站立时间占比',p+'蓝队站立时间占比',p+'红队稳定率',p+'蓝队稳定率')
-                charts += [panel('05 每队脚部触球回合比例（红蓝平均）',p+'脚部触球率'),
+                charts[1]=panel('02 脚触球率：近球开球队与标准阵型',*[p+t+k for t in ('红队','蓝队') for k in ('近球开球队脚触球率','标准阵型脚触球率')])
+                charts[3]=panel('04 有效进球比例：全部与标准阵型',p+'红队成功率',p+'蓝队成功率',p+'红队标准阵型有效进球率',p+'蓝队标准阵型有效进球率')
+                charts[2]=panel('03 健康姿态时间占比与整队姿态稳定率',p+'红队站立时间占比',p+'蓝队站立时间占比',p+'红队稳定率',p+'蓝队稳定率')
+                charts += [panel('05 追球者距球与近球出生距离上限（米）',p+'红队追球者球距_米',p+'蓝队追球者球距_米',p+'近球距离上限_米'),
                            panel('06 每机器人分钟复位次数',p+'红队每机器人分钟复位次数',p+'蓝队每机器人分钟复位次数')]
             elif name in ('balance','balance_push'):
                 charts += [panel('05 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数'),panel('06 基座平均高度（米）',p+'基座平均高度_米')]
