@@ -8,6 +8,10 @@ from onpolicy.config import get_config
 from onpolicy.algorithms.r_mappo.algorithm.rMAPPOPolicy import R_MAPPOPolicy
 from onpolicy.algorithms.r_mappo.r_mappo import R_MAPPO
 from onpolicy.utils.shared_buffer import SharedReplayBuffer
+from onpolicy.algorithms.utils.distributions import FixedNormal
+from .course_config import command
+
+MARCHING_EXPLORATION_REVISION=1
 
 
 class RoleBase(nn.Module):
@@ -18,6 +22,51 @@ class RoleBase(nn.Module):
 
     def forward(self, obs):
         return self.base(obs) + self.role_encoder(obs[..., -6:-2])
+
+
+class MarchingRoleBase(RoleBase):
+    """Carry a nonlearned course flag to the Gaussian, retaining all saved parameters."""
+    def __init__(self,base,hidden):
+        super().__init__(base,hidden)
+        self.register_buffer('marching_command',torch.tensor(command('step_in_place')),persistent=False)
+
+    def forward(self,obs):
+        features=super().forward(obs)
+        marching=(obs[...,109:115]-self.marching_command).abs().amax(-1,keepdim=True)<1e-5
+        return torch.cat((features,marching.to(features.dtype)),-1)
+
+
+class MarchingGaussian(nn.Module):
+    """Same Gaussian likelihood in sampling and PPO; only course 3 changes distribution."""
+    mean_limit=2.
+
+    @property
+    def std_floor(self):
+        return .15+.20*min(max((self.mean_mix-.25)/.75,0.),1.)
+
+    def __init__(self,original,mean_mix=1.):
+        super().__init__()
+        self.mean_mix=mean_mix
+        # Keep upstream state-dict paths and optimizer parameter identities.
+        self.fc_mean=original.fc_mean
+        self.logstd=original.logstd
+        joints=torch.zeros(self.fc_mean.out_features,dtype=torch.bool)
+        joints[[0,3,6,9]]=True  # hip pitch and knee, mirrored left/right
+        self.register_buffer('marching_joints',joints,persistent=False)
+
+    def forward(self,features):
+        mean=self.fc_mean(features[...,:-1])
+        active=(features[...,-1:]>0.5)&self.marching_joints
+        # Softsign retains a useful derivative even for inherited saturated logits.
+        bounded=mean/(1+mean.abs()/self.mean_limit)
+        mean=torch.where(active,(1-self.mean_mix)*mean+self.mean_mix*bounded,mean)
+        std=self.logstd(torch.zeros_like(mean)).exp()
+        std=torch.where(active,std.clamp(min=self.std_floor),std)
+        return FixedNormal(mean,std)
+
+    @staticmethod
+    def mixing_at(iteration,start):
+        return .25+.75*min(max((iteration-start)/128,0.),1.)
 
 
 def make_args(num_envs=4, horizon=128, epochs=5, hidden=128):
@@ -37,6 +86,8 @@ def make_args(num_envs=4, horizon=128, epochs=5, hidden=128):
     args.lr = args.critic_lr = 3e-4
     args.entropy_coef = .001
     args.max_grad_norm = 1.
+    args.marching_exploration_revision=0  # Explicitly restored by training/play checkpoint readers.
+    args.marching_exploration_mix=.25
     return args
 
 
@@ -67,7 +118,13 @@ def make_team(args, env, device, gpu_rollout=False, shared=False):
             share_observation_space=Box(-np.inf,np.inf,(env.share_observation_space.shape[0]+2,),dtype=np.float32),
             action_space=env.action_space)
     policy = R_MAPPOPolicy(args, env.observation_space, env.share_observation_space, env.action_space, device)
-    policy.actor.base = RoleBase(policy.actor.base, args.hidden_size).to(device)
+    exploration=getattr(args,'marching_exploration_revision',0)
+    if exploration not in (0,MARCHING_EXPLORATION_REVISION):raise ValueError('Unknown marching exploration revision')
+    if exploration and (args.use_recurrent_policy or args.use_naive_recurrent_policy):
+        raise ValueError('Marching course flag requires the feedforward MAPPO actor')
+    base=MarchingRoleBase if exploration else RoleBase
+    policy.actor.base = base(policy.actor.base, args.hidden_size).to(device)
+    if exploration:policy.actor.act.action_out=MarchingGaussian(policy.actor.act.action_out,args.marching_exploration_mix).to(device)
     policy.actor_optimizer = torch.optim.Adam(policy.actor.parameters(), lr=args.lr, eps=args.opti_eps)
     trainer = R_MAPPO(args, policy, device)
     if gpu_rollout:

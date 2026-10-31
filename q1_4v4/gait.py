@@ -3,10 +3,26 @@ import torch
 import warp as wp
 from .course_config import GAIT_COURSES,LOW_LEVEL
 
-REWARD_REVISION = 5
+REWARD_REVISION = 6
 METRIC_NAMES = ('slip_mps','phase_match','velocity_error','left_steps','right_steps',
                 'clearance_m','weight_shifts','nonfoot_contact','alternations','phase_lift',
-                'knee_lift','position_drift','heading_error','stance_width')
+                'knee_lift','position_drift','heading_error','stance_width',
+                'marching_progress','single_support','knee_signal_rate')
+
+
+def marching_progress(kneelocal,neutral_knee,knee_angles,com_y,sin,expected):
+    """Independent preparation signals; equal-leg crouching earns no progress."""
+    def improvement(actual,target,scale):
+        return torch.exp(-((actual-target)/scale).square())-torch.exp(-(target/scale).square())
+    # Positive sine means left support/right swing, hence a negative left-right target.
+    bend=improvement(knee_angles[...,0]-knee_angles[...,1],-.20*sin,.25)
+    rise=improvement(kneelocal[...,0,2]-kneelocal[...,1,2],-.01*sin,.025)
+    forward=improvement(kneelocal[...,0,0]-kneelocal[...,1,0],-.025*sin,.06)
+    transfer=improvement(com_y,.03*sin,.03)
+    # Recover the inherited rearward knee posture without rewarding common crouch.
+    stance_offset=((kneelocal[...,0]-neutral_knee[...,0])*expected).sum(-1)/expected.sum(-1).clamp(min=1)
+    posture=torch.tanh(stance_offset/.08).square()
+    return 1.2*bend+.5*rise+.5*forward+.4*transfer-.2*posture
 
 
 def marching_shaping(feetlocal, kneelocal, neutral_knee, clearance, targetheight,
@@ -140,10 +156,12 @@ def allocate(env):
     # Four conservative sole corners from the official Q1 foot collision bounds.
     import yaml
     from .scene import ROOT
-    bounds=yaml.safe_load((ROOT/'resources/Q1.yaml').read_text())['asset']['foot_collision_bounds']
+    cfg=yaml.safe_load((ROOT/'resources/Q1.yaml').read_text())
+    bounds=cfg['asset']['foot_collision_bounds']
     l,h=bounds
     from .scene import PREFIXES
     env.knees=torch.tensor([[env.model.body(prefix+side+'_knee_link').id for side in ('left','right')] for prefix in PREFIXES],device=d)
+    env.knee_dofs=torch.tensor([cfg['asset']['dof_names'].index(side+'_knee_joint') for side in ('left','right')],device=d)
     ref=env.reference.data
     root=env.model.body(PREFIXES[0]+'pelvis').id
     env.neutral_knee=env.tensor((ref.xpos[env.knees[0].cpu().numpy()]-ref.xpos[root])@ref.xmat[root].reshape(3,3))
@@ -304,6 +322,9 @@ def measure(env,before_foot):
     lift=torch.exp(-((clearance-targetheight)/.015).square())*swing
     stance_slip=((slip/.05).square().clamp(max=9)*contact).sum(-1)
     credit=phase_lift_credit(clearance,contact,expected,targetheight)
+    progress=torch.zeros_like(credit)
+    single_support=torch.zeros((),device=env.device)
+    knee_signal_rate=torch.zeros((),device=env.device)
     reward=env.dt*(1.2*torch.exp(-(linear_error/.10).square())+.7*torch.exp(-(angular_error/.20).square())
         +.7*(1-mismatch)+.4*lift.sum(-1)-.25*stance_slip-.3*crossed-.3*flight)
     if c=='step_in_place':
@@ -312,9 +333,17 @@ def measure(env,before_foot):
             clearance,targetheight,contact,expected,drift,yawerror,linear_error,angular_error)
         knee_credit*=healthy
         env.gait_knee_credit+=knee_credit
+        whole_com=wp.to_torch(env.data.subtree_com)[:,env.bodies]
+        comlocal=torch.einsum('nai,naij->naj',whole_com-foot.mean(-2),rot)
+        knee_angles=env.qpos[:,env.qidx][:,:,env.knee_dofs]
+        progress=marching_progress(kneelocal,env.neutral_knee,knee_angles,comlocal[:,:,1],sin,expected)
+        progress*=.5*(healthy&contact.any(-1))
         reward=stepping_reward(env.dt,credit,contact,expected,linear_error,angular_error,
                               stance_slip,crossed,healthy,land,alternating)
-        reward+=env.dt*(.8*knee_credit-stationary_penalty)
+        reward+=env.dt*(.8*knee_credit+progress-stationary_penalty)
+        single=~expected.all(-1)
+        single_support=((contact==expected).all(-1)&single).float().sum()/single.sum().clamp(min=1)
+        knee_signal_rate=(knee_credit>1e-8).float().mean()
     qv=env.qvel[:,env.vidx]
     reward-=env.dt*.002*((qv-env.gait_previous_velocity)/env.dt).square().mean(-1).clamp(max=25)
     env.gait_previous_velocity.copy_(qv)
@@ -356,5 +385,6 @@ def measure(env,before_foot):
         'nonfoot_contact':(env.gait_nonfoot>0).float().mean(),'clearance_m':clearance.mean(),'weight_shifts':env.gait_weight_count.mean(),
         'alternations':env.gait_switches.mean(),'phase_lift':credit.mean(),
         'knee_lift':(env.gait_knee_credit/env.agent_steps.clamp(min=1)).mean(),
-        'position_drift':drift.mean(),'heading_error':yawerror.abs().mean(),'stance_width':separation.mean()}
+        'position_drift':drift.mean(),'heading_error':yawerror.abs().mean(),'stance_width':separation.mean(),
+        'marching_progress':progress.mean(),'single_support':single_support,'knee_signal_rate':knee_signal_rate}
     return reward,objective,quality

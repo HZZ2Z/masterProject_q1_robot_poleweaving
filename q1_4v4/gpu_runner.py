@@ -10,7 +10,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
-from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity
+from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity, MARCHING_EXPLORATION_REVISION, MarchingGaussian
 from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS, marching_observation_mode
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
@@ -33,10 +33,13 @@ def run(options):
     torch.manual_seed(options.seed)
     np.random.seed(options.seed)
     args = make_args(options.num_envs, options.horizon, options.epochs)
+    args.marching_exploration_revision=MARCHING_EXPLORATION_REVISION
     if options.learning_rate is not None:
         if options.learning_rate<=0:raise ValueError('learning-rate must be positive')
         args.lr=args.critic_lr=options.learning_rate
     checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
+    recovery_start=checkpoint.get('marching_recovery_start',checkpoint['iteration']) if checkpoint else 0
+    args.marching_exploration_mix=MarchingGaussian.mixing_at(checkpoint['iteration'] if checkpoint else 0,recovery_start)
     options.curriculum_mode = getattr(options,'curriculum_mode',None) or (checkpoint.get('curriculum_mode','serial') if checkpoint else 'serial')
     options.marching_target_observation=marching_observation_mode(getattr(options,'marching_target_observation',None),checkpoint)
     parallel = options.curriculum_mode=='parallel'
@@ -164,7 +167,7 @@ def run(options):
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
-        payload = dict(version=4, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
+        payload = dict(version=4, marching_recovery_start=recovery_start, marching_exploration_mix=args.marching_exploration_mix, marching_exploration_revision=args.marching_exploration_revision, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
                        policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
@@ -184,13 +187,15 @@ def run(options):
                 dir=str(out.resolve()), settings=wandb.Settings(init_timeout=60))
             wandb_run.config.update(dict(vars(options), world_size=distributed.world_size,
                 total_num_envs=options.num_envs*distributed.world_size,
-                reward_revision=REWARD_REVISION, curriculum_window_policy='per_team', per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION), allow_val_change=True)
+                reward_revision=REWARD_REVISION, marching_exploration_revision=args.marching_exploration_revision, curriculum_window_policy='per_team', per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION), allow_val_change=True)
             wandb_run.define_metric('iteration')
             wandb_run.define_metric('*', step_metric='iteration')
             wandb_run.define_metric('debug/*', hidden=True)
             (out/'wandb_run.json').write_text(json.dumps({'id': wandb_run.id, 'url': wandb_run.url}))
         distributed.maximum(0)  # All workers wait for primary W&B initialization.
         for iteration in range(start+1, start+options.iterations+1):
+            args.marching_exploration_mix=MarchingGaussian.mixing_at(iteration,recovery_start)
+            for policy,_,_ in teams:policy.actor.act.action_out.mean_mix=args.marching_exploration_mix
             torch.cuda.synchronize(device)
             tic = time.perf_counter()
             completed = []
@@ -301,6 +306,7 @@ def run(options):
                      '02_晋级/红队窗口样本':cm['red_gate_samples'],'02_晋级/蓝队窗口样本':cm['blue_gate_samples'],
                      '02_晋级/红队监测样本':cm['red_samples'],'02_晋级/蓝队监测样本':cm['blue_samples'],
                      'debug/奖励修订':REWARD_REVISION,
+                     'debug/课程3探索过渡比例':args.marching_exploration_mix,
                      'debug/熵系数':teams[0][1].entropy_coef,
                      '03_技能/脚部触球率':cm['foot_touch_rate'],'03_技能/触球后恢复率':cm['recovery_rate'],
                      '03_技能/净推进_米':cm['progress_m'],

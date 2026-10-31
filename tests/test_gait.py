@@ -4,7 +4,31 @@ import torch
 import pytest
 from q1_4v4.learning import _input_map,_expand_input,make_args,make_team,load_team
 from q1_4v4.course_config import COURSES,DURATIONS,SUCCESS
-from q1_4v4.gait import phase_lift_credit,stepping_reward,marching_shaping,marching_success
+from q1_4v4.gait import phase_lift_credit,stepping_reward,marching_shaping,marching_success,marching_progress
+
+
+def test_marching_preparation_rewards_small_steps_without_requiring_foot_liftoff():
+    neutral=torch.tensor([[.02,.09085,-.188],[.02,-.09085,-.188]])
+    expected=torch.tensor([[True,False]])
+    phase=torch.ones(1);angles=torch.zeros((1,2));zero=torch.zeros(1)
+    def score(knees=neutral[None],bend=angles,com=zero,sin=phase,exp=expected):
+        return marching_progress(knees,neutral,bend,com,sin,exp)
+    baseline=score()
+    torch.testing.assert_close(baseline,zero)
+    # A 0.01-radian right knee bend already earns an independent learning signal.
+    micro=angles.clone();micro[0,1]=.01
+    assert score(bend=micro)>baseline+.03
+    wrong=angles.clone();wrong[0,0]=.01
+    assert score(bend=wrong)<baseline
+    assert score(com=torch.tensor([.01]))>baseline
+    knees=neutral[None].clone();knees[0,1,0]+=.005;knees[0,1,2]+=.003
+    assert score(knees=knees)>baseline+.02
+    # Common bilateral crouch/body displacement cannot earn relative progress.
+    common=neutral[None].clone();common[:,:,0]+=.03;common[:,:,2]+=.02
+    assert score(knees=common,bend=torch.full((1,2),.3))<=baseline
+    mirrored=knees.flip(1).clone();mirrored[:,:,1]*=-1
+    torch.testing.assert_close(score(knees=knees,bend=micro),
+        score(knees=mirrored,bend=micro.flip(1),sin=-phase,exp=expected.flip(1)))
 
 
 def test_marching_requires_knee_and_foot_lift_and_penalizes_drift():

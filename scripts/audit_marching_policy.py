@@ -23,6 +23,8 @@ def main():
     if options.case.endswith('2cm'):env.gait_height.fill_(.02)
     elif options.case.endswith('high'):env.gait_height.copy_(.03+2*(env.gait_height-.02))
     args=make_args();args.hidden_size=ck['args']['hidden_size']
+    args.marching_exploration_revision=ck.get('marching_exploration_revision',0)
+    args.marching_exploration_mix=ck.get('marching_exploration_mix',.25)
     policy,trainer,_=make_team(args,env,env.device,gpu_rollout=True,shared=True)
     load_team(ck['teams'][0],policy,trainer);trainer.prep_rollout()
     alive=torch.ones((8,8),device=env.device,dtype=torch.bool);falls=torch.zeros_like(alive)

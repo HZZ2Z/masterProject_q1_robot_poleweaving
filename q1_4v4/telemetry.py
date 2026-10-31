@@ -34,8 +34,10 @@ def course_metrics(name,stats,reward,gait,skill,worlds,total_worlds,mastered=Fal
     if worlds and gait is not None:
         if name=='step_in_place':
             for key,label in [('knee_lift','抬膝得分'),('position_drift','偏离起点_米'),
-                              ('heading_error','航向偏差_弧度'),('stance_width','双脚横向间距_米')]:
+                              ('heading_error','航向偏差_弧度'),('stance_width','双脚横向间距_米'),
+                              ('single_support','单支撑期正确支撑率'),('knee_signal_rate','抬膝有效奖励比例')]:
                 data[label]=gait.get(key)
+            data['准备奖励_单步']=gait.get('marching_progress',0.)*.02
         for key,label in [('left_steps','左脚过程累计步数'),('right_steps','右脚过程累计步数'),
                           ('alternations','过程累计交替次数'),('weight_shifts','过程累计重心切换'),
                           ('slip_mps','支撑滑移_mps'),('phase_match','相位匹配率'),('phase_lift','抬脚得分')]:
@@ -88,7 +90,8 @@ def dashboard_specs(names,parallel=True,per_course=True):
             elif name=='weight_shift':
                 charts += [panel('05 重心切换次数（过程累计均值）',p+'过程累计重心切换'),panel('06 支撑脚滑移（m/s）',p+'支撑滑移_mps')]
             elif name=='step_in_place':
-                charts += [panel('05 相位、抬脚与抬膝得分（0—1）',p+'相位匹配率',p+'抬脚得分',p+'抬膝得分'),
+                charts[0]=panel('01 红蓝Reward与准备奖励（每控制步）',p+'红队平均单步奖励',p+'蓝队平均单步奖励',p+'准备奖励_单步')
+                charts += [panel('05 Phase、抬脚、抬膝与有效支撑（0—1）',p+'相位匹配率',p+'抬脚得分',p+'抬膝得分',p+'单支撑期正确支撑率',p+'抬膝有效奖励比例'),
                            panel('06 偏离起点与双脚间距（米）',p+'偏离起点_米',p+'双脚横向间距_米')]
             elif name in GAIT_COURSES and name!='approach':
                 charts += [panel('05 接触相位匹配与抬脚得分（0—1）',p+'相位匹配率',p+'抬脚得分'),

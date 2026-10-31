@@ -70,6 +70,8 @@ def main():
     if ckpt:
         args = make_args()
         args.hidden_size = ckpt['args']['hidden_size']
+        args.marching_exploration_revision=ckpt.get('marching_exploration_revision',0)
+        args.marching_exploration_mix=ckpt.get('marching_exploration_mix',.25)
         for state in ckpt['teams']:
             policy, trainer, _ = make_team(args, env, torch.device('cpu'), gpu_rollout=ckpt.get('backend') == 'warp',shared=shared)
             load_team(state, policy, trainer)
