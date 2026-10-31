@@ -48,6 +48,16 @@ def test_serial_mode_does_not_present_old_values_as_current_measurements():
     assert rows[3]['足球场数']=='100' and rows[3]['占比']=='100.00%'
 
 
+def test_direct_match_table_labels_skipped_courses_without_false_certifications():
+    summary={'01_总览/课程编号':27,'01_总览/直接起始课程编号':27,'04_性能/并行球场总数':20480}
+    sample(summary,'match',worlds=20480,success=0.)
+    rows=course_rows(summary,parallel=False)
+    assert all(r['状态']=='本次跳过' and r['足球场数']=='0' for r in rows[:27])
+    assert rows[27]['状态']=='主训' and rows[27]['占比']=='100.00%'
+    page=course_table_html(summary,1300,parallel=False)
+    assert page.index('27 4v4比赛')<page.index('0 站立')
+
+
 def test_global_field_allocation_is_not_counted_once_per_robot_or_per_gpu():
     summary={'04_性能/并行球场总数':20480,'04_性能/GPU数量':5}
     allocation={'balance':685,'balance_push':685,'weight_shift':685,

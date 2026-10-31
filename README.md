@@ -73,6 +73,8 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4 ./scripts/python.sh -m torch.distributed.run \
 
 主训练80%、复习10%、下一层探索10%，前置关系、整数分配及独立门控见 `CURRICULUM.md`。现有actor/critic输入尺寸不变，恢复权重和优化器，不从头训练。串行课程0未通过的checkpoint会被拒绝切换；后续并行checkpoint默认按并行模式恢复。
 
+显式跳过课程、直接从现有权重训练完整4v4，可使用 `--curriculum-mode serial --start-course 27 --stage match --checkpoint <权重>`，并指定新的输出目录与W&B run。此操作保留网络、Adam和全局轮次，重新初始化比赛场景、ValueNorm及比赛统计；课程表将此前课程标为“本次跳过”。继续这次试训时省略 `--start-course`，以保留比赛统计。
+
 28 阶段按重心转移、交替踏步、低速步行、全向移动、启停、足球技能和逐级对抗组织。完整清单见 CURRICULUM.md。
 
 红蓝分别要求稳定率≥90%和各自任务成功率。每阶段至少更新 32 次，每 16 次检查一次；每个独立窗口至少 512 个已结束回合，红蓝各至少 256 个，分别满足稳定率和任务成功率后，连续通过三个窗口才晋级。基础运动阶段各机器人独立重置，足球阶段按参与者的整场回合重置。

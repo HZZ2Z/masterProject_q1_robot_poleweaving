@@ -31,6 +31,30 @@ def command(stage):
     return v
 
 
+def make_curriculum(mode,stage,checkpoint=None,start_course=None):
+    """An explicit course override starts new gates before reading any old scheduler."""
+    if start_course is not None:
+        if mode!='serial':raise ValueError('--start-course is only for serial curricula')
+        if checkpoint is None:raise ValueError('--start-course requires --checkpoint')
+        if start_course.isdigit():
+            index=int(start_course)
+            if not 0<=index<len(COURSES):raise ValueError('Unknown start course')
+            selected=COURSES[index]
+        else:selected=start_course
+        if selected not in COURSES:raise ValueError('Unknown start course')
+        return Curriculum(selected)
+    if mode=='parallel':
+        from .parallel_curriculum import ParallelCurriculum
+        curriculum=ParallelCurriculum()
+    elif mode=='serial':
+        if checkpoint and checkpoint['curriculum'].get('kind')=='parallel':
+            raise ValueError('Switching a parallel checkpoint to serial requires --start-course')
+        curriculum=Curriculum(stage)
+    else:raise ValueError('Unknown curriculum mode')
+    if checkpoint:curriculum.load_state_dict(checkpoint['curriculum'])
+    return curriculum
+
+
 class TeamWindow:
     """Bounded FIFO per team; completion order cannot evict the other team."""
     def __init__(self, rows=()):

@@ -1,7 +1,21 @@
 import os
 import pytest
 import torch
-from q1_4v4.course_config import Curriculum, COURSES, LOW_LEVEL, command
+from q1_4v4.course_config import Curriculum, COURSES, LOW_LEVEL, command, make_curriculum
+
+
+def test_explicit_direct_match_bypasses_parallel_scheduler_loading_without_claiming_mastery():
+    from q1_4v4.parallel_curriculum import ParallelCurriculum
+    previous=ParallelCurriculum();previous.mastered.update(COURSES[:3])
+    checkpoint={'iteration':1200,'curriculum':previous.state_dict()}
+    selected=make_curriculum('serial','balance',checkpoint,'27')
+    assert selected.stage=='match' and selected.stage_updates==0 and len(selected.history)==0
+    assert previous.mastered==set(COURSES[:3])
+    assert make_curriculum('serial','balance',checkpoint,'match').stage=='match'
+    with pytest.raises(ValueError,match='requires --start-course'):make_curriculum('serial','balance',checkpoint)
+    with pytest.raises(ValueError,match='only for serial'):make_curriculum('parallel','balance',checkpoint,'27')
+    with pytest.raises(ValueError,match='Unknown start course'):make_curriculum('serial','balance',checkpoint,'28')
+    with pytest.raises(ValueError,match='requires --checkpoint'):make_curriculum('serial','balance',None,'27')
 
 
 def test_disjoint_consecutive_gates_and_legacy_migration():

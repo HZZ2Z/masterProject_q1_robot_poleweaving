@@ -11,6 +11,8 @@ def test_every_dashboard_section_has_six_panels():
     for _,panels in specs:
         assert all(p['keys'] and p['title'] for p in panels)
     assert len(dashboard_specs([],parallel=False,per_course=False))==2
+    charts=next(p for name,p in specs if name.endswith('· match'))
+    assert len(charts)==6 and not any('目标成功率' in k for p in charts for k in p['keys'])
 
 
 def test_raw_reward_uses_only_active_participants_and_copies_scalars():

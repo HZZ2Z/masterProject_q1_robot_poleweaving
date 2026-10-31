@@ -11,10 +11,9 @@ from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
 from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity, MARCHING_EXPLORATION_REVISION, MarchingGaussian
-from .course_config import Curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS, marching_observation_mode
+from .course_config import make_curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS, marching_observation_mode
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
-from .parallel_curriculum import ParallelCurriculum
 from .mixed_env import MixedCourseEnv, ended_rows
 from .telemetry import SKILL_NAMES, active_team_reward, course_metrics, macro_metrics
 from .course_table import COURSE_TABLE_KEY,course_table_html
@@ -43,17 +42,10 @@ def run(options):
     options.curriculum_mode = getattr(options,'curriculum_mode',None) or (checkpoint.get('curriculum_mode','serial') if checkpoint else 'serial')
     options.marching_target_observation=marching_observation_mode(getattr(options,'marching_target_observation',None),checkpoint)
     parallel = options.curriculum_mode=='parallel'
-    curriculum = ParallelCurriculum() if parallel else Curriculum(options.stage)
-    start = 0
-    if checkpoint:
-        curriculum.load_state_dict(checkpoint['curriculum'])
-        start = checkpoint['iteration']
-    if options.start_course is not None:
-        if parallel:raise ValueError('--start-course is only for serial curricula')
-        if not options.checkpoint: raise ValueError('--start-course requires --checkpoint')
-        selected = COURSES[int(options.start_course)] if options.start_course.isdigit() else options.start_course
-        if selected not in COURSES: raise ValueError('Unknown start course')
-        curriculum=Curriculum(selected)
+    curriculum=make_curriculum(options.curriculum_mode,options.stage,checkpoint,options.start_course)
+    start=checkpoint['iteration'] if checkpoint else 0
+    direct_start=curriculum.stage if options.start_course is not None else checkpoint.get('direct_start_course') if checkpoint else None
+    task_switch=checkpoint is not None and options.start_course is not None and curriculum.stage!=checkpoint['curriculum']['stage']
     if checkpoint and checkpoint.get('reward_version',1) != REWARD_REVISION:
         curriculum.recertify('reward_change_recertification')
     if checkpoint and checkpoint.get('ball_task_revision',0)!=BALL_TASK_REVISION:
@@ -82,7 +74,7 @@ def run(options):
             raise ValueError('Checkpoint policy count does not match policy sharing')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
             load_team(state, policy, trainer)
-            if checkpoint.get('reward_version',1) != REWARD_REVISION:
+            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch:
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
@@ -99,6 +91,8 @@ def run(options):
             torch.manual_seed(seed)
             env.generator.manual_seed(seed)
             np.random.seed(seed)
+        if options.start_course is not None:
+            env.generator.manual_seed(options.seed+start+100003*distributed.rank)
     elif not distributed.primary:
         seed = options.seed + 100003*distributed.rank
         torch.manual_seed(seed)
@@ -167,7 +161,7 @@ def run(options):
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
-        payload = dict(version=4, marching_recovery_start=recovery_start, marching_exploration_mix=args.marching_exploration_mix, marching_exploration_revision=args.marching_exploration_revision, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
+        payload = dict(version=4, direct_start_course=direct_start, marching_recovery_start=recovery_start, marching_exploration_mix=args.marching_exploration_mix, marching_exploration_revision=args.marching_exploration_revision, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
                        policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
@@ -337,6 +331,7 @@ def run(options):
                 cloud.update(course_metrics(curriculum.stage,cm,
                     (metrics['red/reward'],metrics['blue/reward']),gm,ss,
                     options.num_envs*distributed.world_size,options.num_envs*distributed.world_size))
+            if direct_start is not None:cloud['01_总览/直接起始课程编号']=COURSES.index(direct_start)
             for rank,memory in enumerate(memories):
                 cloud[f'04_性能/GPU{rank}显存_GiB']=memory
             for key,label in [('slip_mps','支撑脚滑移_mps'),('phase_match','接触相位匹配率'),('velocity_error','速度误差_mps'),

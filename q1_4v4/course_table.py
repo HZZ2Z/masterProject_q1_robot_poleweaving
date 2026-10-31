@@ -19,6 +19,7 @@ def percent(value):
 def course_rows(summary,parallel=True):
     def metric(name,key):return summary.get('06_课程/'+name+'/'+key)
     rows=[];current=summary.get('01_总览/课程编号')
+    direct_start=summary.get('01_总览/直接起始课程编号')
     counts={name:int(metric(name,'球场数') or 0) if parallel or current==i else 0
             for i,name in enumerate(COURSES)}
     total=summary.get('04_性能/并行球场总数') or sum(counts.values())
@@ -34,6 +35,7 @@ def course_rows(summary,parallel=True):
             else:status='未解锁'
         else:
             status='主训' if current==i else '已通过·无复测' if current is not None and i<current else '待训练'
+            if current!=i and direct_start is not None and i<direct_start:status='本次跳过'
             if current!=i:success=stable=None
         worlds=counts[name]
         rows.append(dict(zip(COLUMNS,(f'{i} {LABELS[i]}',str(worlds),percent(worlds/total if total else 0),
@@ -46,7 +48,7 @@ def course_table_html(summary,iteration,parallel=True):
     total=int(summary.get('04_性能/并行球场总数') or sum(int(r['足球场数']) for r in rows))
     sampled=sum(int(r['足球场数'])>0 for r in rows)
     # Place currently sampled courses first, retaining each course number in its label.
-    rows.sort(key=lambda r:r['状态'] in ('未解锁','待训练'))
+    rows.sort(key=lambda r:(int(r['足球场数'])==0,r['状态'] in ('未解锁','待训练','本次跳过')))
     header=''.join('<th>'+escape(c)+'</th>' for c in COLUMNS)
     body=''.join('<tr class="'+('regression' if '退化' in r['状态'] else 'training' if '主训' in r['状态'] else '')+'">'+
                  ''.join('<td>'+escape(r[c])+'</td>' for c in COLUMNS)+'</tr>' for r in rows)

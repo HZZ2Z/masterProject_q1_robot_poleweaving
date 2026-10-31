@@ -85,7 +85,12 @@ def dashboard_specs(names,parallel=True,per_course=True):
                     panel(f'02 红蓝任务成功率（目标{SUCCESS[name]:.0%}）',p+'红队成功率',p+'蓝队成功率',p+'目标成功率'),
                     panel('03 稳定率与摔倒率（近期窗口）',p+'红队稳定率',p+'蓝队稳定率',p+'摔倒率',p+'目标稳定率'),
                     panel('04 配额与认证进度（0—1；资格1表示达标）',p+'球场占比',p+'窗口认证进度',p+'样本资格',p+'更新资格',p+'已掌握')]
-            if name in ('balance','balance_push'):
+            if name=='match':
+                charts[1]=panel('02 红蓝有效进球回合比例（终局课程）',p+'红队成功率',p+'蓝队成功率')
+                charts[3]=panel('04 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数')
+                charts += [panel('05 每队脚部触球回合比例（红蓝平均）',p+'脚部触球率'),
+                           panel('06 回合结束时进球方向比例（非胜率）',p+'红队进球比例',p+'蓝队进球比例')]
+            elif name in ('balance','balance_push'):
                 charts += [panel('05 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数'),panel('06 基座平均高度（米）',p+'基座平均高度_米')]
             elif name=='weight_shift':
                 charts += [panel('05 重心切换次数（过程累计均值）',p+'过程累计重心切换'),panel('06 支撑脚滑移（m/s）',p+'支撑滑移_mps')]
