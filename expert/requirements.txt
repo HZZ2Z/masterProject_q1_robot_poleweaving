@@ -1,0 +1,5 @@
+torch==2.9.0
+mujoco==3.17.0
+numpy
+pyyaml>=6
+imageio[ffmpeg]

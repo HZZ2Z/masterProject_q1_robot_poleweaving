@@ -1,5 +1,4 @@
 .git
-3rdparty
 .pytest_cache
 **/__pycache__
 **/*.pyc
@@ -18,3 +17,9 @@ checkpoints
 .env.*
 .netrc
 MUJOCO_LOG.TXT
+expert/checkpoints
+expert/datasets
+expert/validation
+expert/video
+expert/videos
+3rdparty/SuperMimic/.git

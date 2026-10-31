@@ -5,3 +5,8 @@ warp-lang==1.18.0
 numpy
 pytest
 wandb>=0.31,<0.32
+pyyaml>=6
+imageio[ffmpeg]
+tyro>=1.0
+tensorboard>=2.20
+pillow>=11

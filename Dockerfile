@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 
 LABEL org.opencontainers.image.title="Q1 Robot Soccer Supermimic" \
       org.opencontainers.image.source="https://github.com/MohismLab/Q1-Robot-Soccer/tree/SuperMimic" \
-      org.opencontainers.image.licenses="BSD-3-Clause"
+      org.opencontainers.image.licenses="BSD-3-Clause AND MIT"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \

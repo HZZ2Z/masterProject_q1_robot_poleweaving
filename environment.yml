@@ -11,5 +11,10 @@ dependencies:
       - mujoco-warp==3.17.0
       - warp-lang==1.18.0
       - numpy
+      - imageio[ffmpeg]
+      - pyyaml>=6
       - wandb>=0.31,<0.32
       - pytest
+      - tyro>=1.0
+      - tensorboard>=2.20
+      - pillow>=11
