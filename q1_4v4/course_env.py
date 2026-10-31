@@ -227,7 +227,9 @@ class CourseWarpEnv(WarpSoccerEnv):
         if self.course=='turn': self.heading[w,a] += self.uniform((len(w),),-.9,.9)
         gait.reset(self,w,a)
         self.forward()
-        if self.course in FULL_MATCHES:self.match_task.update_targets()
+        if self.course in FULL_MATCHES:
+            self.match_task.reset_agents(w,a)
+            self.match_task.update_targets()
         return self.observe(),self.state()
 
     def observe(self):

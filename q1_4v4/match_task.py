@@ -39,7 +39,7 @@ class MatchTask:
         self.falls=torch.zeros((n,2),device=d,dtype=torch.long)
         self.foot_valid=torch.zeros(n,device=d,dtype=torch.bool)
         self.has_foot=torch.zeros(n,device=d,dtype=torch.bool)
-        self.advance_origin=torch.zeros(n,device=d)
+        self.advance_origin=torch.zeros((n,8),device=d)
         self.owner=torch.full((n,),-1,device=d,dtype=torch.long)
         self.spawn=torch.zeros((n,8,2),device=d)
         self.last_metrics=torch.zeros(len(self.metrics),device=d)
@@ -53,6 +53,11 @@ class MatchTask:
         self.has_foot[ids]=False;self.advance_origin[ids]=0
         self.spawn[ids]=e.qpos[ids][:,e.rootq[:,None]+torch.arange(2,device=e.device)]
         self.update_targets()
+
+    def reset_agents(self,w,a):
+        # Each new individual trajectory starts with zero potential. Otherwise a
+        # negative inherited potential could pay repeatedly on deliberate falls.
+        self.advance_origin[w,a]=self.env.ball[w,0].clamp(-7.1,7.1)
 
     def respawn_positions(self,w,a):
         """Prefer the original spawn; alternative lanes avoid occupied points and the ball."""
@@ -110,7 +115,7 @@ class MatchTask:
         other=(self.owner[:,None]>=0)&~own
         features=features.clone()
         features[:,:,:3]=torch.stack((own,other,self.foot_valid[:,None].expand(-1,8)),-1).float()
-        features[:,:,5]=self.advance_origin[:,None]*e.sign[None]/7.1
+        features[:,:,5]=self.advance_origin*e.sign[None]*self.has_foot[:,None]/7.1
         features[:,:,6]=1.+self.has_foot[:,None].float()
         return features
 
@@ -126,12 +131,12 @@ class MatchTask:
         outside=(pos[:,:,0].abs()>7.7)|(pos[:,:,1].abs()>4.7)
         robot_reset=(fallen|outside)&e.active
         healthy=(up>.8)&(pos[:,:,2]>.3)&(pos[:,:,2]<.55)&~e.gait_bad_contact.bool()
-        phi_before=e.sign[None]*(before[:,0:1].clamp(-7.1,7.1)-self.advance_origin[:,None])*self.has_foot[:,None]
+        phi_before=e.sign[None]*(before[:,0:1].clamp(-7.1,7.1)-self.advance_origin)*self.has_foot[:,None]
         foot=e.foot_hits.bool().any(-1)&healthy&~e.nonfoot_ball_hits.bool()
         anyfoot=foot.any(-1)
         body=e.nonfoot_ball_hits.bool().any(-1)
         first_trajectory=anyfoot&~body&~self.has_foot
-        self.advance_origin=torch.where(first_trajectory,before[:,0].clamp(-7.1,7.1),self.advance_origin)
+        self.advance_origin=torch.where(first_trajectory[:,None],before[:,0:1].clamp(-7.1,7.1),self.advance_origin)
         self.has_foot|=anyfoot&~body
         self.foot_valid=torch.where(body,False,torch.where(anyfoot,True,self.foot_valid))
         touched=e.touches.bool().reshape(e.count,2,4).any(-1)
@@ -149,7 +154,7 @@ class MatchTask:
         anchors,chase=self.role_targets(before,pos_before,healthy,e.sign)
         delta_ball_distance=norm(pos_before[:,:,:2]-before[:,None,:2])-norm(pos[:,:,:2]-before[:,None,:2])
         role_delta=norm(pos_before[:,:,:2]-anchors)-norm(pos[:,:,:2]-anchors)
-        phi_after=e.sign[None]*(e.ball[:,0:1].clamp(-7.1,7.1)-self.advance_origin[:,None])*self.has_foot[:,None]
+        phi_after=e.sign[None]*(e.ball[:,0:1].clamp(-7.1,7.1)-self.advance_origin)*self.has_foot[:,None]
         winner=base['goal'][:,None]*e.sign[None]>0
         conceded=base['goal'][:,None]*e.sign[None]<0
         legit_goal=(base['goal']!=0)&self.foot_valid

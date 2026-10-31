@@ -142,3 +142,18 @@ def test_respawn_avoids_occupied_original_position_and_ball(env):
     assert torch.linalg.vector_norm(pos-point)>=.65
     assert torch.linalg.vector_norm(pos-env.ball[0,:2])>=.45
     assert env.observe()[0,2,-1].item()==pytest.approx(.45)
+
+
+def test_negative_potential_cannot_be_repeatedly_collected_on_robot_respawns(env):
+    env.reset();task=env.match_task;task.has_foot[0]=True
+    task.advance_origin[0]=env.ball[0,0]+6.
+    pairs=torch.tensor([[0,2]],device=env.device)
+    original=task.advance_origin.clone()
+    env.reset_agents(pairs)
+    assert task.advance_origin[0,2]==env.ball[0,0]
+    assert torch.equal(task.advance_origin[0,:2],original[0,:2])
+    env.qpos[0,env.rootq[2]+2]=.1
+    _,_,reward,_,_,_=measure(env)
+    # No +6 inherited potential payment on the new individual trajectory.
+    assert reward[0,2,0]<-4.9
+    assert task.has_foot[0]  # Team history is preserved.
