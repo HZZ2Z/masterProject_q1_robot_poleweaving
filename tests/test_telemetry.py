@@ -6,7 +6,7 @@ from q1_4v4.telemetry import active_team_reward,course_metrics,macro_metrics,das
 
 def test_every_dashboard_section_has_six_panels():
     specs=dashboard_specs(COURSES)
-    assert len(specs)==len(COURSES)+2
+    assert len(specs)==len(COURSES)+4  # Overall, diagnostics, and two full-match reward ledgers.
     assert all(len(panels)==6 for _,panels in specs)
     for _,panels in specs:
         assert all(p['keys'] and p['title'] for p in panels)

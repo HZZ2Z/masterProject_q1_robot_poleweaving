@@ -233,6 +233,7 @@ def measure(env,before_foot):
     ground_corner=corners[:,:,:,:,2]<=.005
     corner_slip=norm(corner_velocity[:,:,:,:,:2])
     slip=torch.where(ground_corner.any(-1),(corner_slip*ground_corner).sum(-1)/ground_corner.sum(-1).clamp(min=1),patch_slip)
+    env.foot_slip=slip
     v=env.qvel[:,env.rootv[:,None]+torch.arange(3,device=env.device)]
     vlocal=torch.einsum('nai,naij->naj',v,rot)
     yaw_velocity=env.qvel[:,env.rootv+5]

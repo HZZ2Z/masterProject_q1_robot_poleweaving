@@ -1,7 +1,36 @@
 """Explicit per-course metric units and six-chart workspace definitions."""
 from .course_config import COURSES,GAIT_COURSES,KICKS,DURATIONS,SUCCESS
+from .match_task import MatchTask
 
 SKILL_NAMES=('upright','height','forward','side','left','right','task_distance')
+MATCH_TERM_LABELS=('存活','直立','基座高度','关节速度','动作平滑','支撑滑移','非脚部着地',
+                   '追球','角色移动','角色站位','合法控球Potential','首次脚触球','有效进球','实际失球','机器人复位','球出界','非脚部触球')
+assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)
+
+
+def match_metrics(name,values,terms,amplitude):
+    prefix='06_课程/'+name+'/'
+    data={prefix+'红队站立时间占比':values['standing_red'],prefix+'蓝队站立时间占比':values['standing_blue'],
+          prefix+'红队每机器人分钟复位次数':values['respawns_red_per_min'],
+          prefix+'蓝队每机器人分钟复位次数':values['respawns_blue_per_min'],
+          prefix+'红队每机器人分钟摔倒次数':values['falls_red_per_min'],
+          prefix+'蓝队每机器人分钟摔倒次数':values['falls_blue_per_min'],
+          prefix+'控制动作幅度':amplitude,'debug/'+name+'_reward_sum_residual':values['reward_residual']}
+    for label,pair in zip(MATCH_TERM_LABELS,terms):
+        for team,value in zip(('红队','蓝队'),pair):data[f'07_Reward/{name}/{team}/{label}']=value
+    return data
+
+
+def match_reward_specs(name):
+    groups=[('01 基础姿态',('存活','直立','基座高度')),
+            ('02 动作与支撑约束',('关节速度','动作平滑','支撑滑移','非脚部着地')),
+            ('03 追球与角色',('追球','角色移动','角色站位')),
+            ('04 合法控球与首次脚触球',('合法控球Potential','首次脚触球')),
+            ('05 进球与失球',('有效进球','实际失球')),
+            ('06 复位、出界和非法触球',('机器人复位','球出界','非脚部触球'))]
+    return (f'{COURSES.index(name):02d} Reward分解 · {name}',[
+        {'title':title+'（平均每控制步）','keys':[f'07_Reward/{name}/{team}/{label}' for label in labels for team in ('红队','蓝队')]}
+        for title,labels in groups])
 
 
 def active_team_reward(reward,active):
@@ -88,8 +117,9 @@ def dashboard_specs(names,parallel=True,per_course=True):
             if name=='match':
                 charts[1]=panel('02 红蓝有效进球回合比例（终局课程）',p+'红队成功率',p+'蓝队成功率')
                 charts[3]=panel('04 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数')
+                charts[2]=panel('03 站立时间占比与无复位稳定率',p+'红队站立时间占比',p+'蓝队站立时间占比',p+'红队稳定率',p+'蓝队稳定率')
                 charts += [panel('05 每队脚部触球回合比例（红蓝平均）',p+'脚部触球率'),
-                           panel('06 回合结束时进球方向比例（非胜率）',p+'红队进球比例',p+'蓝队进球比例')]
+                           panel('06 每机器人分钟复位次数',p+'红队每机器人分钟复位次数',p+'蓝队每机器人分钟复位次数')]
             elif name in ('balance','balance_push'):
                 charts += [panel('05 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数'),panel('06 基座平均高度（米）',p+'基座平均高度_米')]
             elif name=='weight_shift':
@@ -108,6 +138,7 @@ def dashboard_specs(names,parallel=True,per_course=True):
             else:
                 charts += [panel('05 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数'),panel('06 回合结束时进球方向比例（非胜率）',p+'红队进球比例',p+'蓝队进球比例')]
         sections.append((f'{COURSES.index(name):02d} 课程 · {name}',charts))
+        if per_course and name in ('teamplay','match'):sections.append(match_reward_specs(name))
     sections.append(('99 学习诊断（按需展开）',[
         panel('价值损失','debug/shared_value_loss'),panel('策略损失','debug/shared_policy_loss'),
         panel('连续动作分布总熵','debug/shared_dist_entropy'),panel('PPO裁剪比例','debug/shared_clip_fraction'),

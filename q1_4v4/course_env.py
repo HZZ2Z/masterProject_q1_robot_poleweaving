@@ -2,13 +2,15 @@
 import torch
 import warp as wp
 from .warp_env import WarpSoccerEnv
-from .course_config import COURSES, LOW_LEVEL, KICKS, FAMILIES, AMPLITUDE, command, GAIT_COURSES, CONTESTS
+from .course_config import COURSES, LOW_LEVEL, KICKS, FAMILIES, AMPLITUDE, command, GAIT_COURSES, CONTESTS, FULL_MATCHES
 from . import gait
+from .match_task import MatchTask
 
 
 @wp.kernel
 def feet_contact(n: wp.array[int], geoms: wp.array[wp.vec2i], worlds: wp.array[int],
-                 dist: wp.array[float], owner: wp.array[int], ball: int, hits: wp.array3d[int]):
+                 dist: wp.array[float], owner: wp.array[int], robot_owner: wp.array[int], ball: int,
+                 hits: wp.array3d[int], nonfoot: wp.array2d[int]):
     c = wp.tid()
     if c < n[0] and dist[c] <= 0.:
         a,b = geoms[c][0], geoms[c][1]
@@ -18,6 +20,8 @@ def feet_contact(n: wp.array[int], geoms: wp.array[wp.vec2i], worlds: wp.array[i
         if g >= 0 and owner[g] >= 0:
             k = owner[g]
             wp.atomic_max(hits,worlds[c],k//2,k%2,1)
+        elif g >= 0 and robot_owner[g] >= 0:
+            wp.atomic_max(nonfoot,worlds[c],robot_owner[g],1)
 
 
 class CourseWarpEnv(WarpSoccerEnv):
@@ -29,6 +33,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.ready = False
         # Kernels are captured by parent constructor; buffers must exist before _substep.
         self.foot_hits = torch.zeros((count,8,2),device=device,dtype=torch.int32)
+        self.nonfoot_ball_hits = torch.zeros((count,8),device=device,dtype=torch.int32)
         self.foot_owner = None
         gait.initialize(self)
         super().__init__(count,device,seed,FAMILIES[stage],**kwargs)
@@ -73,8 +78,8 @@ class CourseWarpEnv(WarpSoccerEnv):
             wp.from_torch(self.gait_contact_index)],device=self.wp_device)
         super()._substep()
         wp.launch(feet_contact,dim=self.data.contact.geom.shape[0],inputs=[self.data.nacon,
-            self.data.contact.geom,self.data.contact.worldid,self.data.contact.dist,self.foot_owner,
-            self.reference.ballgeom,wp.from_torch(self.foot_hits)],device=self.wp_device)
+            self.data.contact.geom,self.data.contact.worldid,self.data.contact.dist,self.foot_owner,self.owner_wp,
+            self.reference.ballgeom,wp.from_torch(self.foot_hits),wp.from_torch(self.nonfoot_ball_hits)],device=self.wp_device)
         wp.launch(gait.ground_contacts,dim=self.data.contact.geom.shape[0],inputs=[self.data.nacon,
             self.data.contact.geom,self.data.contact.worldid,self.data.contact.dist,self.foot_owner,self.owner_wp,
             self.model.geom('floor').id,wp.from_torch(self.gait_contact),wp.from_torch(self.gait_contact_index),
@@ -86,6 +91,9 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.course = stage; self.stage = FAMILIES[stage]
         self.course_amplitude = AMPLITUDE[stage]
         self.active.fill_(True)
+        if stage in FULL_MATCHES:
+            if not hasattr(self,'match_task'):self.match_task=MatchTask(self)
+            self.course_amplitude=self.match_task.control.amplitude
 
     def _participants(self, ids):
         """One ball drill per world; identities are resampled only at rally reset."""
@@ -173,9 +181,11 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.start_ball[ids] = self.ball[ids]
         self.start_positions[ids] = self.qpos[ids][:,self.rootq[:,None]+torch.arange(3,device=self.device)]
         self.foot_hits[ids] = 0
+        self.nonfoot_ball_hits[ids] = 0
         w=ids[:,None].expand(-1,8).flatten();a=torch.arange(8,device=self.device).expand(len(ids),-1).flatten()
         gait.reset(self,w,a)
         self.forward()
+        if self.course in FULL_MATCHES:self.match_task.reset_worlds(ids)
         return self.observe(),self.state()
 
     def _targets(self, ids):
@@ -192,10 +202,14 @@ class CourseWarpEnv(WarpSoccerEnv):
     def reset_agents(self, pairs):
         if not len(pairs): return self.observe(),self.state()
         w,a = pairs[:,0],pairs[:,1]
+        spawn=self.match_task.respawn_positions(w,a) if self.course in FULL_MATCHES else None
         # Only reset the indicated articulated robot; ball and other robots retain their trajectories.
         q0 = self.tensor(self.model.qpos0)
         qindices = self.rootq[a,None]+torch.arange(7,device=self.device)
         self.qpos[w[:,None],qindices] = q0[qindices]
+        if spawn is not None:
+            self.qpos[w,self.rootq[a]]=spawn[:,0]
+            self.qpos[w,self.rootq[a]+1]=spawn[:,1]
         self.qpos[w[:,None],self.qidx[a]] = self.neutral
         self.qvel[w[:,None],self.rootv[a,None]+torch.arange(6,device=self.device)] = 0
         self.qvel[w[:,None],self.vidx[a]] = 0
@@ -213,6 +227,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         if self.course=='turn': self.heading[w,a] += self.uniform((len(w),),-.9,.9)
         gait.reset(self,w,a)
         self.forward()
+        if self.course in FULL_MATCHES:self.match_task.update_targets()
         return self.observe(),self.state()
 
     def observe(self):
@@ -220,18 +235,21 @@ class CourseWarpEnv(WarpSoccerEnv):
         if not self.ready: return obs
         obs[:,:,109:115] = self.tensor(command(self.course))
         obs[:,:,-2] = self.agent_steps/self.episode_steps if self.course in LOW_LEVEL else self.steps[:,None]/self.episode_steps
-        obs[:,:,-1] = AMPLITUDE[self.course]
+        obs[:,:,-1] = self.course_amplitude
         if self.course=='turn':
             rot=self.xmat[:,self.bodies].reshape(self.count,8,3,3)
             yaw=torch.atan2(rot[:,:,1,0],rot[:,:,0,0]);error=self.heading-yaw
             obs[:,:,106:109] = torch.stack((torch.cos(error),torch.sin(error),torch.zeros_like(error)),-1)
-        return torch.cat((obs[:,:,:115],gait.observations(self),obs[:,:,115:]),-1)
+        gait_obs=gait.observations(self)
+        if self.course in FULL_MATCHES:gait_obs=self.match_task.observations(gait_obs)
+        return torch.cat((obs[:,:,:115],gait_obs,obs[:,:,115:]),-1)
 
     @torch.no_grad()
     def step(self, action):
         from .curriculum import STAGES,AMPLITUDES
         controlled = action*self.active[:,:,None]
         self.foot_hits.zero_()
+        self.nonfoot_ball_hits.zero_()
         self.gait_bad_contact.zero_()
         last_action = self.previous_action.clone()
         foot_before = self.xpos[:,self.feet].clone()
@@ -244,6 +262,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         _,_,_,term,trunc,base = super().step(controlled)
         self.agent_steps += 1
         gait_reward,gait_objective,gait_quality=gait.measure(self,foot_before)
+        if self.course in FULL_MATCHES:return self.match_task.step(action,last_action,before,pos_before,base)
         pos=self.xpos[:,self.bodies]; rot=self.xmat[:,self.bodies].reshape(self.count,8,3,3)
         norm=lambda x:torch.linalg.vector_norm(x,dim=-1)
         upright=rot[:,:,2,2]

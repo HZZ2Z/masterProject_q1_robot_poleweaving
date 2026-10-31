@@ -2,13 +2,17 @@
 import torch
 import mujoco
 from .course_env import CourseWarpEnv
-from .course_config import LOW_LEVEL, DURATIONS
+from .course_config import LOW_LEVEL, DURATIONS, FULL_MATCHES
+from .match_task import MatchControl
 
 
 class CoursePreview:
     dt=.02
-    def __init__(self,stage,device='cuda:0',marching_target_observation='origin'):
+    def __init__(self,stage,device='cuda:0',marching_target_observation='origin',match_control=None):
         self.env=CourseWarpEnv(count=1,device=device,stage=stage,episode_steps=DURATIONS[stage],marching_target_observation=marching_target_observation)
+        if stage in FULL_MATCHES:
+            self.env.match_task.control=MatchControl(match_control)
+            self.env.course_amplitude=self.env.match_task.control.amplitude
         self.model=self.env.model
         self.data=mujoco.MjData(self.model)
         for key in ('observation_space','share_observation_space','action_space'):
@@ -28,7 +32,13 @@ class CoursePreview:
     def step(self,action):
         o,s,r,d,t,info=self.env.step(torch.as_tensor(action,device=self.env.device,dtype=torch.float32)[None])
         preview_info={'stage':self.env.course}
-        if self.env.course in LOW_LEVEL:
+        if self.env.course in FULL_MATCHES:
+            done=bool(info['world_terminated'].any());truncated=bool(info['world_truncated'].any())
+            pairs=(info['robot_resets']&~(info['world_terminated']|info['world_truncated'])[:,None]).nonzero()
+            if len(pairs):
+                preview_info['reset_agents']=pairs[:,1].cpu().tolist()
+                o,s=self.env.reset_agents(pairs)
+        elif self.env.course in LOW_LEVEL:
             # Match training: a completed robot must not interrupt its seven peers.
             pairs=(d|t).nonzero(as_tuple=False)
             if len(pairs):

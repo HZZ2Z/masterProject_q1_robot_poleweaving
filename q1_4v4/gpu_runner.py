@@ -11,12 +11,13 @@ from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
 from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity, MARCHING_EXPLORATION_REVISION, MarchingGaussian
-from .course_config import make_curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS, marching_observation_mode
+from .course_config import make_curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS, marching_observation_mode, FULL_MATCHES, MATCH_TASK_REVISION
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
-from .mixed_env import MixedCourseEnv, ended_rows
-from .telemetry import SKILL_NAMES, active_team_reward, course_metrics, macro_metrics
+from .mixed_env import MixedCourseEnv, finish_course_step
+from .telemetry import SKILL_NAMES, active_team_reward, course_metrics, macro_metrics, match_metrics
 from .course_table import COURSE_TABLE_KEY,course_table_html
+from .match_task import MatchTask,MatchControl
 
 
 def run(options):
@@ -46,6 +47,13 @@ def run(options):
     start=checkpoint['iteration'] if checkpoint else 0
     direct_start=curriculum.stage if options.start_course is not None else checkpoint.get('direct_start_course') if checkpoint else None
     task_switch=checkpoint is not None and options.start_course is not None and curriculum.stage!=checkpoint['curriculum']['stage']
+    match_change=checkpoint is not None and checkpoint.get('match_task_revision',0)!=MATCH_TASK_REVISION
+    if match_change:
+        if parallel:
+            for name in FULL_MATCHES:
+                curriculum.courses[name].recertify('continuous_match_recertification')
+                curriculum.mastered.discard(name)
+        elif curriculum.stage in FULL_MATCHES:curriculum.recertify('continuous_match_recertification')
     if checkpoint and checkpoint.get('reward_version',1) != REWARD_REVISION:
         curriculum.recertify('reward_change_recertification')
     if checkpoint and checkpoint.get('ball_task_revision',0)!=BALL_TASK_REVISION:
@@ -66,6 +74,17 @@ def run(options):
     else:
         env = CourseWarpEnv(options.num_envs, str(device), options.seed, curriculum.stage,
                             nconmax=options.nconmax, njmax=options.njmax,marching_target_observation=options.marching_target_observation)
+    def match_groups():
+        if parallel:return [(name,group) for name,(_,group) in env.groups.items() if name in FULL_MATCHES]
+        return [(env.course,env)] if env.course in FULL_MATCHES else []
+    def restore_match_controls():
+        saved=checkpoint.get('match_controls',{}) if checkpoint and not match_change else {}
+        for name,group in match_groups():
+            group.match_task.control=MatchControl(saved.get(name))
+            group.course_amplitude=group.match_task.control.amplitude
+            if args.gamma!=group.match_task.discount:raise ValueError('Match potential and PPO discounts differ')
+    restore_match_controls()
+    uses_match=bool(match_groups())
     teams = [make_team(args, env, device, gpu_rollout=True,shared=shared) for _ in groups]
     if checkpoint:
         if checkpoint.get('backend') != 'warp':
@@ -74,7 +93,7 @@ def run(options):
             raise ValueError('Checkpoint policy count does not match policy sharing')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
             load_team(state, policy, trainer)
-            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch:
+            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match):
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
@@ -161,7 +180,9 @@ def run(options):
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
-        payload = dict(version=4, direct_start_course=direct_start, marching_recovery_start=recovery_start, marching_exploration_mix=args.marching_exploration_mix, marching_exploration_revision=args.marching_exploration_revision, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
+        payload = dict(version=4, match_task_revision=MATCH_TASK_REVISION,
+                       match_controls={name:group.match_task.control.state_dict() for name,group in match_groups()},
+                       direct_start_course=direct_start, marching_recovery_start=recovery_start, marching_exploration_mix=args.marching_exploration_mix, marching_exploration_revision=args.marching_exploration_revision, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
                        policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
@@ -181,7 +202,7 @@ def run(options):
                 dir=str(out.resolve()), settings=wandb.Settings(init_timeout=60))
             wandb_run.config.update(dict(vars(options), world_size=distributed.world_size,
                 total_num_envs=options.num_envs*distributed.world_size,
-                reward_revision=REWARD_REVISION, marching_exploration_revision=args.marching_exploration_revision, curriculum_window_policy='per_team', per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION), allow_val_change=True)
+                reward_revision=REWARD_REVISION, match_task_revision=MATCH_TASK_REVISION, marching_exploration_revision=args.marching_exploration_revision, curriculum_window_policy='per_team', per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION), allow_val_change=True)
             wandb_run.define_metric('iteration')
             wandb_run.define_metric('*', step_metric='iteration')
             wandb_run.define_metric('debug/*', hidden=True)
@@ -196,6 +217,8 @@ def run(options):
             raw_reward = torch.zeros(2, device=device)
             skill_stats = torch.zeros(len(SKILL_NAMES),device=device)
             gait_stats = torch.zeros(len(METRIC_NAMES),device=device)
+            match_stats=torch.zeros((len(COURSES),len(MatchTask.metrics)),device=device)
+            reward_terms=torch.zeros((len(COURSES),len(MatchTask.terms),2),device=device)
             if parallel:env.begin_rollout()
             for step in range(options.horizon):
                 rollout.active[step].copy_(env.active)
@@ -215,6 +238,10 @@ def run(options):
                     gait_stats += torch.stack([env.gait_metrics[k] for k in METRIC_NAMES])
                     skill_stats += torch.stack([env.last_stats[k] for k in SKILL_NAMES])
                     raw_reward += active_team_reward(reward,env.active)
+                    if not parallel and env.course in FULL_MATCHES:
+                        index=COURSES.index(env.course)
+                        match_stats[index]+=env.match_task.last_metrics
+                        reward_terms[index]+=env.match_task.last_terms
                     # Bootstrap timeout final states BEFORE resetting. No CPU value normalization.
                     _,terminal_state=policy_inputs(terminal_obs,terminal_state)
                     for t, (policy, trainer, _) in enumerate(teams):
@@ -230,10 +257,9 @@ def run(options):
                         terminal_obs,ended=env.finish_step()
                         if len(ended):completed.append(ended)
                     else:
-                        ended,ids=ended_rows(env,terminated,truncated,info)
-                        if len(ended):
-                            terminal_obs,_=env.reset_agents(ids) if env.course in LOW_LEVEL else env.reset(ids[:,0])
-                            completed.append(ended)
+                        reset_obs,ended=finish_course_step(env,terminated,truncated,info)
+                        if reset_obs is not None:terminal_obs=reset_obs
+                        if len(ended):completed.append(ended)
                     rollout.obs[step+1].copy_(terminal_obs)
             env.check()  # Includes overflow accumulated during all substeps, before any optimizer update.
             with torch.no_grad():
@@ -332,6 +358,21 @@ def run(options):
                     (metrics['red/reward'],metrics['blue/reward']),gm,ss,
                     options.num_envs*distributed.world_size,options.num_envs*distributed.world_size))
             if direct_start is not None:cloud['01_总览/直接起始课程编号']=COURSES.index(direct_start)
+            match_values=(distributed.mean(env.course_match_sum if parallel else match_stats)/options.horizon).cpu().tolist()
+            reward_values=(distributed.mean(env.course_reward_terms_sum if parallel else reward_terms)/options.horizon).cpu().tolist()
+            def update_match_controls():
+                for name,group in match_groups():
+                    index=COURSES.index(name)
+                    values=dict(zip(MatchTask.metrics,match_values[index]))
+                    cloud.update(match_metrics(name,values,reward_values[index],group.course_amplitude))
+                    group.match_task.control.update(match_values[index][:2],match_values[index][2:4])
+                    group.course_amplitude=group.match_task.control.amplitude
+                    sl=env.groups[name][0] if parallel else slice(None)
+                    rollout.obs[-1,sl,:,-1]=group.course_amplitude
+                    if parallel:env._obs[sl,:,-1]=group.course_amplitude
+            update_match_controls()
+            cloud['debug/比赛任务修订']=MATCH_TASK_REVISION
+            if not parallel and env.course in FULL_MATCHES:cloud['01_总览/回合摔倒率']=cm['fall_rate']
             for rank,memory in enumerate(memories):
                 cloud[f'04_性能/GPU{rank}显存_GiB']=memory
             for key,label in [('slip_mps','支撑脚滑移_mps'),('phase_match','接触相位匹配率'),('velocity_error','速度误差_mps'),

@@ -10,6 +10,8 @@ LEGACY_COURSES = ('balance','balance_push','move','backward','lateral','turn','s
                   'goalkeeper','duel','attack_2v1','game_2v2','teamplay','match')
 LOW_LEVEL = set(COURSES[:13])
 CONTESTS = {'duel','attack_2v1','game_2v2','teamplay','match'}
+FULL_MATCHES = {'teamplay','match'}
+MATCH_TASK_REVISION = 1
 BALL_TASK_REVISION = 1
 GAIT_COURSES = set(COURSES[3:13]) | {'approach'}
 KICKS = {'kick_left','kick_right','side_left','side_right','kick_recover'}

@@ -1,7 +1,7 @@
 import os
 import pytest
 import torch
-from q1_4v4.course_config import Curriculum, COURSES, LOW_LEVEL, command, make_curriculum
+from q1_4v4.course_config import Curriculum, COURSES, LOW_LEVEL, FULL_MATCHES, command, make_curriculum
 
 
 def test_explicit_direct_match_bypasses_parallel_scheduler_loading_without_claiming_mastery():
@@ -88,7 +88,7 @@ def test_each_course_spawn_and_physics(env,course):
         assert torch.isfinite(obs).all() and torch.isfinite(state).all() and torch.isfinite(reward).all()
     env.check()
     assert obs.shape==(4,8,128) and state.shape==(4,8,1028)
-    assert done.shape==((4,8) if course in LOW_LEVEL else (4,))
+    assert done.shape==((4,8) if course in LOW_LEVEL|FULL_MATCHES else (4,))
     assert not info['success'].any()
 
 

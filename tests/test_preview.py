@@ -13,8 +13,13 @@ def preview_with_result(course, terminated, truncated):
     obs=torch.arange(8*128,dtype=torch.float32).reshape(1,8,128)
     state=torch.arange(1028,dtype=torch.float32).reshape(1,1028)
     reward=torch.ones((1,8,1))
+    info={}
+    if course in ('teamplay','match'):
+        info=dict(world_terminated=terminated if terminated.ndim==1 else terminated.all(-1),
+                  world_truncated=truncated if truncated.ndim==1 else truncated.all(-1),
+                  robot_resets=terminated if terminated.ndim==2 else torch.zeros((1,8),dtype=torch.bool))
     env=SimpleNamespace(course=course,device='cpu',
-        step=Mock(return_value=(obs,state,reward,terminated,truncated,{})),
+        step=Mock(return_value=(obs,state,reward,terminated,truncated,info)),
         reset=Mock(side_effect=AssertionError('Unexpected whole-world reset')),
         reset_agents=Mock(return_value=(obs+100,state+100)),check=Mock())
     preview=CoursePreview.__new__(CoursePreview)
@@ -62,6 +67,15 @@ def test_unfinished_robots_keep_running_without_resets():
     preview.env.reset_agents.assert_not_called()
     preview.env.reset.assert_not_called()
     np.testing.assert_array_equal(obs,preview.env.step.return_value[0][0].numpy())
+
+
+def test_match_fall_resets_only_the_fallen_robot_in_gui():
+    fallen=torch.zeros((1,8),dtype=torch.bool);fallen[0,6]=True
+    preview=preview_with_result('match',fallen,torch.zeros_like(fallen))
+    *_,done,timeout,info=preview.step(np.zeros((8,22)))
+    assert not done and not timeout and info['reset_agents']==[6]
+    assert preview.env.reset_agents.call_args.args[0].tolist()==[[0,6]]
+    preview.env.reset.assert_not_called()
 
 
 @pytest.mark.parametrize('course,done,timeout',[
