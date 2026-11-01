@@ -2,6 +2,7 @@
 import torch
 import weakref
 from collections import deque
+from .match_locomotion import MatchLocomotion
 
 
 class MatchControl:
@@ -9,7 +10,10 @@ class MatchControl:
     distances=((.23,.31),(.45,.65),(.8,1.1),(1.3,1.6),(1.8,2.4))
     counters=('near_red','near_blue','touch_red','touch_blue','advance_red','advance_blue',
               'quality_red','quality_blue','standard_red','standard_blue',
-              'standard_touch_red','standard_touch_blue','standard_goal_red','standard_goal_blue')
+              'standard_touch_red','standard_touch_blue','standard_goal_red','standard_goal_blue',
+              'training_quality_red','training_quality_blue')+tuple(
+                  f'{key}_{team}' for key in ('mid','far','mid_touch','far_touch','mid_advance','far_advance')
+                  for team in ('red','blue'))
 
     def __init__(self,state=None):
         state=state or {}
@@ -29,13 +33,16 @@ class MatchControl:
         if max(respawns)>12.:
             self.amplitude=max(.45,round(self.amplitude-.025,6));self.windows=0
         if self.updates%16:return
-        if min(self.evidence['near_'+team] for team in ('red','blue'))<256:
+        if min(self.evidence['near_'+team] for team in ('red','blue'))<256 or (
+                self.level<4 and min(self.evidence['mid_'+team] for team in ('red','blue'))<128):
             self.reason='samples';return
         rates=self._rates(self.evidence)
         self.reason=('posture' if min(standing)<.90 or max(respawns)>3. or
-                     min(rates['quality_'+team] for team in ('red','blue'))<.90 else
+                     min(rates['training_quality_'+team] for team in ('red','blue'))<.90 else
                      'touch' if min(rates['touch_'+team] for team in ('red','blue'))<.65 else
                      'advance' if min(rates['advance_'+team] for team in ('red','blue'))<.40 else
+                     'mid_touch' if self.level<4 and min(rates['mid_touch_'+team] for team in ('red','blue'))<.35 else
+                     'mid_advance' if self.level<4 and min(rates['mid_advance_'+team] for team in ('red','blue'))<.20 else
                      'goals' if self.level==4 and min((rates['standard_goal_'+team] or 0.) for team in ('red','blue'))<.05
                      else 'pass')
         self.windows=self.windows+1 if self.reason=='pass' else 0
@@ -50,8 +57,11 @@ class MatchControl:
     def _rates(counts):
         rates={}
         for team in ('red','blue'):
-            for key in ('touch','advance','quality'):
+            for key in ('touch','advance','quality','training_quality'):
                 n=counts['near_'+team];rates[key+'_'+team]=counts[key+'_'+team]/n if n else None
+            for bucket in ('mid','far'):
+                for key in ('touch','advance'):
+                    n=counts[bucket+'_'+team];rates[bucket+'_'+key+'_'+team]=counts[bucket+'_'+key+'_'+team]/n if n else None
             for key in ('standard_touch','standard_goal'):
                 n=counts['standard_'+team];rates[key+'_'+team]=counts[key+'_'+team]/n if n else None
         return rates
@@ -70,10 +80,12 @@ class MatchTask:
     terms=('survival','upright','height','joint_velocity','action_smooth','foot_slip',
            'nonfoot_ground','approach','role_progress','role_position','ball_potential','foot_contact',
            'goal_for','goal_against','robot_reset','ball_out','nonfoot_ball',
-           'stance_width','approach_distance','attack_milestone')
+           'stance_width','approach_distance','attack_milestone')+MatchLocomotion.terms
     metrics=('standing_red','standing_blue','respawns_red_per_min','respawns_blue_per_min',
              'falls_red_per_min','falls_blue_per_min','reward_residual',
-             'chaser_distance_red','chaser_distance_blue')+MatchControl.counters
+             'chaser_distance_red','chaser_distance_blue',
+             'walk_fraction_red','walk_fraction_blue','walk_error_red','walk_error_blue',
+             'walk_lift_red','walk_lift_blue')+MatchControl.counters
 
     def __init__(self,env):
         self.env=weakref.proxy(env)
@@ -88,6 +100,12 @@ class MatchTask:
         self.standard=torch.zeros(n,device=d,dtype=torch.bool)
         self.kickoff_team=torch.zeros(n,device=d,dtype=torch.long)
         self.spawn_level=torch.zeros(n,device=d,dtype=torch.long)
+        self.spawn_bucket=torch.zeros(n,device=d,dtype=torch.long)
+        self.spawn_cycle=torch.zeros(n,device=d,dtype=torch.long)
+        self.kickoff_robot=torch.zeros(n,device=d,dtype=torch.long)
+        self.segment_start=torch.zeros(n,device=d)
+        self.agent_failures=torch.zeros((n,8),device=d,dtype=torch.long)
+        self.agent_quality_steps=torch.zeros((n,8),device=d)
         self.quality_steps=torch.zeros((n,2),device=d)
         self.attack_paid=torch.zeros((n,2),device=d,dtype=torch.bool)
         self.last_metrics=torch.zeros(len(self.metrics),device=d)
@@ -99,6 +117,7 @@ class MatchTask:
         e=self.env
         self.failures[ids]=0;self.falls[ids]=0;self.foot_valid[ids]=False;self.owner[ids]=-1
         self.has_foot[ids]=False;self.advance_origin[ids]=0
+        self.segment_start[ids]=0;self.agent_failures[ids]=0;self.agent_quality_steps[ids]=0
         self.quality_steps[ids]=0;self.attack_paid[ids]=False
         self.spawn[ids]=e.qpos[ids][:,e.rootq[:,None]+torch.arange(2,device=e.device)]
         self.update_targets()
@@ -107,20 +126,29 @@ class MatchTask:
         """Keep the ball at midfield and all eight players; shorten the robot approach."""
         e=self.env;n=len(ids);level=self.control.level
         layout=getattr(e,'match_layout','mixed')
-        standard=(ids%10==0) if layout=='mixed' else torch.full((n,),layout=='standard',device=e.device)
-        if level==4:standard=torch.ones_like(standard)
+        residue=(ids+self.spawn_cycle[ids])%10 if e.count<10 else ids%10
+        self.spawn_cycle[ids]+=1
+        bucket=torch.where(residue==0,3,torch.where(residue<=4,0,torch.where(residue<=7,1,2)))
+        if layout!='mixed':bucket=torch.full_like(bucket,3 if layout=='standard' else 0)
+        if level==4:bucket.fill_(3)
+        self.spawn_bucket[ids]=bucket
+        standard=bucket==3
         self.standard[ids]=standard;self.spawn_level[ids]=level
         flip=torch.randint(2,(),device=e.device,generator=e.generator)
         self.kickoff_team[ids]=(ids+ids//10+flip)%2
+        self.kickoff_robot[ids]=self.kickoff_team[ids]*4+2
         selected=ids[~standard]
         if not len(selected):return
         n=len(selected);team=self.kickoff_team[selected]
         role=2+torch.randint(2,(n,),device=e.device,generator=e.generator)
         attacker=team*4+role;opponent=(1-team)*4+role
-        lo,hi=self.control.distances[level]
+        self.kickoff_robot[selected]=attacker
+        distance_level=(level+self.spawn_bucket[selected]).clamp(max=4)
+        ranges=e.tensor(self.control.distances)[distance_level]
+        lo,hi=ranges[:,0],ranges[:,1]
         for robot,extra in ((attacker,0.),(opponent,max(.6,.9-.1*level))):
             sign=e.sign[robot]
-            distance=e.uniform((n,),lo+extra,hi+extra)
+            distance=lo+extra+e.uniform((n,))*(hi-lo)
             foot_sign=torch.where(e.uniform((n,))>.5,1.,-1.)
             e.qpos[selected,e.rootq[robot]]=e.ball[selected,0]-sign*distance
             e.qpos[selected,e.rootq[robot]+1]=e.ball[selected,1]+sign*foot_sign*.09+e.uniform((n,),-.015,.015)
@@ -186,8 +214,9 @@ class MatchTask:
 
     def update_targets(self):
         e=self.env;pos=e.xpos[:,e.bodies]
-        anchors,_=self.role_targets(e.ball,pos,e.active,e.sign)
+        anchors,chase=self.role_targets(e.ball,pos,e.active,e.sign)
         e.targets[:,:,:2]=anchors;e.targets[:,:,2]=.417
+        MatchLocomotion.commands(e,anchors,chase)
 
     def observations(self,features):
         e=self.env;teams=torch.arange(8,device=e.device)[None]//4
@@ -205,6 +234,21 @@ class MatchTask:
     def potential_reward(before,after,terminal,discount=.99):
         return discount*torch.where(terminal,0.,after)-before
 
+    @staticmethod
+    def legal_potential(ball_x,origin,sign,valid):
+        # A broken legal segment can only remove nonnegative shaping potential.
+        return ((ball_x-origin)*sign).clamp(0,7.1)*valid
+
+    @staticmethod
+    def slip_cost(slip):
+        squared=(slip/.05).square()
+        return 4*(1-1/(1+squared))
+
+    @staticmethod
+    def distance_cost(distance):
+        error=(distance-.25).clamp(min=0)
+        return 3*(1-3/(3+error))
+
     def step(self,action,last_action,before,pos_before,base):
         e=self.env;norm=lambda v:torch.linalg.vector_norm(v,dim=-1)
         pos=e.xpos[:,e.bodies];rot=e.xmat[:,e.bodies].reshape(e.count,8,3,3)
@@ -218,12 +262,14 @@ class MatchTask:
         ball_healthy=(up>.8)&(pos[:,:,2]>.3)&(pos[:,:,2]<.55)&~e.gait_bad_contact.bool()
         movement_quality=(.25+.75*quality)*ball_healthy
         self.quality_steps+=healthy.reshape(e.count,2,4).float().mean(-1)
-        phi_before=e.sign[None]*(before[:,0:1].clamp(-7.1,7.1)-self.advance_origin)*self.has_foot[:,None]
+        self.agent_quality_steps+=healthy
+        phi_before=self.legal_potential(before[:,0:1].clamp(-7.1,7.1),self.advance_origin,e.sign[None],self.foot_valid[:,None])
         foot=e.foot_hits.bool().any(-1)&ball_healthy&~e.nonfoot_ball_hits.bool()
         anyfoot=foot.any(-1)
         body=e.nonfoot_ball_hits.bool().any(-1)
-        first_trajectory=anyfoot&~body&~self.has_foot
+        first_trajectory=anyfoot&~body&~self.foot_valid
         self.advance_origin=torch.where(first_trajectory[:,None],before[:,0:1].clamp(-7.1,7.1),self.advance_origin)
+        self.segment_start=torch.where(first_trajectory,before[:,0].clamp(-7.1,7.1),self.segment_start)
         self.has_foot|=anyfoot&~body
         self.foot_valid=torch.where(body,False,torch.where(anyfoot,True,self.foot_valid))
         touched=e.touches.bool().reshape(e.count,2,4).any(-1)
@@ -233,6 +279,7 @@ class MatchTask:
         first_foot=foot&~e.ever_feet.any(-1)
         e.ever_feet|=e.foot_hits.bool()&foot[:,:,None]
         self.failures+=robot_reset.reshape(e.count,2,4).sum(-1)
+        self.agent_failures+=robot_reset
         self.falls+=(fallen&e.active).reshape(e.count,2,4).sum(-1)
         world_term=(base['goal']!=0)|base['out']
         world_trunc=(e.steps>=e.episode_steps)&~world_term
@@ -242,14 +289,14 @@ class MatchTask:
         delta_ball_distance=norm(pos_before[:,:,:2]-before[:,None,:2])-norm(pos[:,:,:2]-before[:,None,:2])
         ball_distance=norm(pos[:,:,:2]-e.ball[:,None,:2])
         role_delta=norm(pos_before[:,:,:2]-anchors)-norm(pos[:,:,:2]-anchors)
-        phi_after=e.sign[None]*(e.ball[:,0:1].clamp(-7.1,7.1)-self.advance_origin)*self.has_foot[:,None]
+        phi_after=self.legal_potential(e.ball[:,0:1].clamp(-7.1,7.1),self.advance_origin,e.sign[None],self.foot_valid[:,None])
         winner=base['goal'][:,None]*e.sign[None]>0
         conceded=base['goal'][:,None]*e.sign[None]<0
         legit_goal=(base['goal']!=0)&self.foot_valid
         team_touch=e.ever_feet.any(-1).reshape(e.count,2,4).any(-1)
-        team_delta=(e.ball[:,0]-e.start_ball[:,0])[:,None]*e.tensor([1.,-1.])
+        team_delta=(e.ball[:,0]-self.segment_start)[:,None]*e.tensor([1.,-1.])
         e.team_progress=torch.maximum(e.team_progress,torch.where(team_touch&self.foot_valid[:,None],team_delta,0.))
-        milestone=(e.team_progress>=.10)&team_touch&~self.attack_paid
+        milestone=(e.team_progress>=.10)&team_touch&self.foot_valid[:,None]&~self.attack_paid
         self.attack_paid|=milestone
         dt=e.dt
         components={
@@ -258,7 +305,7 @@ class MatchTask:
             'height':-dt*.6*height_cost,
             'joint_velocity':-dt*.02*e.qvel[:,e.vidx].square().mean(-1).clamp(max=25),
             'action_smooth':-dt*.1*(torch.tanh(action)-last_action).square().mean(-1),
-            'foot_slip':-dt*.1*((e.foot_slip/.05).square().clamp(max=4)*e.gait_contact.bool()).mean(-1),
+            'foot_slip':-dt*.1*(self.slip_cost(e.foot_slip)*e.gait_contact.bool()).mean(-1),
             'nonfoot_ground':-dt*.3*e.gait_bad_contact.bool().float(),
             'approach':4.*(delta_ball_distance.clamp(0,.05)*movement_quality+delta_ball_distance.clamp(-.05,0))*chase,
             'role_progress':.3*role_delta.clamp(-.05,.05)*(~chase)*movement_quality,
@@ -271,9 +318,12 @@ class MatchTask:
             'ball_out':-1.*base['out'][:,None]*(self.owner[:,None]==torch.arange(8,device=e.device)[None]//4),
             'nonfoot_ball':-.05*e.nonfoot_ball_hits.bool().float(),
             'stance_width':-dt*.4*width_cost,
-            'approach_distance':-dt*.4*(ball_distance-.25).clamp(0,3)*chase,
+            'approach_distance':-dt*.4*self.distance_cost(ball_distance)*chase,
             'attack_milestone':milestone.repeat_interleave(4,-1).float(),
         }
+        features=getattr(e,'match_gait_features',None)
+        components.update(MatchLocomotion.rewards(features,dt) if features is not None else
+                          {key:torch.zeros_like(quality) for key in MatchLocomotion.terms})
         reward=torch.stack([components[k] for k in self.terms]).sum(0)*e.active
         self.last_terms=torch.stack([(components[k]*e.active).reshape(e.count,2,4).mean((0,2)) for k in self.terms])
         self.last_residual=(reward-torch.stack(list(components.values())).sum(0)*e.active).abs().max()
@@ -289,23 +339,38 @@ class MatchTask:
         team_stable=(self.failures==0)&(team_quality>=.90)&((e.steps[:,None]*dt>=5.)|legit_goal[:,None])
         ended=world_term|world_trunc
         current_level=self.spawn_level==self.control.level
-        near=(~self.standard|(self.control.level==4))&current_level&ended
+        near=((self.spawn_bucket==0)|(self.control.level==4))&current_level&ended
         owner=torch.nn.functional.one_hot(self.kickoff_team,2).bool()
         eligible=near[:,None]&owner
         standard=self.standard[:,None]&ended[:,None]
         counts={}
+        owner_quality=self.agent_quality_steps[e.rows,self.kickoff_robot]/e.steps.clamp(min=1)
+        owner_safe=(owner_quality>=.90)&(self.agent_failures[e.rows,self.kickoff_robot]<=1)&((e.steps*dt>=5.)|legit_goal)
         for index,team in enumerate(('red','blue')):
             own=eligible[:,index]
             counts['near_'+team]=own.float().sum()
             counts['touch_'+team]=(own&team_touch[:,index]).float().sum()
             counts['advance_'+team]=(own&self.attack_paid[:,index]).float().sum()
             counts['quality_'+team]=(own&team_stable[:,index]).float().sum()
+            counts['training_quality_'+team]=(own&owner_safe).float().sum()
+            for bucket_id,bucket in ((1,'mid'),(2,'far')):
+                selected=(self.spawn_bucket==bucket_id)&current_level&ended&owner[:,index]
+                counts[bucket+'_'+team]=selected.float().sum()
+                counts[bucket+'_touch_'+team]=(selected&team_touch[:,index]).float().sum()
+                counts[bucket+'_advance_'+team]=(selected&self.attack_paid[:,index]).float().sum()
             counts['standard_'+team]=standard[:,0].float().sum()
             counts['standard_touch_'+team]=(standard[:,0]&team_touch[:,index]).float().sum()
             counts['standard_goal_'+team]=(standard[:,0]&team_success[:,index]).float().sum()
         chaser_distance=(ball_distance*chase).reshape(e.count,2,4).sum(-1).mean(0)
+        if features is None:walk_metrics=torch.zeros(6,device=e.device)
+        else:
+            walking=features['moving'].float().reshape(e.count,2,4)
+            denominator=walking.sum((0,2)).clamp(min=1)
+            walk_metrics=torch.cat((walking.mean((0,2)),
+                (features['linear_error'].reshape(e.count,2,4)*walking).sum((0,2))/denominator,
+                (features['lift_credit'].reshape(e.count,2,4)*walking).sum((0,2))/denominator))
         self.last_metrics=torch.cat((standing,respawns,falls,self.last_residual[None],chaser_distance,
-                                    torch.stack([counts[key] for key in MatchControl.counters])))
+                                    walk_metrics,torch.stack([counts[key] for key in MatchControl.counters])))
         info=dict(stage=e.course,goal=base['goal'],out=base['out'],fallen=fallen,
             stable=team_stable.any(-1),success=team_success.any(-1),duration=e.steps*dt,
             progress=e.team_progress.max(-1).values,touch=e.ever_feet.any(-1),recover=torch.zeros(e.count,device=e.device,dtype=torch.bool),

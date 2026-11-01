@@ -107,7 +107,7 @@ def test_mixed_low_level_and_football_terminal_masks_and_evidence(env):
         obs,state,reward,term,trunc,_=env.step(action)
         terminal=state.clone()
         next_obs,records=env.finish_step()
-    assert obs.shape==(8,8,128) and state.shape==(8,8,1028)
+    assert obs.shape==(8,8,135) and state.shape==(8,8,1084)
     assert term.shape==trunc.shape==(8,8)
     assert len(records)==52  # 48 low-level samples + 2 rallies x 2 team outcomes.
     assert set(records[:,-1].cpu().tolist())=={0.,2.,3.,23.}

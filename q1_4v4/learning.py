@@ -113,6 +113,19 @@ def make_args(num_envs=4, horizon=128, epochs=5, hidden=128):
     return args
 
 
+def configure_temporal(args,options,checkpoint=None):
+    saved=checkpoint.get('args',{}) if checkpoint else {}
+    changed=False
+    for key in ('gamma','gae_lambda'):
+        value=getattr(options,key,None)
+        if value is None:value=saved.get(key,getattr(args,key))
+        valid=(0<value<=1) if key=='gamma' else (0<=value<=1)
+        if not valid:raise ValueError('Invalid '+key)
+        changed|=bool(checkpoint and saved.get(key,getattr(args,key))!=value)
+        setattr(args,key,float(value));setattr(options,key,float(value))
+    return changed
+
+
 def policy_sharing(options, checkpoint=None):
     saved = checkpoint.get('policy_sharing', 'independent') if checkpoint else 'shared'
     selected = getattr(options, 'policy_sharing', None) or saved
@@ -177,15 +190,22 @@ def save_team(policy, trainer):
 
 
 
-def _input_map(old_dim,new_dim,central=False):
-    """Map old proprioception/task/role columns around inserted gait observations."""
+def _input_map(old_dim,new_dim,central=False,match_features=False):
+    """Preserve input columns and Adam moments when adding distinct match fields."""
     if old_dim==new_dim:return None
-    old_obs=(old_dim-4)//8 if central else old_dim
-    new_obs=(new_dim-4)//8 if central else new_dim
-    if old_obs!=121 or new_obs!=128:raise ValueError(f'Unsupported observation migration {old_dim}->{new_dim}')
-    local=list(range(115))+list(range(122,128))
-    if not central:return local
-    return [robot*new_obs+j for robot in range(8) for j in local]+list(range(8*new_obs,8*new_obs+4))
+    shared=(old_dim-6)%8==0 if central else old_dim in (123,130,137)
+    suffix=6 if shared else 4
+    old_obs=(old_dim-suffix)//8 if central else old_dim-(2 if shared else 0)
+    new_obs=(new_dim-suffix)//8 if central else new_dim-(2 if shared else 0)
+    if (old_obs,new_obs) not in ((121,128),(121,135),(128,135)):
+        raise ValueError(f'Unsupported observation migration {old_dim}->{new_dim}')
+    tail=new_obs-6
+    if old_obs==121:local=list(range(115))+list(range(tail,new_obs))
+    elif match_features:local=list(range(115))+list(range(122,129))+list(range(tail,new_obs))
+    else:local=list(range(122))+list(range(tail,new_obs))
+    if central:return [robot*new_obs+j for robot in range(8) for j in local]+list(range(8*new_obs,new_dim))
+    if not shared:return local
+    return local[:-6]+[tail,tail+1]+[j+2 for j in local[-6:]]
 
 
 def _expand_input(tensor,shape,index,is_norm=False):
@@ -196,7 +216,7 @@ def _expand_input(tensor,shape,index,is_norm=False):
 
 
 # Retain a strict path for equal-size checkpoints and migrate only supported input tensors.
-def load_team(state,policy,trainer):
+def load_team(state,policy,trainer,match_features=False):
     for name,module,opt,central in [('actor',policy.actor,policy.actor_optimizer,False),
                                    ('critic',policy.critic,policy.critic_optimizer,True)]:
         target=module.state_dict()
@@ -207,13 +227,13 @@ def load_team(state,policy,trainer):
                 migrated[key]=value;continue
             if 'feature_norm.' not in key and 'mlp.fc1.0.weight' not in key:
                 raise ValueError(f'Unexpected checkpoint shape change {name}/{key}')
-            index=_input_map(value.shape[-1],target[key].shape[-1],central)
+            index=_input_map(value.shape[-1],target[key].shape[-1],central,match_features)
             migrated[key]=_expand_input(value,target[key].shape,index,is_norm=key.endswith('feature_norm.weight'))
         module.load_state_dict(migrated)
         opt.load_state_dict(state[name+'_optimizer'])
         for pname,param in module.named_parameters():
             for key,value in opt.state.get(param,{}).items():
                 if isinstance(value,torch.Tensor) and value.ndim and value.shape!=param.shape:
-                    index=_input_map(value.shape[-1],param.shape[-1],central)
+                    index=_input_map(value.shape[-1],param.shape[-1],central,match_features)
                     opt.state[param][key]=_expand_input(value,param.shape,index)
     trainer.value_normalizer.load_state_dict(state['value_normalizer'])

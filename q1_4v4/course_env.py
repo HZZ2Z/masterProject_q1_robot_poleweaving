@@ -58,8 +58,8 @@ class CourseWarpEnv(WarpSoccerEnv):
         gait.allocate(self)
         from gymnasium.spaces import Box
         import numpy as np
-        self.observation_space=Box(-np.inf,np.inf,(128,),dtype=np.float32)
-        self.share_observation_space=Box(-np.inf,np.inf,(1028,),dtype=np.float32)
+        self.observation_space=Box(-np.inf,np.inf,(135,),dtype=np.float32)
+        self.share_observation_space=Box(-np.inf,np.inf,(1084,),dtype=np.float32)
         self.ready = True
         self.configure(stage)
         self.reset()
@@ -246,8 +246,8 @@ class CourseWarpEnv(WarpSoccerEnv):
             yaw=torch.atan2(rot[:,:,1,0],rot[:,:,0,0]);error=self.heading-yaw
             obs[:,:,106:109] = torch.stack((torch.cos(error),torch.sin(error),torch.zeros_like(error)),-1)
         gait_obs=gait.observations(self)
-        if self.course in FULL_MATCHES:gait_obs=self.match_task.observations(gait_obs)
-        return torch.cat((obs[:,:,:115],gait_obs,obs[:,:,115:]),-1)
+        match_obs=self.match_task.observations(torch.zeros_like(gait_obs)) if self.course in FULL_MATCHES else torch.zeros_like(gait_obs)
+        return torch.cat((obs[:,:,:115],gait_obs,match_obs,obs[:,:,115:]),-1)
 
     @torch.no_grad()
     def step(self, action):

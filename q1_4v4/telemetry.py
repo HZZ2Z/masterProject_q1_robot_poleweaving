@@ -5,11 +5,11 @@ from .match_task import MatchTask
 SKILL_NAMES=('upright','height','forward','side','left','right','task_distance')
 MATCH_TERM_LABELS=('存活','直立','基座高度','关节速度','动作平滑','支撑滑移','非脚部着地',
                    '追球','角色移动','角色站位','合法控球Potential','首次脚触球','有效进球','实际失球','机器人复位','球出界','非脚部触球',
-                   '站距','追球距离','首次推进')
+                   '站距','追球距离','首次推进','移动速度跟踪','有效摆腿','有效落脚交替','支撑异常')
 assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)
 
 
-def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,near_worlds=0):
+def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,near_worlds=0,bucket_worlds=None):
     prefix='06_课程/'+name+'/'
     data={prefix+'红队站立时间占比':values['standing_red'],prefix+'蓝队站立时间占比':values['standing_blue'],
           prefix+'红队每机器人分钟复位次数':values['respawns_red_per_min'],
@@ -19,16 +19,26 @@ def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,nea
           prefix+'红队追球者球距_米':values['chaser_distance_red'],
           prefix+'蓝队追球者球距_米':values['chaser_distance_blue'],
           prefix+'控制动作幅度':amplitude,'debug/'+name+'_reward_sum_residual':values['reward_residual']}
+    for team,label in (('red','红队'),('blue','蓝队')):
+        moving=values.get('walk_fraction_'+team,0.)
+        data[prefix+label+'移动指令占比']=moving
+        data[prefix+label+'移动时速度误差_mps']=values.get('walk_error_'+team) if moving else None
+        data[prefix+label+'移动时摆腿得分']=values.get('walk_lift_'+team) if moving else None
     if control is not None:
         data.update({prefix+'比赛子阶段':control.level,prefix+'近球距离上限_米':control.distances[control.level][1],
                      prefix+'子阶段连续通过窗口':control.windows,prefix+'子阶段门控':control.reason,
                      prefix+'近球训练球场数':near_worlds,prefix+'标准阵型球场数':standard_worlds,
-                     prefix+'标准阵型占比':standard_worlds/max(standard_worlds+near_worlds,1)})
+                     prefix+'标准阵型占比':standard_worlds/max(sum((bucket_worlds or {}).values()) or standard_worlds+near_worlds,1)})
+        if bucket_worlds:
+            for key,title in (('mid','中距训练球场数'),('far','远距训练球场数')):data[prefix+title]=bucket_worlds[key]
         rates=control.rates()
         for team,label in (('red','红队'),('blue','蓝队')):
             for key,title in (('touch','近球开球队脚触球率'),('advance','近球开球队有效推进率'),
                               ('quality','近球开球队姿态稳定率'),('standard_touch','标准阵型脚触球率'),
                               ('standard_goal','标准阵型有效进球率')):
+                data[prefix+label+title]=rates[key+'_'+team]
+            for key,title in (('training_quality','开球队员安全通过率'),('mid_touch','中距开球队脚触球率'),
+                              ('far_touch','远距开球队脚触球率'),('mid_advance','中距开球队有效推进率'),('far_advance','远距开球队有效推进率')):
                 data[prefix+label+title]=rates[key+'_'+team]
     for label,pair in zip(MATCH_TERM_LABELS,terms):
         for team,value in zip(('红队','蓝队'),pair):data[f'07_Reward/{name}/{team}/{label}']=value
@@ -39,9 +49,9 @@ def match_reward_specs(name):
     groups=[('01 基础姿态',('存活','直立','基座高度','站距')),
             ('02 动作与支撑约束',('关节速度','动作平滑','支撑滑移','非脚部着地')),
             ('03 追球与角色',('追球','追球距离','角色移动','角色站位')),
-            ('04 合法控球与首次触球推进',('合法控球Potential','首次脚触球','首次推进')),
-            ('05 进球与失球',('有效进球','实际失球')),
-            ('06 复位、出界和非法触球',('机器人复位','球出界','非脚部触球'))]
+            ('04 运动与有效步态',('移动速度跟踪','有效摆腿','有效落脚交替','支撑异常')),
+            ('05 合法控球与首次触球推进',('合法控球Potential','首次脚触球','首次推进')),
+            ('06 进球与终止事件',('有效进球','实际失球','机器人复位','球出界','非脚部触球'))]
     return (f'{COURSES.index(name):02d} Reward分解 · {name}',[
         {'title':title+'（平均每控制步）','keys':[f'07_Reward/{name}/{team}/{label}' for label in labels for team in ('红队','蓝队')]}
         for title,labels in groups])
@@ -152,7 +162,15 @@ def dashboard_specs(names,parallel=True,per_course=True):
             else:
                 charts += [panel('05 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数'),panel('06 回合结束时进球方向比例（非胜率）',p+'红队进球比例',p+'蓝队进球比例')]
         sections.append((f'{COURSES.index(name):02d} 课程 · {name}',charts))
-        if per_course and name in ('teamplay','match'):sections.append(match_reward_specs(name))
+        if per_course and name in ('teamplay','match'):
+            sections.append(match_reward_specs(name))
+            sections.append((f'{COURSES.index(name):02d} 运动与场景 · {name}',[
+                panel('01 移动时速度误差（m/s）',*[p+t+'移动时速度误差_mps' for t in ('红队','蓝队')]),
+                panel('02 移动时有效摆腿得分',*[p+t+'移动时摆腿得分' for t in ('红队','蓝队')]),
+                panel('03 移动指令占比',*[p+t+'移动指令占比' for t in ('红队','蓝队')]),
+                panel('04 各类开球场数',*[p+k for k in ('近球训练球场数','中距训练球场数','远距训练球场数','标准阵型球场数')]),
+                panel('05 中远距开球队脚触球率',*[p+t+k for t in ('红队','蓝队') for k in ('中距开球队脚触球率','远距开球队脚触球率')]),
+                panel('06 开球队员安全率与整队稳定率',*[p+t+k for t in ('红队','蓝队') for k in ('开球队员安全通过率','近球开球队姿态稳定率')])]))
     sections.append(('99 学习诊断（按需展开）',[
         panel('价值损失','debug/shared_value_loss'),panel('策略损失','debug/shared_policy_loss'),
         panel('连续动作分布总熵','debug/shared_dist_entropy'),panel('PPO裁剪比例','debug/shared_clip_fraction'),

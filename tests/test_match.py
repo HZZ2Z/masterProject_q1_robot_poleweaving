@@ -10,7 +10,8 @@ from q1_4v4.telemetry import MATCH_TERM_LABELS,match_reward_specs
 def test_control_requires_both_teams_and_persists_its_window():
     control=MatchControl()
     good={k:16. for k in ('near_red','near_blue','touch_red','touch_blue',
-                          'advance_red','advance_blue','quality_red','quality_blue')}
+                          'advance_red','advance_blue','quality_red','quality_blue','training_quality_red','training_quality_blue',
+                          'mid_red','mid_blue','mid_touch_red','mid_touch_blue','mid_advance_red','mid_advance_blue')}
     for _ in range(23):control.update([.99,.99],[1.,1.],good)
     resumed=MatchControl(control.state_dict())
     for _ in range(25):resumed.update([.99,.99],[1.,1.],good)
@@ -25,7 +26,8 @@ def test_control_requires_both_teams_and_persists_its_window():
 
 def test_bad_team_and_standard_rehearsal_cannot_supply_near_ball_certification():
     good={k:16. for k in ('near_red','near_blue','touch_red','touch_blue',
-                          'advance_red','advance_blue','quality_red','quality_blue')}
+                          'advance_red','advance_blue','quality_red','quality_blue','training_quality_red','training_quality_blue',
+                          'mid_red','mid_blue','mid_touch_red','mid_touch_blue','mid_advance_red','mid_advance_blue')}
     good['touch_blue']=0.
     c=MatchControl()
     for _ in range(64):c.update([1.,1.],[0.,0.],good)
@@ -72,7 +74,7 @@ def test_reward_dashboard_accounts_for_every_component_once_per_team():
     _,plots=match_reward_specs('match')
     keys=[k for plot in plots for k in plot['keys']]
     assert len(plots)==6 and len(keys)==len(set(keys))==2*len(MatchTask.terms)
-    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==20
+    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==24
 
 
 @pytest.fixture(scope='module')
@@ -134,7 +136,7 @@ def test_goal_credit_is_foot_valid_while_conceding_always_costs(env,goal,foot_va
 
 def test_timeout_ends_world_once_and_retains_terminal_potential_bootstrap(env):
     env.reset();env.steps[0]=1500
-    env.match_task.has_foot[0]=True;env.match_task.advance_origin[0]=env.ball[0,0]-.5
+    env.match_task.has_foot[0]=True;env.match_task.foot_valid[0]=True;env.match_task.advance_origin[0]=env.ball[0,0]-.5
     *_,term,trunc,info=measure(env)
     assert trunc[0].all() and not term[0].any()
     # No terminal-zero shaping on a time-limit truncation.
@@ -171,7 +173,7 @@ def test_respawn_avoids_occupied_original_position_and_ball(env):
 
 
 def test_negative_potential_cannot_be_repeatedly_collected_on_robot_respawns(env):
-    env.reset();task=env.match_task;task.has_foot[0]=True
+    env.reset();task=env.match_task;task.has_foot[0]=True;task.foot_valid[0]=True
     task.advance_origin[0]=env.ball[0,0]+6.
     pairs=torch.tensor([[0,2]],device=env.device)
     original=task.advance_origin.clone()
@@ -210,7 +212,7 @@ def test_kickoff_curriculum_moves_robots_and_keeps_midfield_ball_and_eight_playe
 
 
 def test_standard_rehearsal_is_preserved_and_has_separate_episode_evidence(env):
-    env.reset();assert env.match_task.standard.tolist()==[True,False]
+    env.match_task.spawn_cycle.zero_();env.reset();assert env.match_task.standard.tolist()==[True,False]
     env.steps.fill_(1500);env.match_task.quality_steps.fill_(1500)
     *_,info=measure(env)
     metrics=dict(zip(MatchTask.metrics,env.match_task.last_metrics.tolist()))

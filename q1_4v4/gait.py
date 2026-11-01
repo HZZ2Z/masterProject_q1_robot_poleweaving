@@ -264,7 +264,7 @@ def measure(env,before_foot):
     walking=(norm(cmd[:,:,:2])>.03)|(cmd[:,:,2].abs()>.05)|(c=='step_in_place')
     env.gait_walk_mode.copy_(walking)
     if c=='weight_shift':expected.fill_(True)
-    elif c in GAIT_COURSES:expected=torch.where(walking[:,:,None],expected,True)
+    elif c in GAIT_COURSES or c in ('teamplay','match'):expected=torch.where(walking[:,:,None],expected,True)
     else:expected.fill_(True)
     mismatch=(contact!=expected).float().mean(-1)
     # Event-based, debounced landings. An airborne foot must really clear the ground.
@@ -380,6 +380,13 @@ def measure(env,before_foot):
         reward-=env.dt*.2*(yaw_velocity/.2).square().clamp(max=4)
         objective=(env.gait_weight_count>=4)&(slipmean<=.05)&(badratio<=.1)&(env.gait_nonfoot==0)&(
             env.gait_double/env.agent_steps.clamp(min=1)>=.95)&(norm(pos[:,:,:2]-env.start_positions[:,:,:2])<.15)&(yawerror.abs()<.2)
+    if c in ('teamplay','match'):
+        healthy=(rot[:,:,2,2]>.85)&(pos[:,:,2]>.36)&(pos[:,:,2]<.50)&~env.gait_bad_contact.bool()
+        forward=(vlocal[:,:,:2]*cmd[:,:,:2]).sum(-1)/command_speed.clamp(min=.03)
+        env.match_gait_features=dict(moving=walking,healthy=healthy,speed=command_speed,
+            yaw_command=cmd[:,:,2],linear_error=linear_error,angular_error=angular_error,
+            forward_speed=forward,lift_credit=credit,landing=land,expected=expected,
+            alternating=alternating,slip=slip,flight=flight,crossed=crossed)
     env.gait_metrics={'slip_mps':slipmean.mean(),'phase_match':ratio.mean(),
         'velocity_error':(env.gait_error/env.gait_samples.clamp(min=1)).mean(),
         'left_steps':env.gait_landings[:,:,0].mean(),'right_steps':env.gait_landings[:,:,1].mean(),

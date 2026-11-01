@@ -78,7 +78,7 @@ def main():
         args.match_exploration_revision=ckpt.get('match_exploration_revision',0)
         for state in ckpt['teams']:
             policy, trainer, _ = make_team(args, env, torch.device('cpu'), gpu_rollout=ckpt.get('backend') == 'warp',shared=shared)
-            load_team(state, policy, trainer)
+            load_team(state, policy, trainer,match_features=stage in ('teamplay','match'))
             trainer.prep_rollout()
             teams.append(policy)
     camera = mujoco.MjvCamera()

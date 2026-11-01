@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from q1_4v4.env import SoccerEnv
-from q1_4v4.learning import make_args, make_team, numpy, save_team, load_team, policy_sharing, with_team_identity
+from q1_4v4.learning import make_args, make_team, numpy, save_team, load_team, policy_sharing, with_team_identity, configure_temporal
 from q1_4v4.curriculum import Curriculum, STAGES
 from q1_4v4.course_config import COURSES
 
@@ -34,6 +34,7 @@ def run(options):
     envs = [SoccerEnv(options.seed, stage=curriculum.stage)]
     envs += [SoccerEnv(options.seed+i, stage=curriculum.stage, model=envs[0].model) for i in range(1, options.num_envs)]
     checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
+    configure_temporal(args,options,checkpoint)
     shared = policy_sharing(options,checkpoint)
     groups = [slice(None)] if shared else [slice(0,4),slice(4,8)]
     agents = 8 if shared else 4
@@ -218,6 +219,8 @@ def parser():
     p.add_argument('--iterations', type=int, default=20000, help='Additional updates when resuming')
     p.add_argument('--epochs', type=int, default=5)
     p.add_argument('--learning-rate',type=float,help='Explicit actor/critic LR override, including on resume')
+    p.add_argument('--gamma',type=float,help='Discount per control step; resume restores checkpoint value')
+    p.add_argument('--gae-lambda',type=float,help='GAE trace parameter; resume restores checkpoint value')
     p.add_argument('--episode-steps', type=int, help='Override match length, primarily for timeout smoke tests')
     p.add_argument('--device', default='cuda:0', help='Warp physics and learner share this CUDA device')
     p.add_argument('--backend', choices=('warp', 'cpu'), default='warp')

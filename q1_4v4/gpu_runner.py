@@ -10,7 +10,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from .course_env import CourseWarpEnv
 from .gpu_learning import GpuRollout
-from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity, MARCHING_EXPLORATION_REVISION, MATCH_EXPLORATION_REVISION, MarchingGaussian
+from .learning import make_args, make_team, save_team, load_team, policy_sharing, with_team_identity, MARCHING_EXPLORATION_REVISION, MATCH_EXPLORATION_REVISION, MarchingGaussian, configure_temporal
 from .course_config import make_curriculum, LOW_LEVEL, DURATIONS, COURSES, GAIT_COURSES, BALL_TASK_REVISION, CONTESTS, marching_observation_mode, FULL_MATCHES, MATCH_TASK_REVISION
 from .distributed import Distributed
 from .gait import METRIC_NAMES, REWARD_REVISION
@@ -44,12 +44,14 @@ def _run(options,device,distributed):
         if options.learning_rate<=0:raise ValueError('learning-rate must be positive')
         args.lr=args.critic_lr=options.learning_rate
     checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
+    temporal_change=configure_temporal(args,options,checkpoint)
     recovery_start=checkpoint.get('marching_recovery_start',checkpoint['iteration']) if checkpoint else 0
     args.marching_exploration_mix=MarchingGaussian.mixing_at(checkpoint['iteration'] if checkpoint else 0,recovery_start)
     options.curriculum_mode = getattr(options,'curriculum_mode',None) or (checkpoint.get('curriculum_mode','serial') if checkpoint else 'serial')
     options.marching_target_observation=marching_observation_mode(getattr(options,'marching_target_observation',None),checkpoint)
     parallel = options.curriculum_mode=='parallel'
     curriculum=make_curriculum(options.curriculum_mode,options.stage,checkpoint,options.start_course)
+    if temporal_change:curriculum.recertify('temporal_change_recertification')
     start=checkpoint['iteration'] if checkpoint else 0
     direct_start=curriculum.stage if options.start_course is not None else checkpoint.get('direct_start_course') if checkpoint else None
     task_switch=checkpoint is not None and options.start_course is not None and curriculum.stage!=checkpoint['curriculum']['stage']
@@ -84,10 +86,11 @@ def _run(options,device,distributed):
         if parallel:return [(name,group) for name,(_,group) in env.groups.items() if name in FULL_MATCHES]
         return [(env.course,env)] if env.course in FULL_MATCHES else []
     def restore_match_controls():
-        saved=checkpoint.get('match_controls',{}) if checkpoint and not match_change else {}
+        saved=checkpoint.get('match_controls',{}) if checkpoint and not (match_change or temporal_change) else {}
         for name,group in match_groups():
             group.match_task.control=MatchControl(saved.get(name))
             group.course_amplitude=group.match_task.control.amplitude
+            group.match_task.discount=args.gamma
             if args.gamma!=group.match_task.discount:raise ValueError('Match potential and PPO discounts differ')
     restore_match_controls()
     uses_match=bool(match_groups())
@@ -98,8 +101,8 @@ def _run(options,device,distributed):
         if len(checkpoint['teams']) != len(teams):
             raise ValueError('Checkpoint policy count does not match policy sharing')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
-            load_team(state, policy, trainer)
-            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match):
+            load_team(state, policy, trainer,match_features=uses_match and not parallel)
+            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match) or temporal_change:
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
@@ -168,6 +171,7 @@ def _run(options,device,distributed):
         else:
             env.configure(curriculum.stage)
             env.episode_steps = options.episode_steps or DURATIONS[curriculum.stage]
+        for _,group in match_groups():group.match_task.discount=args.gamma
         obs, _ = env.reset()
         rollout.obs[0].copy_(obs)
         # Encourage renewed exploration while learning to lift from a stable stance.
@@ -378,9 +382,11 @@ def _run(options,device,distributed):
                     used_amplitude=group.course_amplitude
                     evidence={key:values[key]*options.horizon*distributed.world_size for key in MatchControl.counters}
                     group.match_task.control.update(match_values[index][:2],match_values[index][2:4],evidence)
-                    standard=round(distributed.mean(group.match_task.standard.float().sum()).item()*distributed.world_size)
+                    buckets=distributed.mean(torch.stack([(group.match_task.spawn_bucket==i).float().sum() for i in range(4)]))*distributed.world_size
+                    bucket_worlds=dict(zip(('near','mid','far','standard'),[round(x) for x in buckets.cpu().tolist()]))
+                    standard=bucket_worlds['standard']
                     cloud.update(match_metrics(name,values,reward_values[index],used_amplitude,
-                        group.match_task.control,standard,group.count*distributed.world_size-standard))
+                        group.match_task.control,standard,bucket_worlds['near'],bucket_worlds))
                     group.course_amplitude=group.match_task.control.amplitude
                     sl=env.groups[name][0] if parallel else slice(None)
                     rollout.obs[-1,sl,:,-1]=group.course_amplitude
