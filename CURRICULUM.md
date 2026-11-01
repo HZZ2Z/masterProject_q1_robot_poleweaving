@@ -117,7 +117,7 @@
 
 ## 部署与启动约束
 
-只准备代码与测试，不设置自动监控或自动切换。当前训练保持原样；必须收到用户明确的启动或重启指令，才部署新代码并从最新权重续训。课程0通过后可手动启用 `--curriculum-mode parallel`；课程0尚未通过时拒绝导入串行权重进入并行课程。
+用户已授权为当前训练设置自动恢复监控。监控每15秒检查主进程、全部worker及checkpoint进度；退出、worker缺失或10分钟无checkpoint进展时，仅清理本任务的失败进程，并在原定GPU空闲、W&B网络可达后从有效checkpoint续训。优先使用 `last.pt`，损坏时回退到每分钟验证备份的 `logs/watchdog/last_good.pt`；保持同一W&B run、网络、Adam、ValueNorm、课程状态、训练模式和GPU配额，不重新执行 `--start-course`。手动停止训练前先执行 `./scripts/python.sh scripts/watch_training.py stop`，该命令只关闭监控。状态及恢复记录见 `logs/watchdog/state.json` 和 `events.jsonl`；目标轮次完成后不再恢复。监控不会切换课程模式或部署额外训练改动。课程0通过后可手动启用 `--curriculum-mode parallel`；课程0尚未通过时拒绝导入串行权重进入并行课程。
 
 用户明确要求直接进行完整4v4试训时，可用 `--curriculum-mode serial --start-course 27` 加载串行或并行checkpoint。全部球场运行终局课程 `match`，红蓝八台共享actor/critic。跳过不等于认证此前课程；新run单独记录比赛回合，权重、Adam和全局轮次保留，ValueNorm按新任务重新积累，各卡使用独立场景随机种子。checkpoint保留直接起始课程标记，后续正常续训不再使用 `--start-course`。
 

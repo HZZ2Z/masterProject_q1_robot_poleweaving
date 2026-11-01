@@ -62,6 +62,22 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4 ./scripts/python.sh -m torch.distributed.run \
 
 多卡入口的 `--num-envs` 是**每卡球场数**，上例共 20,480 场、163,840 台机器人；4096 场适用于已验证的 96GB 显卡，其他硬件应先测显存和吞吐。每卡共享 PPO 的 minibatch 数是单队设置的两倍，保持单次显存开销接近原规模。每个进程只访问分配给它的 GPU，梯度先跨卡平均再裁剪，优势和 ValueNorm 使用全体样本统计。结束回合跨卡交错汇总，所有卡使用相同的课程门控；只有主进程写 checkpoint、TensorBoard 和 W&B。checkpoint 保存每卡随机状态，并检查各卡策略参数完全一致；扩展单卡权重时自动为其他卡分配不同随机种子。W&B 的性能组包含全局吞吐、GPU 数量、并行球场总数、各卡和总显存；通过 `WANDB_RUN_ID` 和 `WANDB_RESUME=must` 可衔接原 run。
 
+## 训练自动恢复
+
+3号服务器的当前训练已授权使用独立CPU监控进程。监控每15秒检查主进程、全部worker及checkpoint进度；进程退出、worker缺失或10分钟没有保存checkpoint时，先清理这个输出目录对应的失败进程，再检查原定GPU是否空闲及W&B网络是否可达。从最近的有效 `last.pt` 自动续训，文件损坏时回退到每分钟验证备份的 `logs/watchdog/last_good.pt`。网络、Adam、ValueNorm、课程和随机状态沿用checkpoint，保持原GPU配额、训练模式、输出目录及同一个W&B run；不会重新执行 `--start-course`。
+
+```bash
+# 在3号服务器执行；所有运行文件和凭据均位于授权工作目录内。
+source /mnt/net-storage/taozhijia/workspace/Q1Robot/runtime/env.sh
+cd /mnt/net-storage/taozhijia/workspace/Q1Robot/q1-humanoid-kick-4v4
+./scripts/python.sh scripts/watch_training.py start
+./scripts/python.sh scripts/watch_training.py status
+# 只关闭监控，当前训练继续运行；手动停止训练前先执行这一条。
+./scripts/python.sh scripts/watch_training.py stop
+```
+
+监控读取服务器的 `logs/active_training.json`，锁定其中的run和输出目录；索引切换至其他run时自动退出。失败进程先等待90秒正常清理，之后仅向身份验证通过的本任务进程发送SIGKILL。GPU被占用、GPU忙等或W&B网络不可达时等待重试，重试间隔从15秒增加至最多5分钟；不会停止其他任务或重置显卡。达到目标轮次或显式标为暂停、停止时不再启动训练。`logs/watchdog/state.json`、`events.jsonl` 和 `console.log` 分别记录状态、恢复事件及监控日志。监控脱离SSH会话运行；当前W&B网络仍需要现有SSH代理隧道可用。
+
 ## 课程
 
 课程0单独通过后，可从刚保存的共享策略checkpoint切换到并行课程：
