@@ -49,6 +49,9 @@ def course_table_html(summary,iteration,parallel=True):
     total=int(summary.get('04_性能/并行球场总数') or sum(int(r['足球场数']) for r in rows))
     sampled=sum(int(r['足球场数'])>0 for r in rows)
     match_detail=''
+    if 'debug/比赛步态奖励启用' in summary:
+        mode='开启' if summary['debug/比赛步态奖励启用'] else '关闭'
+        match_detail+=f'<p>比赛步态与动作风格奖励：{mode}。关闭时滑移、站距、关节速度、动作平滑及四项步态Reward均为0。</p>'
     for name in ('teamplay','match'):
         p='06_课程/'+name+'/'
         if p+'比赛子阶段' not in summary:continue

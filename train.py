@@ -221,6 +221,8 @@ def parser():
     p.add_argument('--learning-rate',type=float,help='Explicit actor/critic LR override, including on resume')
     p.add_argument('--gamma',type=float,help='Discount per control step; resume restores checkpoint value')
     p.add_argument('--gae-lambda',type=float,help='GAE trace parameter; resume restores checkpoint value')
+    p.add_argument('--match-gait-reward',action=argparse.BooleanOptionalAction,default=None,
+                   help='Enable match gait/style rewards; resume restores the saved setting')
     p.add_argument('--episode-steps', type=int, help='Override match length, primarily for timeout smoke tests')
     p.add_argument('--device', default='cuda:0', help='Warp physics and learner share this CUDA device')
     p.add_argument('--backend', choices=('warp', 'cpu'), default='warp')

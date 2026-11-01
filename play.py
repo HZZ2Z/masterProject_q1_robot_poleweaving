@@ -63,7 +63,8 @@ def main():
         from q1_4v4.preview import CoursePreview
         from q1_4v4.course_config import marching_observation_mode
         env = CoursePreview(stage,device=a.device,marching_target_observation=marching_observation_mode(checkpoint=ckpt),
-            match_control=ckpt.get('match_controls',{}).get(stage) if ckpt else None,match_layout=a.match_layout)
+            match_control=ckpt.get('match_controls',{}).get(stage) if ckpt else None,match_layout=a.match_layout,
+            match_gait_reward=ckpt.get('match_gait_reward',True) if ckpt else True)
     else:
         env = SoccerEnv(stage=stage)
     print({'course':stage,'checkpoint':a.checkpoint,'control':'policy' if ckpt else 'neutral PD',

@@ -129,6 +129,36 @@ def test_ball_motion_without_robot_motion_cannot_pay_pursuit(physical_state):
     assert not t.last_terms[MatchTask.terms.index('approach')].any()
 
 
+def test_disabling_gait_zeros_all_style_terms_but_keeps_football_rewards(physical_state):
+    e,t=physical_state;t.gait_reward_enabled=False
+    e.foot_slip.fill_(.2);e.qvel.fill_(5.)
+    e.xpos[:,e.feet[:,0],1]+=.4
+    f=features();f['linear_error'].zero_();f['forward_speed'].fill_(.18);f['lift_credit'].fill_(1.)
+    f['landing'][:,:,0]=True;f['alternating'][:,:,0]=True;f['crossed'].fill_(True)
+    e.match_gait_features=f;e.foot_hits[0,2,0]=1
+    *_,reward,term,trunc,info=t.step(torch.ones((1,8,22)),torch.zeros((1,8,22)),e.ball.clone(),e.xpos[:,:8].clone(),
+        dict(goal=torch.ones(1),out=torch.zeros(1,dtype=torch.bool)))
+    for key in MatchTask.gait_terms:assert not t.last_terms[MatchTask.terms.index(key)].any()
+    assert t.last_terms[MatchTask.terms.index('foot_contact'),0]>0
+    assert t.last_terms[MatchTask.terms.index('goal_for'),0]==20
+    assert t.last_residual==0 and torch.isfinite(reward).all()
+
+
+def test_disabling_gait_removes_stance_width_from_survival_and_pursuit_quality():
+    up=torch.ones(2);height=torch.full((2,),.417);width=torch.tensor([.1754,.6]);bad=torch.zeros(2,dtype=torch.bool)
+    quality,healthy,_,_=MatchTask.posture(up,height,width,bad,width_reward=False)
+    torch.testing.assert_close(quality,torch.ones(2))
+    assert healthy.tolist()==[True,False]  # Diagnostics retain the actual stance measurement.
+    assert MatchTask.posture(up,height,width,bad)[0][1]<1e-5
+
+
+def test_gait_reward_cli_distinguishes_resume_default_from_explicit_disable():
+    from train import parser
+    assert parser().parse_args([]).match_gait_reward is None
+    assert parser().parse_args(['--no-match-gait-reward']).match_gait_reward is False
+    assert parser().parse_args(['--match-gait-reward']).match_gait_reward is True
+
+
 def test_locomotion_and_match_observations_have_distinct_fields(monkeypatch):
     from q1_4v4.course_env import CourseWarpEnv
     from q1_4v4.warp_env import WarpSoccerEnv

@@ -77,6 +77,7 @@ class MatchControl:
 
 class MatchTask:
     discount=.99
+    gait_terms=MatchLocomotion.terms+('foot_slip','stance_width','joint_velocity','action_smooth')
     terms=('survival','upright','height','joint_velocity','action_smooth','foot_slip',
            'nonfoot_ground','approach','role_progress','role_position','ball_potential','foot_contact',
            'goal_for','goal_against','robot_reset','ball_out','nonfoot_ball',
@@ -89,6 +90,7 @@ class MatchTask:
 
     def __init__(self,env):
         self.env=weakref.proxy(env)
+        self.gait_reward_enabled=True
         n,d=env.count,env.device
         self.failures=torch.zeros((n,2),device=d,dtype=torch.long)
         self.falls=torch.zeros((n,2),device=d,dtype=torch.long)
@@ -154,13 +156,14 @@ class MatchTask:
             e.qpos[selected,e.rootq[robot]+1]=e.ball[selected,1]+sign*foot_sign*.09+e.uniform((n,),-.015,.015)
 
     @staticmethod
-    def posture(up,height,width,bad_contact):
+    def posture(up,height,width,bad_contact,width_reward=True):
         """Bounded, continuous posture shaping keeps a crouch from earning survival."""
         width_error=(width-.1754).abs().sub(.05).clamp(min=0)
         height_x=((height-.417)/.045).square()
         width_x=(width_error/.075).square()
+        reward_width=width_error if width_reward else torch.zeros_like(width_error)
         quality=((up-.8)/.15).clamp(0,1)*torch.exp(-((height-.417)/.06).square()
-                    -(width_error/.075).square())*(~bad_contact).float()
+                    -(reward_width/.075).square())*(~bad_contact).float()
         healthy=(up>.85)&(height>.36)&(height<.50)&(width>.09)&(width<.30)&~bad_contact
         return quality,healthy,height_x/(1+height_x),width_x/(1+width_x)
 
@@ -258,7 +261,7 @@ class MatchTask:
         robot_reset=(fallen|outside)&e.active
         feetlocal=torch.einsum('nafi,naij->nafj',e.xpos[:,e.feet]-pos[:,:,None],rot)
         width=feetlocal[:,:,0,1]-feetlocal[:,:,1,1]
-        quality,healthy,height_cost,width_cost=self.posture(up,pos[:,:,2],width,e.gait_bad_contact.bool())
+        quality,healthy,height_cost,width_cost=self.posture(up,pos[:,:,2],width,e.gait_bad_contact.bool(),self.gait_reward_enabled)
         ball_healthy=(up>.8)&(pos[:,:,2]>.3)&(pos[:,:,2]<.55)&~e.gait_bad_contact.bool()
         movement_quality=(.25+.75*quality)*ball_healthy
         self.quality_steps+=healthy.reshape(e.count,2,4).float().mean(-1)
@@ -322,8 +325,10 @@ class MatchTask:
             'attack_milestone':milestone.repeat_interleave(4,-1).float(),
         }
         features=getattr(e,'match_gait_features',None)
-        components.update(MatchLocomotion.rewards(features,dt) if features is not None else
+        components.update(MatchLocomotion.rewards(features,dt) if features is not None and self.gait_reward_enabled else
                           {key:torch.zeros_like(quality) for key in MatchLocomotion.terms})
+        if not self.gait_reward_enabled:
+            for key in self.gait_terms:components[key]=torch.zeros_like(quality)
         reward=torch.stack([components[k] for k in self.terms]).sum(0)*e.active
         self.last_terms=torch.stack([(components[k]*e.active).reshape(e.count,2,4).mean((0,2)) for k in self.terms])
         self.last_residual=(reward-torch.stack(list(components.values())).sum(0)*e.active).abs().max()

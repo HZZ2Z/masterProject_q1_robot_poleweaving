@@ -44,6 +44,9 @@ def _run(options,device,distributed):
         if options.learning_rate<=0:raise ValueError('learning-rate must be positive')
         args.lr=args.critic_lr=options.learning_rate
     checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
+    saved_gait=checkpoint.get('match_gait_reward',True) if checkpoint else True
+    if getattr(options,'match_gait_reward',None) is None:options.match_gait_reward=saved_gait
+    gait_reward_change=checkpoint is not None and options.match_gait_reward!=saved_gait
     temporal_change=configure_temporal(args,options,checkpoint)
     recovery_start=checkpoint.get('marching_recovery_start',checkpoint['iteration']) if checkpoint else 0
     args.marching_exploration_mix=MarchingGaussian.mixing_at(checkpoint['iteration'] if checkpoint else 0,recovery_start)
@@ -88,12 +91,20 @@ def _run(options,device,distributed):
     def restore_match_controls():
         saved=checkpoint.get('match_controls',{}) if checkpoint and not (match_change or temporal_change) else {}
         for name,group in match_groups():
-            group.match_task.control=MatchControl(saved.get(name))
+            state=saved.get(name)
+            if gait_reward_change and state is not None:
+                state={k:state[k] for k in ('amplitude','level')}
+            group.match_task.control=MatchControl(state)
+            group.match_task.gait_reward_enabled=options.match_gait_reward
             group.course_amplitude=group.match_task.control.amplitude
             group.match_task.discount=args.gamma
             if args.gamma!=group.match_task.discount:raise ValueError('Match potential and PPO discounts differ')
     restore_match_controls()
     uses_match=bool(match_groups())
+    if gait_reward_change:
+        for name,_ in match_groups():
+            if parallel:curriculum.courses[name].recertify('match_gait_reward_change')
+            else:curriculum.recertify('match_gait_reward_change')
     teams = [make_team(args, env, device, gpu_rollout=True,shared=shared) for _ in groups]
     if checkpoint:
         if checkpoint.get('backend') != 'warp':
@@ -102,7 +113,7 @@ def _run(options,device,distributed):
             raise ValueError('Checkpoint policy count does not match policy sharing')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
             load_team(state, policy, trainer,match_features=uses_match and not parallel)
-            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match) or temporal_change:
+            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match) or temporal_change or (gait_reward_change and uses_match):
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
@@ -171,7 +182,9 @@ def _run(options,device,distributed):
         else:
             env.configure(curriculum.stage)
             env.episode_steps = options.episode_steps or DURATIONS[curriculum.stage]
-        for _,group in match_groups():group.match_task.discount=args.gamma
+        for _,group in match_groups():
+            group.match_task.discount=args.gamma
+            group.match_task.gait_reward_enabled=options.match_gait_reward
         obs, _ = env.reset()
         rollout.obs[0].copy_(obs)
         # Encourage renewed exploration while learning to lift from a stable stance.
@@ -191,6 +204,7 @@ def _run(options,device,distributed):
         if not distributed.primary:
             return
         payload = dict(version=4, physics_config=env.physics_config,match_task_revision=MATCH_TASK_REVISION,
+                       match_gait_reward=options.match_gait_reward,
                        match_exploration_revision=MATCH_EXPLORATION_REVISION,
                        match_controls={name:group.match_task.control.state_dict() for name,group in match_groups()},
                        direct_start_course=direct_start, marching_recovery_start=recovery_start, marching_exploration_mix=args.marching_exploration_mix, marching_exploration_revision=args.marching_exploration_revision, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
@@ -393,6 +407,7 @@ def _run(options,device,distributed):
                     if parallel:env._obs[sl,:,-1]=group.course_amplitude
             update_match_controls()
             cloud['debug/比赛任务修订']=MATCH_TASK_REVISION
+            cloud['debug/比赛步态奖励启用']=int(options.match_gait_reward)
             if not parallel and env.course in FULL_MATCHES:cloud['01_总览/回合摔倒率']=cm['fall_rate']
             for rank,memory in enumerate(memories):
                 cloud[f'04_性能/GPU{rank}显存_GiB']=memory
