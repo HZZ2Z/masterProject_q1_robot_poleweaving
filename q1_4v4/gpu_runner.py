@@ -18,6 +18,7 @@ from .mixed_env import MixedCourseEnv, finish_course_step
 from .telemetry import SKILL_NAMES, active_team_reward, course_metrics, macro_metrics, match_metrics
 from .course_table import COURSE_TABLE_KEY,course_table_html
 from .match_task import MatchTask,MatchControl
+from .history import ActorHistory,history_payload,configure_history
 
 
 def run(options):
@@ -44,6 +45,12 @@ def _run(options,device,distributed):
         if options.learning_rate<=0:raise ValueError('learning-rate must be positive')
         args.lr=args.critic_lr=options.learning_rate
     checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
+    history_change=configure_history(args,options,checkpoint)
+    saved_amp=checkpoint.get('amp',{}) if checkpoint else {}
+    if getattr(options,'amp_coef',None) is None:options.amp_coef=saved_amp.get('coefficient',0.)
+    if options.amp_coef<0:raise ValueError('AMP coefficient must be nonnegative')
+    amp_change=bool(checkpoint and saved_amp.get('coefficient',0.)!=options.amp_coef)
+    if not getattr(options,'amp_motion_path',None):options.amp_motion_path='resources/motions/q1'
     saved_gait=checkpoint.get('match_gait_reward',True) if checkpoint else True
     if getattr(options,'match_gait_reward',None) is None:options.match_gait_reward=saved_gait
     gait_reward_change=checkpoint is not None and options.match_gait_reward!=saved_gait
@@ -55,6 +62,8 @@ def _run(options,device,distributed):
     parallel = options.curriculum_mode=='parallel'
     curriculum=make_curriculum(options.curriculum_mode,options.stage,checkpoint,options.start_course)
     if temporal_change:curriculum.recertify('temporal_change_recertification')
+    if history_change:curriculum.recertify('history_encoder_recertification')
+    if amp_change:curriculum.recertify('amp_change_recertification')
     start=checkpoint['iteration'] if checkpoint else 0
     direct_start=curriculum.stage if options.start_course is not None else checkpoint.get('direct_start_course') if checkpoint else None
     task_switch=checkpoint is not None and options.start_course is not None and curriculum.stage!=checkpoint['curriculum']['stage']
@@ -89,11 +98,13 @@ def _run(options,device,distributed):
         if parallel:return [(name,group) for name,(_,group) in env.groups.items() if name in FULL_MATCHES]
         return [(env.course,env)] if env.course in FULL_MATCHES else []
     def restore_match_controls():
-        saved=checkpoint.get('match_controls',{}) if checkpoint and not (match_change or temporal_change) else {}
+        saved=checkpoint.get('match_controls',{}) if checkpoint and not temporal_change else {}
         for name,group in match_groups():
             state=saved.get(name)
+            if match_change and state is not None:
+                state={'amplitude':state['amplitude']}
             if gait_reward_change and state is not None:
-                state={k:state[k] for k in ('amplitude','level')}
+                state={'amplitude':state['amplitude'],'level':state.get('level',0)}
             group.match_task.control=MatchControl(state)
             group.match_task.gait_reward_enabled=options.match_gait_reward
             group.course_amplitude=group.match_task.control.amplitude
@@ -113,7 +124,7 @@ def _run(options,device,distributed):
             raise ValueError('Checkpoint policy count does not match policy sharing')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
             load_team(state, policy, trainer,match_features=uses_match and not parallel)
-            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match) or temporal_change or (gait_reward_change and uses_match):
+            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match) or temporal_change or amp_change or (gait_reward_change and uses_match):
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
@@ -150,6 +161,13 @@ def _run(options,device,distributed):
     obs_dim=raw_obs_dim+(2 if shared else 0)
     state_dim=env.share_observation_space.shape[0]+(2 if shared else 0)
     rollout = GpuRollout(options.horizon, options.num_envs, device, obs_dim=raw_obs_dim)
+    history=ActorHistory(options.num_envs,8,raw_obs_dim,args.history_frames,args.history_bins,device) if args.history_frames else None
+    if history is not None:
+        rollout.history=torch.zeros((options.horizon+1,options.num_envs,8,args.history_bins,raw_obs_dim),device=device,dtype=torch.float16)
+    amp=None
+    if options.amp_coef:
+        from .amp import MotionPrior
+        amp=MotionPrior(options.amp_motion_path,device,options.amp_coef,start,saved_amp or None)
     rnn = torch.zeros((options.num_envs*agents, 1, args.hidden_size), device=device)
     ones = torch.ones((options.num_envs*agents, 1), device=device)
     owners = (torch.arange(8,device=device)//4)[None]
@@ -187,6 +205,9 @@ def _run(options,device,distributed):
             group.match_task.gait_reward_enabled=options.match_gait_reward
         obs, _ = env.reset()
         rollout.obs[0].copy_(obs)
+        if history is not None:
+            history.data.zero_();history.cursor=0;history.push(obs)
+            rollout.history[0].copy_(history.pooled())
         # Encourage renewed exploration while learning to lift from a stable stance.
         for _, trainer, _ in teams:
             trainer.entropy_coef = env.entropy_coef if parallel else .005 if env.course=='step_in_place' else args.entropy_coef
@@ -200,6 +221,7 @@ def _run(options,device,distributed):
         if parallel:rng['course_rng']=env.course_rng()
         rank_rng = distributed.objects(rng)
         difference = distributed.check_parameters(teams)
+        amp_difference=amp.parameter_difference() if amp is not None else 0.
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
@@ -211,7 +233,9 @@ def _run(options,device,distributed):
                        policy_sharing=options.policy_sharing, curriculum_mode=options.curriculum_mode, backend='warp', iteration=iteration, args=vars(args),
                        teams=[save_team(p, t) for p, t, _ in teams], curriculum=curriculum.state_dict(),
                        **rng, distributed_rng=rank_rng, world_size=distributed.world_size,
-                       parameter_max_difference=difference)
+                       parameter_max_difference=difference,amp_parameter_max_difference=amp_difference,
+                       actor_frame_dim=obs_dim,actor_history_frames=args.history_frames,actor_history_bins=args.history_bins)
+        if amp is not None:payload['amp']=amp.checkpoint()
         temp = out/(name+'.tmp')
         torch.save(payload, temp)
         temp.replace(out/name)
@@ -238,6 +262,7 @@ def _run(options,device,distributed):
             (out/'wandb_run.json').write_text(json.dumps({'id': wandb_run.id, 'url': wandb_run.url}))
         distributed.maximum(0)  # All workers wait for primary W&B initialization.
         for iteration in range(start+1, start+options.iterations+1):
+            if amp is not None:amp.iteration=iteration
             args.marching_exploration_mix=MarchingGaussian.mixing_at(iteration,recovery_start)
             for policy,_,_ in teams:policy.actor.act.action_out.mean_mix=args.marching_exploration_mix
             torch.cuda.synchronize(device)
@@ -255,14 +280,16 @@ def _run(options,device,distributed):
                 state = env.state(obs)
                 with torch.no_grad():
                     actor_obs,critic_state=policy_inputs(obs,state)
+                    actor_obs=history_payload(actor_obs,rollout.history[step] if history is not None else None,shared,owners)
                     for t, (policy, trainer, _) in enumerate(teams):
                         sl = groups[t]
                         trainer.prep_rollout()
                         value, action, logprob, _, _ = policy.get_actions(critic_state[:, sl].reshape(-1, state_dim),
-                            actor_obs[:, sl].reshape(-1, obs_dim), rnn, rnn, ones)
+                            actor_obs[:, sl].reshape(-1, actor_obs.shape[-1]), rnn, rnn, ones)
                         rollout.actions[step, :, sl].copy_(action.reshape(options.num_envs, agents, 22))
                         rollout.log_probs[step, :, sl].copy_(logprob.reshape(options.num_envs, agents, 1))
                         rollout.values[step, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, agents, 1))
+                    if amp is not None:amp.begin_step(match_groups())
                     terminal_obs, terminal_state, reward, terminated, truncated, info = env.step(rollout.actions[step])
                     gait_stats += torch.stack([env.gait_metrics[k] for k in METRIC_NAMES])
                     skill_stats += torch.stack([env.last_stats[k] for k in SKILL_NAMES])
@@ -290,6 +317,9 @@ def _run(options,device,distributed):
                         if reset_obs is not None:terminal_obs=reset_obs
                         if len(ended):completed.append(ended)
                     rollout.obs[step+1].copy_(terminal_obs)
+                    if history is not None:
+                        history.push(terminal_obs,terminal_mask)
+                        rollout.history[step+1].copy_(history.pooled())
             distributed.check_health(env.check)  # All ranks stop before ANY optimizer update on failure.
             with torch.no_grad():
                 state = env.state(rollout.obs[-1])
@@ -300,6 +330,7 @@ def _run(options,device,distributed):
                     rollout.values[-1, :, sl].copy_(trainer.value_normalizer.denormalize(value).reshape(options.num_envs, agents, 1))
                 rollout.compute_returns(args.gamma, args.gae_lambda)
             metrics = {}
+            if amp is not None:metrics.update(amp.update())
             for t, (_, trainer, _) in enumerate(teams):
                 trainer.prep_training()
                 stats = rollout.update(None if shared else t, trainer, args, active=rollout.active)
@@ -408,6 +439,12 @@ def _run(options,device,distributed):
             update_match_controls()
             cloud['debug/比赛任务修订']=MATCH_TASK_REVISION
             cloud['debug/比赛步态奖励启用']=int(options.match_gait_reward)
+            cloud['debug/history_frames']=args.history_frames
+            cloud['debug/amp_coefficient']=options.amp_coef
+            for key in ('amp_loss','amp_gradient_penalty','amp_expert_score','amp_policy_score'):
+                if key in metrics:cloud['debug/'+key]=metrics[key]
+            if history is not None:
+                cloud['debug/history_output_weight_norm']=teams[0][0].actor.base.history_encoder.layers[-1].weight.norm().item()
             if not parallel and env.course in FULL_MATCHES:cloud['01_总览/回合摔倒率']=cm['fall_rate']
             for rank,memory in enumerate(memories):
                 cloud[f'04_性能/GPU{rank}显存_GiB']=memory
@@ -446,6 +483,7 @@ def _run(options,device,distributed):
                 reset_stage()
             else:
                 rollout.obs[0].copy_(rollout.obs[-1])
+                if history is not None:rollout.history[0].copy_(rollout.history[-1])
             if iteration % options.save_interval == 0 or stop:
                 save(iteration)
             if stop:

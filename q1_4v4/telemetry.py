@@ -5,7 +5,8 @@ from .match_task import MatchTask
 SKILL_NAMES=('upright','height','forward','side','left','right','task_distance')
 MATCH_TERM_LABELS=('存活','直立','基座高度','关节速度','动作平滑','支撑滑移','非脚部着地',
                    '追球','角色移动','角色站位','合法控球Potential','首次脚触球','有效进球','实际失球','机器人复位','球出界','非脚部触球',
-                   '站距','追球距离','首次推进','移动速度跟踪','有效摆腿','有效落脚交替','支撑异常')
+                   '站距','追球距离','首次推进','移动速度跟踪','有效摆腿','有效落脚交替','支撑异常',
+                   '脚部接近','近球停滞','远球停滞','有效正踢','有效侧踢','向门新增净推进','动作示范AMP')
 assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)
 
 
@@ -20,12 +21,16 @@ def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,nea
           prefix+'蓝队追球者球距_米':values['chaser_distance_blue'],
           prefix+'控制动作幅度':amplitude,'debug/'+name+'_reward_sum_residual':values['reward_residual']}
     for team,label in (('red','红队'),('blue','蓝队')):
+        for key,title in (('foot_gap','追球者脚球间距_米'),('near_fraction','追球者近球时间占比'),
+                          ('near_stall','追球者近球停滞时间占比'),('far_stall','追球者远球停滞时间占比'),
+                          ('left_strike','左脚有效踢球控制步占比'),('right_strike','右脚有效踢球控制步占比')):
+            data[prefix+label+title]=values.get(key+'_'+team,0.)
         moving=values.get('walk_fraction_'+team,0.)
         data[prefix+label+'移动指令占比']=moving
         data[prefix+label+'移动时速度误差_mps']=values.get('walk_error_'+team) if moving else None
         data[prefix+label+'移动时摆腿得分']=values.get('walk_lift_'+team) if moving else None
     if control is not None:
-        data.update({prefix+'比赛子阶段':control.level,prefix+'近球距离上限_米':control.distances[control.level][1],
+        data.update({prefix+'比赛子阶段':control.level,prefix+'近球脚球间距上限_米':.25,
                      prefix+'子阶段连续通过窗口':control.windows,prefix+'子阶段门控':control.reason,
                      prefix+'近球训练球场数':near_worlds,prefix+'标准阵型球场数':standard_worlds,
                      prefix+'标准阵型占比':standard_worlds/max(sum((bucket_worlds or {}).values()) or standard_worlds+near_worlds,1)})
@@ -35,7 +40,8 @@ def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,nea
         for team,label in (('red','红队'),('blue','蓝队')):
             for key,title in (('touch','近球开球队脚触球率'),('advance','近球开球队有效推进率'),
                               ('quality','近球开球队姿态稳定率'),('standard_touch','标准阵型脚触球率'),
-                              ('standard_goal','标准阵型有效进球率')):
+                              ('standard_goal','标准阵型有效进球率'),('kick','近球开球队有效踢球率'),
+                              ('mid_kick','中距开球队有效踢球率')):
                 data[prefix+label+title]=rates[key+'_'+team]
             for key,title in (('training_quality','开球队员安全通过率'),('mid_touch','中距开球队脚触球率'),
                               ('far_touch','远距开球队脚触球率'),('mid_advance','中距开球队有效推进率'),('far_advance','远距开球队有效推进率')):
@@ -47,9 +53,9 @@ def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,nea
 
 def match_reward_specs(name):
     groups=[('01 基础姿态',('存活','直立','基座高度','站距')),
-            ('02 动作与支撑约束',('关节速度','动作平滑','支撑滑移','非脚部着地')),
-            ('03 追球与角色',('追球','追球距离','角色移动','角色站位')),
-            ('04 运动与有效步态',('移动速度跟踪','有效摆腿','有效落脚交替','支撑异常')),
+            ('02 动作与支撑约束',('关节速度','动作平滑','支撑滑移','非脚部着地','移动速度跟踪','有效摆腿','有效落脚交替','支撑异常')),
+            ('03 追球与角色',('追球','追球距离','角色移动','角色站位','脚部接近')),
+            ('04 有效踢球与停滞',('近球停滞','远球停滞','有效正踢','有效侧踢','向门新增净推进','动作示范AMP')),
             ('05 合法控球与首次触球推进',('合法控球Potential','首次脚触球','首次推进')),
             ('06 进球与终止事件',('有效进球','实际失球','机器人复位','球出界','非脚部触球'))]
     return (f'{COURSES.index(name):02d} Reward分解 · {name}',[
@@ -139,10 +145,10 @@ def dashboard_specs(names,parallel=True,per_course=True):
                     panel('03 稳定率与摔倒率（近期窗口）',p+'红队稳定率',p+'蓝队稳定率',p+'摔倒率',p+'目标稳定率'),
                     panel('04 配额与认证进度（0—1；资格1表示达标）',p+'球场占比',p+'窗口认证进度',p+'样本资格',p+'更新资格',p+'已掌握')]
             if name=='match':
-                charts[1]=panel('02 脚触球率：近球开球队与标准阵型',*[p+t+k for t in ('红队','蓝队') for k in ('近球开球队脚触球率','标准阵型脚触球率')])
+                charts[1]=panel('02 近球触球与中近距有效踢球回合率',*[p+t+k for t in ('红队','蓝队') for k in ('近球开球队脚触球率','近球开球队有效踢球率','中距开球队有效踢球率')])
                 charts[3]=panel('04 有效进球比例：全部与标准阵型',p+'红队成功率',p+'蓝队成功率',p+'红队标准阵型有效进球率',p+'蓝队标准阵型有效进球率')
                 charts[2]=panel('03 健康姿态时间占比与整队姿态稳定率',p+'红队站立时间占比',p+'蓝队站立时间占比',p+'红队稳定率',p+'蓝队稳定率')
-                charts += [panel('05 追球者距球与近球出生距离上限（米）',p+'红队追球者球距_米',p+'蓝队追球者球距_米',p+'近球距离上限_米'),
+                charts += [panel('05 追球者躯干球距与脚球间距（米）',*[p+t+k for t in ('红队','蓝队') for k in ('追球者球距_米','追球者脚球间距_米')]),
                            panel('06 每机器人分钟复位次数',p+'红队每机器人分钟复位次数',p+'蓝队每机器人分钟复位次数')]
             elif name in ('balance','balance_push'):
                 charts += [panel('05 平均回合时长（秒）',p+'平均回合秒数',p+'回合上限秒数'),panel('06 基座平均高度（米）',p+'基座平均高度_米')]
@@ -164,13 +170,20 @@ def dashboard_specs(names,parallel=True,per_course=True):
         sections.append((f'{COURSES.index(name):02d} 课程 · {name}',charts))
         if per_course and name in ('teamplay','match'):
             sections.append(match_reward_specs(name))
-            sections.append((f'{COURSES.index(name):02d} 运动与场景 · {name}',[
-                panel('01 移动时速度误差（m/s）',*[p+t+'移动时速度误差_mps' for t in ('红队','蓝队')]),
-                panel('02 移动时有效摆腿得分',*[p+t+'移动时摆腿得分' for t in ('红队','蓝队')]),
-                panel('03 移动指令占比',*[p+t+'移动指令占比' for t in ('红队','蓝队')]),
+            sections.append((f'{COURSES.index(name):02d} 踢球与场景 · {name}',[
+                panel('01 追球者近球与远球停滞时间占比',*[p+t+k for t in ('红队','蓝队') for k in ('追球者近球停滞时间占比','追球者远球停滞时间占比')]),
+                panel('02 左右脚有效踢球控制步占比',*[p+t+k for t in ('红队','蓝队') for k in ('左脚有效踢球控制步占比','右脚有效踢球控制步占比')]),
+                panel('03 中远距与标准阵型脚触球率',*[p+t+k for t in ('红队','蓝队') for k in ('中距开球队脚触球率','远距开球队脚触球率','标准阵型脚触球率')]),
                 panel('04 各类开球场数',*[p+k for k in ('近球训练球场数','中距训练球场数','远距训练球场数','标准阵型球场数')]),
-                panel('05 中远距开球队脚触球率',*[p+t+k for t in ('红队','蓝队') for k in ('中距开球队脚触球率','远距开球队脚触球率')]),
+                panel('05 中近距开球队有效踢球率',*[p+t+k for t in ('红队','蓝队') for k in ('近球开球队有效踢球率','中距开球队有效踢球率')]),
                 panel('06 开球队员安全率与整队稳定率',*[p+t+k for t in ('红队','蓝队') for k in ('开球队员安全通过率','近球开球队姿态稳定率')])]))
+    if per_course:sections.append(('98 动作示范与历史编码',[
+        panel('01 AMP损失','debug/amp_loss'),
+        panel('02 AMP专家与策略评分','debug/amp_expert_score','debug/amp_policy_score'),
+        panel('03 AMP梯度正则','debug/amp_gradient_penalty'),
+        panel('04 AMP每秒奖励系数','debug/amp_coefficient'),
+        panel('05 历史帧数','debug/history_frames'),
+        panel('06 历史编码输出权重范数','debug/history_output_weight_norm')]))
     sections.append(('99 学习诊断（按需展开）',[
         panel('价值损失','debug/shared_value_loss'),panel('策略损失','debug/shared_policy_loss'),
         panel('连续动作分布总熵','debug/shared_dist_entropy'),panel('PPO裁剪比例','debug/shared_clip_fraction'),

@@ -37,7 +37,7 @@ Python 3.11、PyTorch 2.9.0/CUDA 12.8、MuJoCo/MuJoCo Warp 3.17.0、Warp 1.18.0�
   --save-interval 1 --output logs/train --run-name q1-mappo-4v4
 ```
 
-`--policy-sharing shared` 为默认设置：红蓝八台共用一套 actor、critic、Adam 优化器和 ValueNorm，红蓝样本混合后统一计算优势并进行 PPO 更新。队伍归属以已知的红/蓝 one-hot 显式输入；保留原有机器人自身坐标，critic 仍按本队在前、对手在后组织状态。角色输入区分四种职责。红蓝回报和晋级统计分别保留，优化器诊断集中在 `debug/shared_*`。Warp共享actor输入为137维，critic为1086维；原始观测为135维，步态7维和比赛状态7维分别保留。
+`--policy-sharing shared` 为默认设置：红蓝八台共用一套 actor、critic、Adam 优化器和 ValueNorm，红蓝样本混合后统一计算优势并进行 PPO 更新。队伍归属以已知的红/蓝 one-hot 显式输入；保留原有机器人自身坐标，critic 仍按本队在前、对手在后组织状态。角色输入区分四种职责。红蓝回报和晋级统计分别保留，优化器诊断集中在 `debug/shared_*`。Warp共享actor输入为137维，critic为1086维；原始观测为135维，步态7维和比赛状态7维分别保留。 可选的 `--history-frames 50 --history-bins 5` 在不增加观测字段的前提下，用5段时间池化摘要编码约1秒历史，作为actor特征残差；critic不变。`--amp-coef 0.3` 启用训练专用动作示范奖励，原手写步态奖励仍可用 `--no-match-gait-reward` 关闭。续训和GUI自动恢复这些配置，旧权重保持原训练模式。
 
 `--num-envs` 为并行球场数，每场八台机器人。先按可用硬件验证小规模，再增加并行数；更大批次不保证更高吞吐。当前物理、PD、观测、奖励、重置、GAE 和学习均在 GPU；中央 critic 输入按 minibatch 重建，减少全局状态副本。接触/约束容量默认每场 `--nconmax 768 --njmax 3072`，各物理子步锁存溢出与非有限状态，异常会阻止更新。
 

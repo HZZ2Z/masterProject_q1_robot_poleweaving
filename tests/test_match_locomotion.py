@@ -56,7 +56,11 @@ def test_sampling_covers_near_middle_far_and_standard_with_one_ball():
         sign=torch.tensor([1.]*4+[-1.]*4),rootq=torch.arange(8)*7,qpos=torch.zeros(n,56),ball=torch.zeros(n,3))
     e.tensor=lambda value:torch.tensor(value)
     e.uniform=lambda shape,lo=0.,hi=1.:torch.rand(shape,generator=generator)*(hi-lo)+lo
-    task=MatchTask(e);ids=torch.arange(n);task.spawn_curriculum(ids)
+    task=MatchTask(e)
+    # This synthetic sampler has no robot model. Geometry placement is checked
+    # separately against the real Q1 collision bounds.
+    task.ball_skill.place_near=lambda ids,robots:None
+    ids=torch.arange(n);task.spawn_curriculum(ids)
     assert [(task.spawn_bucket==i).sum().item() for i in range(4)]==[1640,1228,818,410]
     for bucket,(lo,hi) in enumerate(task.control.distances[:3]):
         worlds=ids[task.spawn_bucket==bucket];team=task.kickoff_team[worlds]
@@ -66,6 +70,9 @@ def test_sampling_covers_near_middle_far_and_standard_with_one_ball():
         assert (distance>=lo).all() and (distance<=hi).all()
         assert abs((team==0).float().mean().item()-.5)<.02
     assert not e.ball.any()
+    task.control.level=4;task.spawn_curriculum(ids)
+    fractions=torch.bincount(task.spawn_bucket,minlength=4).float()/n
+    torch.testing.assert_close(fractions,torch.tensor([.2,.2,.2,.4]),atol=.001,rtol=0)
 
 
 def test_mid_distance_evidence_and_individual_safety_gate_expansion():
@@ -101,8 +108,12 @@ def physical_state():
     e.touches=torch.zeros((1,8),dtype=torch.int32);e.ever_feet=torch.zeros((1,8,2),dtype=torch.bool)
     e.team_progress=torch.zeros((1,2));e.forward_kick=torch.zeros((1,8));e.side_kick=torch.zeros((1,8))
     e.tensor=lambda x,dtype=torch.float32:torch.as_tensor(x,dtype=dtype)
+    e.foot_bounds=e.tensor([[-.057761,-.032936,-.039945],[.115435,.032936,.025686]])
+    e.ball_radius=.1
     e.observe=lambda:torch.zeros((1,8,135));e.state=lambda obs=None:torch.zeros((1,8,1084))
-    return e,MatchTask(e)
+    task=MatchTask(e);e.match_task=task
+    task.ball_skill.reset_worlds(e.rows)
+    return e,task
 
 
 def test_body_contact_breaks_potential_and_cannot_launder_invalid_advancement(physical_state):
@@ -142,6 +153,145 @@ def test_disabling_gait_zeros_all_style_terms_but_keeps_football_rewards(physica
     assert t.last_terms[MatchTask.terms.index('foot_contact'),0]>0
     assert t.last_terms[MatchTask.terms.index('goal_for'),0]==20
     assert t.last_residual==0 and torch.isfinite(reward).all()
+
+
+def ball_step(e,task,before,foot_before,chase=None,body=False):
+    chase=torch.zeros((1,8),dtype=torch.bool) if chase is None else chase
+    foot=e.foot_hits.bool().any(-1)
+    return task.ball_skill.step(before,foot_before,chase,torch.ones_like(chase),foot,
+                               torch.tensor([body]),torch.tensor([not body]))
+
+
+@pytest.mark.parametrize('agent,foot,side',[(2,0,False),(2,1,False),(6,0,False),(6,1,False),
+                                         (2,0,True),(2,1,True),(6,0,True),(6,1,True)])
+def test_real_directed_strikes_pay_both_feet_and_both_teams(physical_state,agent,foot,side):
+    e,t=physical_state;sign=e.sign[agent]
+    if agent>=4:
+        e.xmat[:,e.feet[agent]]=torch.diag(torch.tensor([-1.,-1.,1.])).reshape(1,1,9)
+    before=e.ball.clone();old=e.xpos[:,e.feet].clone()
+    axis=1 if side else 0
+    e.xpos[0,e.feet[agent,foot],axis]+=.01*sign
+    e.ball[0,0]+=.01*sign;e.foot_hits[0,agent,foot]=1
+    rewards,_=ball_step(e,t,before,old)
+    expected=.08 if side else .02
+    key='side_strike' if side else 'forward_strike'
+    assert rewards[key][0,agent].item()==pytest.approx(expected,abs=1e-6)
+    assert t.ball_skill.effective[0,agent]
+    # A later legitimate strike remains rewarded after the first-touch bonus.
+    rewards,_=ball_step(e,t,before,old)
+    assert rewards[key][0,agent].item()==pytest.approx(expected,abs=1e-6)
+    e.ball[:]=before
+    rewards,_=ball_step(e,t,before,old)
+    assert rewards['forward_strike'].sum()==rewards['side_strike'].sum()==0
+    e.ball[0,0]+=.01*sign
+    rewards,_=ball_step(e,t,before,old,body=True)
+    assert rewards['forward_strike'].sum()==rewards['side_strike'].sum()==0
+    e.foot_hits.zero_()
+    rewards,_=ball_step(e,t,before,old)
+    assert rewards['forward_strike'].sum()==rewards['side_strike'].sum()==0
+
+
+def test_two_foot_contacts_do_not_double_strike_credit(physical_state):
+    e,t=physical_state;before=e.ball.clone();old=e.xpos[:,e.feet].clone()
+    e.xpos[0,e.feet[2],:2]+=.01;e.ball[0,0]+=.01;e.foot_hits[0,2]=1
+    rewards,_=ball_step(e,t,before,old)
+    # Diagonal equal forward/lateral speed shares credit, including two feet.
+    assert rewards['forward_strike'][0,2].item()==pytest.approx(.01,abs=1e-6)
+    assert rewards['side_strike'][0,2].item()==pytest.approx(.04,abs=1e-6)
+
+
+def test_near_ball_standing_loses_reward_without_restoring_gait(physical_state):
+    e,t=physical_state
+    e.xpos[0,e.feet[2,0]]=torch.tensor([-.25,0.,.04])
+    chase=torch.zeros((1,8),dtype=torch.bool);chase[0,2]=True
+    assert 0<t.ball_skill.gaps()[0,2,0]<.12
+    for i in range(160):
+        old=e.xpos[:,e.feet].clone()
+        e.xpos[0,e.feet[2,0],1]=.002 if i%2 else -.002
+        rewards,_=ball_step(e,t,e.ball.clone(),old,chase)
+    assert t.ball_skill.near_stall[0,2]==1
+    assert rewards['near_ball_stall'][0,2].item()==pytest.approx(-.016)
+    assert .004+rewards['near_ball_stall'][0,2]<0
+    assert not any(rewards[k].any() for k in ('forward_strike','side_strike','goal_progress'))
+    # Reset just one robot's inactivity, retaining all rally progress budgets.
+    old_best=t.ball_skill.best_goal_distance.clone();t.ball_skill.effective[0,2]=True
+    t.ball_skill.reset_agents(torch.tensor([0]),torch.tensor([2]))
+    assert t.ball_skill.near_idle[0,2]==0 and t.ball_skill.effective[0,2]
+    torch.testing.assert_close(t.ball_skill.best_goal_distance,old_best)
+
+
+def test_ball_only_motion_cannot_pay_foot_approach_or_launder_progress(physical_state):
+    e,t=physical_state;chase=torch.zeros((1,8),dtype=torch.bool);chase[0,2]=True
+    def move(x,foot=False,body=False):
+        before=e.ball.clone();old=e.xpos[:,e.feet].clone();e.ball[0,0]=x
+        e.foot_hits.zero_();e.foot_hits[0,2,0]=int(foot)
+        return ball_step(e,t,before,old,chase,body)[0]
+    rewards=move(.02,foot=True)
+    assert rewards['foot_approach'].sum()==0
+    assert rewards['goal_progress'][0,2].item()==pytest.approx(.08,abs=1e-5)
+    assert move(0.)['goal_progress'].sum()==0
+    assert move(.02)['goal_progress'].sum()==0
+    assert move(.5,body=True)['goal_progress'].sum()==0
+    assert move(.5,foot=True)['goal_progress'].sum()==0
+    assert move(.51,foot=True)['goal_progress'][0,2].item()==pytest.approx(.04,abs=1e-5)
+
+
+def test_foot_approach_cue_continues_inside_old_pelvis_stop_radius(physical_state):
+    e,t=physical_state
+    e.xpos[0,2,:2]=torch.tensor([-.4,0.])
+    e.xpos[0,e.feet[2],:2]=torch.tensor([[-.4,.0877],[-.4,-.0877]])
+    anchors,chase=t.role_targets(e.ball,e.xpos[:,:8],e.active,e.sign)
+    assert chase[0,2] and t.ball_skill.gaps()[0,2].min()>.03
+    MatchLocomotion.commands(e,anchors,chase)
+    assert e.gait_command[0,2,0]>0
+
+
+def test_curriculum_cannot_pass_on_touches_without_effective_strikes():
+    good={k:16. for k in MatchControl.counters};good['kick_blue']=0.
+    control=MatchControl()
+    for _ in range(48):control.update([1.,1.],[0.,0.],good)
+    assert control.level==0 and control.reason=='kick'
+    good['kick_blue']=16.;good['mid_kick_blue']=0.;control=MatchControl()
+    for _ in range(48):control.update([1.,1.],[0.,0.],good)
+    assert control.level==0 and control.reason=='mid_kick'
+
+
+def test_far_ball_rocking_does_not_clear_net_approach_window(physical_state):
+    e,t=physical_state;chase=torch.zeros((1,8),dtype=torch.bool);chase[0,2]=True
+    for i in range(180):
+        old=e.xpos[:,e.feet].clone()
+        e.xpos[0,e.feet[2],0]=-.995 if i%2 else -1.005
+        rewards,_=ball_step(e,t,e.ball.clone(),old,chase)
+    assert not t.ball_skill.near[0,2] and t.ball_skill.far_stall[0,2]==1
+    assert rewards['far_ball_stall'][0,2].item()==pytest.approx(-.007)
+    assert .004+rewards['far_ball_stall'][0,2]<0
+
+
+def test_near_spawn_uses_real_q1_geometry_without_ball_overlap():
+    import mujoco
+    from q1_4v4.env import SoccerEnv
+    from q1_4v4.scene import PREFIXES
+    from q1_4v4.match_ball import MatchBall
+    ref=SoccerEnv(stage='match')
+    e=Environment(count=1,device=torch.device('cpu'),reference=ref,dt=.02,
+        bodies=torch.tensor(ref.bodies),rootq=torch.tensor(ref.rootq),ballq=ref.ballq,
+        sign=torch.tensor(ref.sign,dtype=torch.float32),ball_radius=.1)
+    e.tensor=lambda x:torch.as_tensor(x,dtype=torch.float32)
+    e.foot_bounds=e.tensor([[-.057761,-.032936,-.039945],[.115435,.032936,.025686]])
+    e.feet=torch.tensor([[ref.model.body(p+s+'_ankle_roll_link').id for s in ('left','right')] for p in PREFIXES])
+    generator=torch.Generator().manual_seed(42)
+    e.uniform=lambda shape,lo=0.,hi=1.:torch.rand(shape,generator=generator)*(hi-lo)+lo
+    skill=MatchBall(e)
+    for agent in (2,6):
+        for _ in range(8):
+            e.qpos=e.tensor(ref.data.qpos.copy())[None]
+            e.ball=e.qpos[:,ref.ballq:ref.ballq+3]
+            skill.place_near(torch.tensor([0]),torch.tensor([agent]))
+            ref.data.qpos[:]=e.qpos[0].numpy();mujoco.mj_forward(ref.model,ref.data)
+            e.xpos=e.tensor(ref.data.xpos.copy())[None];e.xmat=e.tensor(ref.data.xmat.copy())[None]
+            gap=skill.gaps()[0,agent].min().item()
+            assert .10-1e-5<=gap<=.25+1e-5
+            assert all(c.dist>0 or ref.ballgeom not in c.geom for c in ref.data.contact)
 
 
 def test_disabling_gait_removes_stance_width_from_survival_and_pursuit_quality():

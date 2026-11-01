@@ -221,6 +221,10 @@ def parser():
     p.add_argument('--learning-rate',type=float,help='Explicit actor/critic LR override, including on resume')
     p.add_argument('--gamma',type=float,help='Discount per control step; resume restores checkpoint value')
     p.add_argument('--gae-lambda',type=float,help='GAE trace parameter; resume restores checkpoint value')
+    p.add_argument('--history-frames',type=int,help='Causal actor history length; 0 keeps the original actor')
+    p.add_argument('--history-bins',type=int,help='Ordered temporal pooling bins; defaults to 5')
+    p.add_argument('--amp-coef',type=float,help='AMP imitation coefficient; 0 disables AMP')
+    p.add_argument('--amp-motion-path',help='Q1 motion CSV directory; defaults to resources/motions/q1')
     p.add_argument('--match-gait-reward',action=argparse.BooleanOptionalAction,default=None,
                    help='Enable match gait/style rewards; resume restores the saved setting')
     p.add_argument('--episode-steps', type=int, help='Override match length, primarily for timeout smoke tests')

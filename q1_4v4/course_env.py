@@ -258,6 +258,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         self.gait_bad_contact.zero_()
         last_action = self.previous_action.clone()
         foot_before = self.xpos[:,self.feet].clone()
+        foot_rotation_before = self.xmat[:,self.feet].reshape(self.count,8,2,3,3).clone() if self.course in FULL_MATCHES else None
         before = self.ball.clone()
         pos_before = self.xpos[:,self.bodies].clone()
         if self.course=='balance_push':
@@ -267,7 +268,7 @@ class CourseWarpEnv(WarpSoccerEnv):
         _,_,_,term,trunc,base = super().step(controlled)
         self.agent_steps += 1
         gait_reward,gait_objective,gait_quality=gait.measure(self,foot_before)
-        if self.course in FULL_MATCHES:return self.match_task.step(action,last_action,before,pos_before,base)
+        if self.course in FULL_MATCHES:return self.match_task.step(action,last_action,before,pos_before,base,foot_before,foot_rotation_before)
         pos=self.xpos[:,self.bodies]; rot=self.xmat[:,self.bodies].reshape(self.count,8,3,3)
         norm=lambda x:torch.linalg.vector_norm(x,dim=-1)
         upright=rot[:,:,2,2]

@@ -51,6 +51,14 @@ class CheckpointStore:
                     for value in state.values():
                         if torch.is_tensor(value) and not torch.isfinite(value).all().item():
                             raise ValueError('Nonfinite optimizer state')
+        amp=checkpoint.get('amp')
+        if amp:
+            if checkpoint.get('amp_parameter_max_difference',0.)!=0:
+                raise ValueError('Checkpoint contains divergent AMP parameters')
+            tensors=list(amp['model'].values())
+            tensors.extend(value for state in amp['optimizer']['state'].values() for value in state.values() if torch.is_tensor(value))
+            if any(not torch.isfinite(value).all().item() for value in tensors):
+                raise ValueError('Nonfinite AMP checkpoint state')
         return checkpoint
 
     def refresh(self):

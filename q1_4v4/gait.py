@@ -158,6 +158,8 @@ def allocate(env):
     from .scene import ROOT
     cfg=yaml.safe_load((ROOT/'resources/Q1.yaml').read_text())
     bounds=cfg['asset']['foot_collision_bounds']
+    env.foot_bounds=env.tensor(bounds)
+    env.ball_radius=float(env.model.geom_size[env.reference.ballgeom,0])
     l,h=bounds
     from .scene import PREFIXES
     env.knees=torch.tensor([[env.model.body(prefix+side+'_knee_link').id for side in ('left','right')] for prefix in PREFIXES],device=d)

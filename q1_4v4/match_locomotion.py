@@ -11,15 +11,23 @@ class MatchLocomotion:
         rot=env.xmat[:,env.bodies].reshape(env.count,8,3,3)
         delta=anchors-pos[:,:,:2]
         distance=torch.linalg.vector_norm(delta,dim=-1)
-        moving=(distance>torch.where(chase,.45,.30))&env.active
+        gap=env.match_task.ball_skill.gaps().amin(-1)
+        moving=torch.where(chase,gap>.03,distance>.30)&env.active
         direction=delta/distance.clamp(min=.01)[:,:,None]
         world=torch.cat((direction,torch.zeros_like(distance[:,:,None])),-1)
         local=torch.einsum('nai,naij->naj',world,rot)
         yaw=torch.atan2(rot[:,:,1,0],rot[:,:,0,0])
         error=torch.atan2(torch.sin(torch.atan2(delta[:,:,1],delta[:,:,0])-yaw),
                           torch.cos(torch.atan2(delta[:,:,1],delta[:,:,0])-yaw))
-        env.gait_command[:,:,:2]=.18*local[:,:,:2]*moving[:,:,None]
-        env.gait_command[:,:,2]=(1.2*error).clamp(-.5,.5)*moving
+        near=chase&(distance<.8)
+        goal_delta=torch.stack((env.sign*7,torch.zeros_like(env.sign)),-1)[None]-pos[:,:,:2]
+        goal_yaw=torch.atan2(goal_delta[:,:,1],goal_delta[:,:,0])
+        goal_error=torch.atan2(torch.sin(goal_yaw-yaw),torch.cos(goal_yaw-yaw))
+        error=torch.where(near,goal_error,error)
+        speed=torch.where(near,.08,.18)
+        env.gait_command[:,:,:2]=speed[:,:,None]*local[:,:,:2]*moving[:,:,None]
+        turning=(moving|(near&(error.abs()>.15)))&env.active
+        env.gait_command[:,:,2]=(1.2*error).clamp(-.5,.5)*turning
 
     @staticmethod
     def rewards(features,dt):

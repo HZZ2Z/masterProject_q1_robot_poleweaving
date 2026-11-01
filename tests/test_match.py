@@ -11,7 +11,8 @@ def test_control_requires_both_teams_and_persists_its_window():
     control=MatchControl()
     good={k:16. for k in ('near_red','near_blue','touch_red','touch_blue',
                           'advance_red','advance_blue','quality_red','quality_blue','training_quality_red','training_quality_blue',
-                          'mid_red','mid_blue','mid_touch_red','mid_touch_blue','mid_advance_red','mid_advance_blue')}
+                          'mid_red','mid_blue','mid_touch_red','mid_touch_blue','mid_advance_red','mid_advance_blue',
+                          'kick_red','kick_blue','mid_kick_red','mid_kick_blue')}
     for _ in range(23):control.update([.99,.99],[1.,1.],good)
     resumed=MatchControl(control.state_dict())
     for _ in range(25):resumed.update([.99,.99],[1.,1.],good)
@@ -27,7 +28,8 @@ def test_control_requires_both_teams_and_persists_its_window():
 def test_bad_team_and_standard_rehearsal_cannot_supply_near_ball_certification():
     good={k:16. for k in ('near_red','near_blue','touch_red','touch_blue',
                           'advance_red','advance_blue','quality_red','quality_blue','training_quality_red','training_quality_blue',
-                          'mid_red','mid_blue','mid_touch_red','mid_touch_blue','mid_advance_red','mid_advance_blue')}
+                          'mid_red','mid_blue','mid_touch_red','mid_touch_blue','mid_advance_red','mid_advance_blue',
+                          'kick_red','kick_blue','mid_kick_red','mid_kick_blue')}
     good['touch_blue']=0.
     c=MatchControl()
     for _ in range(64):c.update([1.,1.],[0.,0.],good)
@@ -74,7 +76,7 @@ def test_reward_dashboard_accounts_for_every_component_once_per_team():
     _,plots=match_reward_specs('match')
     keys=[k for plot in plots for k in plot['keys']]
     assert len(plots)==6 and len(keys)==len(set(keys))==2*len(MatchTask.terms)
-    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==24
+    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==31
 
 
 @pytest.fixture(scope='module')
@@ -197,7 +199,8 @@ def test_kickoff_curriculum_moves_robots_and_keeps_midfield_ball_and_eight_playe
     distance=(pos[:,:,0]-env.ball[:,0:1]).abs().reshape(2,2,4)[:,:,1:].amin(-1)
     owner=env.match_task.kickoff_team
     own=distance[torch.arange(2,device=env.device),owner]
-    assert (own>=.23).all() and (own<=.31).all()
+    gap=env.match_task.ball_skill.gaps().amin(-1)[env.rows,env.match_task.kickoff_robot]
+    assert (gap>=.10-1e-5).all() and (gap<=.25+1e-5).all()
     n=int(wp.to_torch(env.data.nacon)[0].item())
     geoms=wp.to_torch(env.data.contact.geom)[:n]
     mask=(geoms==env.reference.ballgeom).any(-1)
@@ -206,7 +209,8 @@ def test_kickoff_curriculum_moves_robots_and_keeps_midfield_ball_and_eight_playe
     pos=env.qpos[:,env.rootq[:,None]+torch.arange(2,device=env.device)]
     distance=(pos[:,:,0]-env.ball[:,0:1]).abs().reshape(2,2,4)[:,:,1:].amin(-1)
     own=distance[torch.arange(2,device=env.device),env.match_task.kickoff_team]
-    assert (own>=.8).all() and (own<=1.1).all()
+    gap=env.match_task.ball_skill.gaps().amin(-1)[env.rows,env.match_task.kickoff_robot]
+    assert (gap>=.10-1e-5).all() and (gap<=.25+1e-5).all()
     assert (env.ball[:,:2].abs()<=.2).all()
     env.match_task.control=MatchControl();env.match_layout='mixed';env.reset()
 

@@ -10,6 +10,7 @@ from onpolicy.algorithms.r_mappo.r_mappo import R_MAPPO
 from onpolicy.utils.shared_buffer import SharedReplayBuffer
 from onpolicy.algorithms.utils.distributions import FixedNormal
 from .course_config import command
+from .history import HistoryEncoder
 
 MARCHING_EXPLORATION_REVISION=1
 MATCH_EXPLORATION_REVISION=1
@@ -41,6 +42,19 @@ class MarchingRoleBase(RoleBase):
             match=(obs[...,None,109:115]-self.match_commands).abs().amax(-1).amin(-1,keepdim=True)<1e-5
             flag=torch.where(match,2.,flag)
         return torch.cat((features,flag),-1)
+
+
+class HistoricalRoleBase(MarchingRoleBase):
+    def __init__(self, base, hidden, frame_dim, bins, match_exploration=False):
+        super().__init__(base, hidden, match_exploration)
+        self.frame_dim = frame_dim
+        self.history_encoder = HistoryEncoder(frame_dim, bins, hidden)
+
+    def forward(self, obs):
+        current, history = obs[..., :self.frame_dim], obs[..., self.frame_dim:]
+        features = super().forward(current)
+        residual = self.history_encoder(history)
+        return torch.cat((features[..., :-1] + residual, features[..., -1:]), -1)
 
 
 class MarchingGaussian(nn.Module):
@@ -110,6 +124,8 @@ def make_args(num_envs=4, horizon=128, epochs=5, hidden=128):
     args.marching_exploration_revision=0  # Explicitly restored by training/play checkpoint readers.
     args.marching_exploration_mix=.25
     args.match_exploration_revision=0
+    args.history_frames=0
+    args.history_bins=5
     return args
 
 
@@ -160,8 +176,13 @@ def make_team(args, env, device, gpu_rollout=False, shared=False):
     match=getattr(args,'match_exploration_revision',0)
     if match not in (0,MATCH_EXPLORATION_REVISION):raise ValueError('Unknown match exploration revision')
     if match and not exploration:raise ValueError('Match exploration requires task-aware actor')
-    policy.actor.base=(MarchingRoleBase(policy.actor.base,args.hidden_size,bool(match)) if exploration else
-                       RoleBase(policy.actor.base,args.hidden_size)).to(device)
+    if getattr(args,'history_frames',0):
+        if not exploration:raise ValueError('History encoder requires task-aware actor')
+        policy.actor.base=HistoricalRoleBase(policy.actor.base,args.hidden_size,env.observation_space.shape[0],
+                                             args.history_bins,bool(match)).to(device)
+    else:
+        policy.actor.base=(MarchingRoleBase(policy.actor.base,args.hidden_size,bool(match)) if exploration else
+                           RoleBase(policy.actor.base,args.hidden_size)).to(device)
     if exploration:
         head=MatchGaussian if match else MarchingGaussian
         policy.actor.act.action_out=head(policy.actor.act.action_out,args.marching_exploration_mix).to(device)
@@ -223,14 +244,30 @@ def load_team(state,policy,trainer,match_features=False):
         old=state[name]
         migrated={}
         for key,value in old.items():
+            if key.startswith('base.history_encoder.') and key not in target:continue
             if value.shape==target[key].shape:
                 migrated[key]=value;continue
             if 'feature_norm.' not in key and 'mlp.fc1.0.weight' not in key:
                 raise ValueError(f'Unexpected checkpoint shape change {name}/{key}')
             index=_input_map(value.shape[-1],target[key].shape[-1],central,match_features)
             migrated[key]=_expand_input(value,target[key].shape,index,is_norm=key.endswith('feature_norm.weight'))
-        module.load_state_dict(migrated)
-        opt.load_state_dict(state[name+'_optimizer'])
+        missing=module.load_state_dict(migrated,strict=False)
+        if missing.unexpected_keys or any(not k.startswith('base.history_encoder.') for k in missing.missing_keys):
+            raise ValueError(f'Unsupported missing checkpoint parameters: {missing}')
+        optimizer=state[name+'_optimizer']
+        if name=='actor' and set(old)!=set(target):
+            import copy
+            optimizer=copy.deepcopy(optimizer)
+            if len(optimizer['param_groups'])!=1:raise ValueError('History migration requires one actor parameter group')
+            current_names=list(dict(module.named_parameters()))
+            old_names=[k for k in old if k in current_names or k.startswith('base.history_encoder.')]
+            old_ids=optimizer['param_groups'][0]['params']
+            if len(old_ids)!=len(old_names):raise ValueError('Actor optimizer parameter layout differs')
+            new_ids=opt.state_dict()['param_groups'][0]['params'];indices=dict(zip(current_names,new_ids))
+            optimizer['state']={indices[k]:optimizer['state'][i] for k,i in zip(old_names,old_ids)
+                                if k in indices and i in optimizer['state']}
+            optimizer['param_groups'][0]['params']=new_ids
+        opt.load_state_dict(optimizer)
         for pname,param in module.named_parameters():
             for key,value in opt.state.get(param,{}).items():
                 if isinstance(value,torch.Tensor) and value.ndim and value.shape!=param.shape:

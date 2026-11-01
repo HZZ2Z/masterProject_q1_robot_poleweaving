@@ -4,6 +4,7 @@ import torch.distributed as dist
 from torch import nn
 from .distributed import enabled, moments
 from .learning import with_team_identity
+from .history import history_payload
 
 
 def normalize_by_course(adv,valid,course_ids):
@@ -59,6 +60,7 @@ class GpuRollout:
     def __init__(self, horizon, count, device, obs_dim=121):
         self.horizon, self.count, self.device = horizon, count, device
         self.course_ids=None
+        self.history=None
         zeros = lambda *shape: torch.zeros(shape, device=device)
         # Central critic inputs reconstructed per minibatch: don't store 8 copies of global state.
         self.obs = zeros(horizon+1, count, 8, obs_dim)
@@ -116,6 +118,8 @@ class GpuRollout:
                 if shared:
                     obs = with_team_identity(obs,owner)
                     state = with_team_identity(state,owner,role_suffix=4)
+                if self.history is not None:
+                    obs=history_payload(obs,self.history[t,w,robot],shared,owner)
                 rnn = torch.zeros((index.numel(), 1, args.hidden_size), device=self.device)
                 mask = torch.ones((index.numel(), 1), device=self.device)
                 sample = (state, obs, rnn, rnn, self.actions[t, w, robot], old_values[t, w, a],

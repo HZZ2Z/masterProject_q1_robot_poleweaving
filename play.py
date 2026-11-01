@@ -77,11 +77,18 @@ def main():
         args.marching_exploration_revision=ckpt.get('marching_exploration_revision',0)
         args.marching_exploration_mix=ckpt.get('marching_exploration_mix',.25)
         args.match_exploration_revision=ckpt.get('match_exploration_revision',0)
+        args.history_frames=ckpt['args'].get('history_frames',0)
+        args.history_bins=ckpt['args'].get('history_bins',5)
         for state in ckpt['teams']:
             policy, trainer, _ = make_team(args, env, torch.device('cpu'), gpu_rollout=ckpt.get('backend') == 'warp',shared=shared)
             load_team(state, policy, trainer,match_features=stage in ('teamplay','match'))
             trainer.prep_rollout()
             teams.append(policy)
+    history=None
+    if teams and args.history_frames:
+        from q1_4v4.history import ActorHistory,history_payload
+        history=ActorHistory(1,8,env.observation_space.shape[0],args.history_frames,args.history_bins,'cpu')
+        history.push(torch.as_tensor(env.observe(),dtype=torch.float32)[None])
     camera = mujoco.MjvCamera()
     camera.lookat[:] = [0, 0, .2]
     camera.distance = 18
@@ -125,6 +132,9 @@ def main():
                         count=8 if shared else 4
                         obs=env.observe()[sl]
                         if shared:obs=with_team_identity(obs,np.arange(8)//4)
+                        if history is not None:
+                            obs=history_payload(torch.as_tensor(obs),history.pooled()[0,sl],shared,
+                                                torch.arange(8)[sl]//4)
                         actions[sl] = numpy(policy.act(obs,
                             np.zeros((count, 1, args.hidden_size), np.float32), np.ones((count, 1), np.float32),
                             deterministic=True)[0])
@@ -142,6 +152,11 @@ def main():
                 env.reset()
             elif info.get('reset_agents'):
                 print(info, flush=True)
+            if history is not None:
+                reset=torch.zeros((1,8),dtype=torch.bool)
+                if done or truncated:reset[:]=True
+                elif info.get('reset_agents'):reset[0,info['reset_agents']]=True
+                history.push(torch.as_tensor(env.observe(),dtype=torch.float32)[None],reset)
             step += 1
         print({'steps': step, 'stage': stage, 'checkpoint': a.checkpoint})
     finally:
