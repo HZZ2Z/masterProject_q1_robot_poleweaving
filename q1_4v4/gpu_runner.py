@@ -200,6 +200,7 @@ def _run(options,device,distributed):
 
     reset_stage()
     iteration = start
+    exit_code=0
     try:
         if options.wandb and distributed.primary:
             import wandb
@@ -430,6 +431,7 @@ def _run(options,device,distributed):
                 break
         save(iteration)
     except BaseException as error:
+        exit_code=1
         diagnostic={'error':str(error),'iteration':iteration,'last_completed_iteration':last_saved,'course':env.course}
         try:
             if parallel:diagnostic['groups']=env.diagnostics()
@@ -440,12 +442,10 @@ def _run(options,device,distributed):
         except Exception as secondary: diagnostic['diagnostic_error']=str(secondary)
         failure_name = 'physics_failure.json' if distributed.primary else f'physics_failure_rank{distributed.rank}.json'
         (out/failure_name).write_text(json.dumps(diagnostic,indent=2))
-        if wandb_run:
-            wandb_run.finish(exit_code=1)
-            wandb_run=None
         raise
     finally:
+        distributed.close()
         if writer:writer.close()
         if wandb_run:
-            wandb_run.finish()
+            wandb_run.finish(exit_code=exit_code)
     return out/'last.pt'
