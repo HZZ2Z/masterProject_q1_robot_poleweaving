@@ -41,6 +41,8 @@ Python 3.11、PyTorch 2.9.0/CUDA 12.8、MuJoCo/MuJoCo Warp 3.17.0、Warp 1.18.0�
 
 `--num-envs` 为并行球场数，每场八台机器人。先按可用硬件验证小规模，再增加并行数；更大批次不保证更高吞吐。当前物理、PD、观测、奖励、重置、GAE 和学习均在 GPU；中央 critic 输入按 minibatch 重建，减少全局状态副本。接触/约束容量默认每场 `--nconmax 768 --njmax 3072`，各物理子步锁存溢出与非有限状态，异常会阻止更新。
 
+EPA horizon工作区在本进程中扩大至至少128，完整保留碰撞溢出检测。多卡在PPO更新前共同检查物理状态，单卡异常会同步中止全部rank；所有退出路径释放NCCL，避免其他显卡因等待失败rank而持续忙等。此修复不改变奖励、课程认证或已存网络/优化器状态。
+
 ```bash
 ./scripts/python.sh train.py --checkpoint logs/train/last.pt \
   --num-envs 1024 --iterations 1000 --output logs/resumed

@@ -105,6 +105,7 @@ class MixedCourseEnv:
         torch.cuda.set_stream(common);self.torch_stream=common
         self.executor=ThreadPoolExecutor(max_workers=min(4,len(self.groups)))
         first=next(iter(self.groups.values()))[1]
+        self.physics_config=dict(first.physics_config)
         for name in ('observation_space','share_observation_space','action_space','roles'):
             setattr(self,name,getattr(first,name))
         self.course_ids=torch.cat([torch.full((env.count,),COURSES.index(name),device=self.device,dtype=torch.long)

@@ -4,6 +4,7 @@ import os
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
+import pytest
 from q1_4v4.distributed import Distributed, moments
 from q1_4v4.gpu_learning import DeviceValueNorm,normalize_by_course
 
@@ -47,8 +48,35 @@ def worker(rank, store):
     local=torch.tensor([[rank,0],[rank,1]],dtype=torch.float32) if rank else torch.empty((0,2))
     torch.testing.assert_close(context.rows(local),torch.tensor([[1.,0.],[1.,1.]]))
     assert context.objects(rank)==[0,1]
-    dist.destroy_process_group()
+    context.check_health(lambda:None)
+    def injected_failure():
+        if rank==1:raise RuntimeError('injected EPA_HORIZON')
+    try:
+        context.check_health(injected_failure)
+    except RuntimeError as error:
+        assert 'rank1' in str(error) and 'EPA_HORIZON' in str(error)
+    else:raise AssertionError('Every rank must stop on a single-rank physics failure')
+    finally:context.close()
+    assert not dist.is_initialized()
+    context.close()  # Cleanup remains safe if an outer finally runs too.
 
 
 def test_two_workers_match_global_batch_and_handle_empty_episodes(tmp_path):
     mp.spawn(worker,args=(str(tmp_path/'gloo_store'),),nprocs=2,join=True)
+
+
+@pytest.mark.parametrize('fail',[False,True])
+def test_runner_releases_process_group_even_on_initialization_failure(monkeypatch,fail):
+    from q1_4v4 import gpu_runner
+    closed=[]
+    context=SimpleNamespace(close=lambda:closed.append(True))
+    monkeypatch.setattr(gpu_runner,'Distributed',lambda device:context)
+    def body(*args):
+        if fail:raise RuntimeError('initialization failed')
+        return 'last.pt'
+    monkeypatch.setattr(gpu_runner,'_run',body)
+    options=SimpleNamespace(num_envs=1,horizon=1,epochs=1,iterations=1,save_interval=1,episode_steps=None,device='cuda:0')
+    if fail:
+        with pytest.raises(RuntimeError,match='initialization failed'):gpu_runner.run(options)
+    else:assert gpu_runner.run(options)=='last.pt'
+    assert closed==[True]

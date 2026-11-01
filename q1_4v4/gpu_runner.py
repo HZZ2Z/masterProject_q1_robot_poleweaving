@@ -29,6 +29,11 @@ def run(options):
     if device.type != 'cuda':
         raise ValueError('--backend warp requires --device cuda:0')
     distributed = Distributed(device)
+    try:return _run(options,device,distributed)
+    finally:distributed.close()
+
+
+def _run(options,device,distributed):
     torch.set_num_threads(2)
     torch.manual_seed(options.seed)
     np.random.seed(options.seed)
@@ -142,7 +147,7 @@ def run(options):
     out = Path(options.output)
     out.mkdir(parents=True, exist_ok=True)
     if distributed.primary:
-        config = dict(vars(options), world_size=distributed.world_size, per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION,
+        config = dict(vars(options), physics_config=env.physics_config,world_size=distributed.world_size, per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION,
                       total_num_envs=options.num_envs*distributed.world_size)
         (out/'config.json').write_text(json.dumps(config, indent=2))
     writer = SummaryWriter(str(out/'tensorboard')) if distributed.primary else None
@@ -181,7 +186,7 @@ def run(options):
         if name=='last.pt':last_saved=iteration
         if not distributed.primary:
             return
-        payload = dict(version=4, match_task_revision=MATCH_TASK_REVISION,
+        payload = dict(version=4, physics_config=env.physics_config,match_task_revision=MATCH_TASK_REVISION,
                        match_exploration_revision=MATCH_EXPLORATION_REVISION,
                        match_controls={name:group.match_task.control.state_dict() for name,group in match_groups()},
                        direct_start_course=direct_start, marching_recovery_start=recovery_start, marching_exploration_mix=args.marching_exploration_mix, marching_exploration_revision=args.marching_exploration_revision, marching_target_observation=options.marching_target_observation, reward_version=REWARD_REVISION, ball_task_revision=BALL_TASK_REVISION, obs_dim=obs_dim, raw_obs_dim=raw_obs_dim,
@@ -205,6 +210,7 @@ def run(options):
             wandb_run.config.update(dict(vars(options), world_size=distributed.world_size,
                 total_num_envs=options.num_envs*distributed.world_size,
                 reward_revision=REWARD_REVISION, match_task_revision=MATCH_TASK_REVISION,
+                physics_config=env.physics_config,
                 match_exploration_revision=MATCH_EXPLORATION_REVISION,
                 marching_exploration_revision=args.marching_exploration_revision, curriculum_window_policy='per_team', per_course_metrics=True, ball_task_revision=BALL_TASK_REVISION), allow_val_change=True)
             wandb_run.define_metric('iteration')
@@ -265,7 +271,7 @@ def run(options):
                         if reset_obs is not None:terminal_obs=reset_obs
                         if len(ended):completed.append(ended)
                     rollout.obs[step+1].copy_(terminal_obs)
-            env.check()  # Includes overflow accumulated during all substeps, before any optimizer update.
+            distributed.check_health(env.check)  # All ranks stop before ANY optimizer update on failure.
             with torch.no_grad():
                 state = env.state(rollout.obs[-1])
                 _,state=policy_inputs(rollout.obs[-1],state)
@@ -442,6 +448,4 @@ def run(options):
         if writer:writer.close()
         if wandb_run:
             wandb_run.finish()
-    if distributed.world_size > 1:
-        torch.distributed.destroy_process_group()
     return out/'last.pt'

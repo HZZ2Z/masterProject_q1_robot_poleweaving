@@ -5,6 +5,7 @@ import warp as wp
 import mujoco_warp as mjw
 from .env import SoccerEnv
 from .curriculum import STAGES, AMPLITUDES
+from .warp_config import CollisionCapacity
 
 
 @wp.kernel
@@ -58,6 +59,7 @@ class WarpSoccerEnv:
         self.count, self.stage, self.episode_steps = count, stage, episode_steps
         self.reference = ref = SoccerEnv(seed=seed, stage=stage)
         self.model = ref.model
+        self.physics_config=CollisionCapacity.configure(self.model.opt.ccd_iterations)
         self.observation_space, self.share_observation_space, self.action_space = ref.observation_space, ref.share_observation_space, ref.action_space
         self.generator = torch.Generator(device=self.device).manual_seed(seed)
         self.wp_device = str(self.device)

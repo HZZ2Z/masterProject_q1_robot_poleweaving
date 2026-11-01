@@ -51,6 +51,22 @@ class Distributed:
         dist.all_gather_object(result, value)
         return result
 
+    def check_health(self,check):
+        """Reach a shared decision before any rank enters gradient collectives."""
+        error=None
+        try:check()
+        except Exception as failure:error=f'{type(failure).__name__}: {failure}'
+        if self.maximum(int(error is not None)):
+            errors=self.objects(error)
+            details='; '.join(f'rank{rank}: {message}' for rank,message in enumerate(errors) if message)
+            raise RuntimeError('Synchronized physics failure: '+details)
+
+    def close(self):
+        """Abort outstanding communicator resources on normal AND exceptional exit."""
+        for hook in self.hooks:hook.remove()
+        self.hooks.clear()
+        if dist.is_initialized():dist.destroy_process_group()
+
     def rows(self, value):
         """Gather variable episode rows, interleaving ranks for fair gate windows."""
         if not enabled():

@@ -217,6 +217,10 @@
 
 ## 课程晋级时的显存回收与恢复
 
+Warp碰撞检测在每个训练进程内将EPA horizon容量设置为至少128，同时更新convex/flex碰撞器的工作区分配引用；如模型CCD迭代数需要更大的顶点工作区，容量至少取 `10+2×ccd_iterations`。当前Q1为35次迭代，使用128。配置在模型及CUDA Graph构造前执行，写入checkpoint和W&B的 `physics_config`，不改Conda中共享库源码，也不关闭溢出检测。
+
+每次rollout结束、任何PPO更新之前，所有rank同步物理健康检查结果。任一卡失败则所有卡共同报告失败rank并拒绝该次更新，保留最近有效checkpoint；正常退出、物理异常和初始化异常均在finally释放NCCL进程组及梯度同步hook，防止其他卡停留在梯度通信中。该机制不会自动启动新训练。
+
 晋级重建场景前，先停止场景工作线程，释放旧场景和CUDA Graph，等待异步释放完成，再调用CUDA驱动的 `cuDeviceGraphMemTrim` 回收独立的Graph显存缓存。`torch.cuda.empty_cache()` 只处理PyTorch缓存，不能替代该操作；回收只在配额变化时执行，不进入控制步循环。原理见[NVIDIA CUDA Graph显存说明](https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html#physical-memory-footprint)。
 
 课程认证完成后、重建前，立即将已完成的模型更新和新课程状态原子写入 `last.pt`；重建成功后按原保存间隔再次记录新场景的随机状态。即使重建失败，也可保留晋级进度。

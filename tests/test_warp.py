@@ -97,6 +97,13 @@ def test_gpu_overflow_latches_through_reset(env):
     env.failure.zero_()
 
 
+def test_expanded_epa_capacity_updates_all_collider_workspaces(env):
+    from mujoco_warp._src import types,collision_convex,collision_flex
+    assert env.physics_config['epa_horizon']>=128
+    assert env.physics_config['epa_horizon']>=10+2*env.model.opt.ccd_iterations
+    assert types.MJ_MAX_EPAHORIZON==collision_convex.MJ_MAX_EPAHORIZON==collision_flex.MJ_MAX_EPAHORIZON
+
+
 def test_gpu_gae_and_normalizer_roundtrip():
     from q1_4v4.gpu_learning import GpuRollout, DeviceValueNorm
     b = GpuRollout(2, 1, 'cuda:0')
