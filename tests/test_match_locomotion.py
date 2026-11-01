@@ -267,6 +267,17 @@ def test_far_ball_rocking_does_not_clear_net_approach_window(physical_state):
     assert .004+rewards['far_ball_stall'][0,2]<0
 
 
+def test_foot_approach_crossing_reach_boundary_and_large_retreat_cannot_pay_a_loop(physical_state):
+    e,t=physical_state;chase=torch.zeros((1,8),dtype=torch.bool);chase[0,2]=True
+    e.xpos[0,e.feet[2],0]=-.9
+    total=0.
+    for x in [float(v) for v in torch.linspace(-.89,-.6,30)]+[-.9]:
+        old=e.xpos[:,e.feet].clone();e.xpos[0,e.feet[2],0]=x
+        rewards,_=ball_step(e,t,e.ball.clone(),old,chase)
+        total+=rewards['foot_approach'][0,2].item()
+    assert total==pytest.approx(0.,abs=1e-6)
+
+
 def test_near_spawn_uses_real_q1_geometry_without_ball_overlap():
     import mujoco
     from q1_4v4.env import SoccerEnv

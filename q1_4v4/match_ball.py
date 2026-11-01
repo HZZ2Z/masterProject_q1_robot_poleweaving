@@ -103,9 +103,10 @@ class MatchBall:
         fixed_ball = before[:, None, None]
         previous_gap = self.gaps(fixed_ball, foot_before, rotation_before).amin(-1)
         current_gap = self.gaps(fixed_ball, feet, rotation).amin(-1)
-        delta = (previous_gap - current_gap).clamp(-.05, .05)
-        close = torch.linalg.vector_norm(e.xpos[:, e.bodies, :2] - e.ball[:, None, :2], dim=-1) < .8
-        foot_progress = 6. * (delta.clamp(min=0) * healthy + delta.clamp(max=0)) * chase * close
+        # Bound the distance potential, not its delta. Crossing a hard body
+        # distance gate or taking one large retreat must not erase repayment.
+        delta = previous_gap.clamp(max=.6) - current_gap.clamp(max=.6)
+        foot_progress = 6. * (delta.clamp(min=0) * healthy + delta.clamp(max=0)) * chase
 
         velocity = (feet - foot_before) / e.dt
         local = torch.einsum('nafi,nafij->nafj', velocity, rotation)
