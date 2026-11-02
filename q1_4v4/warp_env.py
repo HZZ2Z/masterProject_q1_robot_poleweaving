@@ -18,9 +18,15 @@ def pd(q: wp.array2d[float], v: wp.array2d[float], qi: wp.array[int], vi: wp.arr
 
 
 @wp.kernel
+def advance_touch_clock(clock: wp.array[int]):
+    w=wp.tid()
+    clock[w]=clock[w]+1
+
+
+@wp.kernel
 def collect_touches(nacon: wp.array[int], geom: wp.array[wp.vec2i], world: wp.array[int],
                     dist: wp.array[float], owner: wp.array[int], ball: int,
-                    touches: wp.array2d[int]):
+                    touches: wp.array2d[int], clock: wp.array[int], touch_time: wp.array2d[int]):
     c = wp.tid()
     if c < nacon[0] and dist[c] <= 0.0:
         a, b = geom[c][0], geom[c][1]
@@ -33,6 +39,7 @@ def collect_touches(nacon: wp.array[int], geom: wp.array[wp.vec2i], world: wp.ar
             robot = owner[other]
             if robot >= 0:
                 wp.atomic_max(touches, world[c], robot, 1)
+                wp.atomic_max(touch_time, world[c], robot, clock[world[c]])
 
 
 @wp.kernel
@@ -83,6 +90,8 @@ class WarpSoccerEnv:
         self.xmat = wp.to_torch(self.data.xmat)
         self.target = torch.zeros((count, 176), device=self.device)
         self.touches = torch.zeros((count, 8), device=self.device, dtype=torch.int32)
+        self.touch_time = torch.full((count,8),-1,device=self.device,dtype=torch.int32)
+        self.touch_clock = torch.zeros(count,device=self.device,dtype=torch.int32)
         self.steps = torch.zeros(count, device=self.device, dtype=torch.long)
         self.practice = torch.zeros(count, device=self.device, dtype=torch.long)
         self.previous_action = torch.zeros((count, 8, 22), device=self.device)
@@ -106,6 +115,8 @@ class WarpSoccerEnv:
         self.owner_wp = wp.array(owner, device=self.wp_device)
         self.failure = wp.zeros(count, dtype=wp.int32, device=self.wp_device)
         self.touches_wp = wp.from_torch(self.touches)
+        self.touch_time_wp = wp.from_torch(self.touch_time)
+        self.touch_clock_wp = wp.from_torch(self.touch_clock)
         # Compile outside capture, then restore state. Graph warmup never advances an episode.
         with wp.ScopedStream(self.stream):
             self._substep()
@@ -126,9 +137,11 @@ class WarpSoccerEnv:
         mjw.step(self.wmodel, self.data)
         wp.launch(monitor, dim=(self.count, self.model.nq),
                   inputs=[self.data.qpos, self.data.qvel, self.data.overflow, self.failure], device=self.wp_device)
+        wp.launch(advance_touch_clock,dim=self.count,inputs=[self.touch_clock_wp],device=self.wp_device)
         wp.launch(collect_touches, dim=self.data.contact.geom.shape[0],
                   inputs=[self.data.nacon, self.data.contact.geom, self.data.contact.worldid,
-                          self.data.contact.dist, self.owner_wp, self.reference.ballgeom, self.touches_wp], device=self.wp_device)
+                          self.data.contact.dist, self.owner_wp, self.reference.ballgeom, self.touches_wp,
+                          self.touch_clock_wp,self.touch_time_wp], device=self.wp_device)
 
     def uniform(self, shape, low=0., high=1.):
         return torch.rand(shape, generator=self.generator, device=self.device)*(high-low)+low
@@ -180,6 +193,8 @@ class WarpSoccerEnv:
         self.best_progress[ids] = 0
         self.best_approach[ids] = torch.inf
         self.touches[ids] = 0
+        self.touch_time[ids] = -1
+        self.touch_clock[ids] = 0
         self.forward()
         return self.observe(), self.state()
 

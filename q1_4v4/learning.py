@@ -126,6 +126,7 @@ def make_args(num_envs=4, horizon=128, epochs=5, hidden=128):
     args.match_exploration_revision=0
     args.history_frames=0
     args.history_bins=5
+    args.amp_groups=False
     return args
 
 
@@ -187,7 +188,12 @@ def make_team(args, env, device, gpu_rollout=False, shared=False):
         head=MatchGaussian if match else MarchingGaussian
         policy.actor.act.action_out=head(policy.actor.act.action_out,args.marching_exploration_mix).to(device)
     policy.actor_optimizer = torch.optim.Adam(policy.actor.parameters(), lr=args.lr, eps=args.opti_eps)
-    trainer = R_MAPPO(args, policy, device)
+    if getattr(args,'amp_groups',False):
+        from .grouped_learning import GroupedValueHead,GroupedMAPPO
+        policy.critic.v_out=GroupedValueHead(policy.critic.v_out)
+        policy.critic_optimizer=torch.optim.Adam(policy.critic.parameters(),lr=args.critic_lr,eps=args.opti_eps)
+        trainer=GroupedMAPPO(args,policy,device)
+    else:trainer = R_MAPPO(args, policy, device)
     if gpu_rollout:
         from .gpu_learning import DeviceValueNorm
         trainer.value_normalizer = DeviceValueNorm(device)
@@ -204,10 +210,12 @@ def numpy(t):
 
 
 def save_team(policy, trainer):
-    return dict(actor=policy.actor.state_dict(), critic=policy.critic.state_dict(),
+    state=dict(actor=policy.actor.state_dict(), critic=policy.critic.state_dict(),
                 actor_optimizer=policy.actor_optimizer.state_dict(),
                 critic_optimizer=policy.critic_optimizer.state_dict(),
                 value_normalizer=trainer.value_normalizer.state_dict())
+    if hasattr(trainer,'amp_value_normalizer'):state['amp_value_normalizer']=trainer.amp_value_normalizer.state_dict()
+    return state
 
 
 
@@ -245,6 +253,7 @@ def load_team(state,policy,trainer,match_features=False):
         migrated={}
         for key,value in old.items():
             if key.startswith('base.history_encoder.') and key not in target:continue
+            if key in ('v_out.amp_weight','v_out.amp_bias') and key not in target:continue
             if value.shape==target[key].shape:
                 migrated[key]=value;continue
             if 'feature_norm.' not in key and 'mlp.fc1.0.weight' not in key:
@@ -252,15 +261,17 @@ def load_team(state,policy,trainer,match_features=False):
             index=_input_map(value.shape[-1],target[key].shape[-1],central,match_features)
             migrated[key]=_expand_input(value,target[key].shape,index,is_norm=key.endswith('feature_norm.weight'))
         missing=module.load_state_dict(migrated,strict=False)
-        if missing.unexpected_keys or any(not k.startswith('base.history_encoder.') for k in missing.missing_keys):
+        if missing.unexpected_keys or any(not k.startswith('base.history_encoder.') and k not in
+                                         ('v_out.amp_weight','v_out.amp_bias') for k in missing.missing_keys):
             raise ValueError(f'Unsupported missing checkpoint parameters: {missing}')
         optimizer=state[name+'_optimizer']
-        if name=='actor' and set(old)!=set(target):
+        if set(old)!=set(target):
             import copy
             optimizer=copy.deepcopy(optimizer)
             if len(optimizer['param_groups'])!=1:raise ValueError('History migration requires one actor parameter group')
             current_names=list(dict(module.named_parameters()))
-            old_names=[k for k in old if k in current_names or k.startswith('base.history_encoder.')]
+            old_names=[k for k in old if k in current_names or k.startswith('base.history_encoder.') or
+                       k in ('v_out.amp_weight','v_out.amp_bias')]
             old_ids=optimizer['param_groups'][0]['params']
             if len(old_ids)!=len(old_names):raise ValueError('Actor optimizer parameter layout differs')
             new_ids=opt.state_dict()['param_groups'][0]['params'];indices=dict(zip(current_names,new_ids))
@@ -274,3 +285,5 @@ def load_team(state,policy,trainer,match_features=False):
                     index=_input_map(value.shape[-1],param.shape[-1],central,match_features)
                     opt.state[param][key]=_expand_input(value,param.shape,index)
     trainer.value_normalizer.load_state_dict(state['value_normalizer'])
+    if hasattr(trainer,'amp_value_normalizer') and 'amp_value_normalizer' in state:
+        trainer.amp_value_normalizer.load_state_dict(state['amp_value_normalizer'])

@@ -76,7 +76,7 @@ def test_reward_dashboard_accounts_for_every_component_once_per_team():
     _,plots=match_reward_specs('match')
     keys=[k for plot in plots for k in plot['keys']]
     assert len(plots)==6 and len(keys)==len(set(keys))==2*len(MatchTask.terms)
-    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==31
+    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==32
 
 
 @pytest.fixture(scope='module')
@@ -145,6 +145,36 @@ def test_timeout_ends_world_once_and_retains_terminal_potential_bootstrap(env):
     assert env.match_task.last_terms[MatchTask.terms.index('ball_potential'),0].item()==pytest.approx(-.0025,abs=1e-6)
     _,rows=finish_course_step(env,term,trunc,info)
     assert len(rows)==2 and env.steps[0]==0
+
+
+def test_out_charges_last_robot_and_preserves_identity_until_world_reset(env):
+    env.reset();env.touch_time[0,2]=10;env.touch_time[0,6]=20
+    *_,reward,term,trunc,info=measure(env,out=[True,False])
+    assert info['last_touch_robot'][0]==6 and info['last_touch_team'][0]==1
+    ledger=env.match_task.last_terms[MatchTask.terms.index('ball_out')]
+    torch.testing.assert_close(ledger,env.tensor([0.,-1/8]))
+    env.reset_agents(torch.tensor([[0,6]],device=env.device))
+    assert env.touch_time[0,6]==20 and env.match_task.rules.last_touch_robot[0]==6
+    env.reset(torch.tensor([0],device=env.device))
+    assert env.touch_time[0].max()==-1 and env.match_task.rules.last_touch_robot[0]==-1
+
+
+def test_non_goalkeeper_area_penalty_matches_rendered_lines_without_reset(env):
+    env.reset();env.qpos[0,env.rootq[2]]=5.5;env.qpos[0,env.rootq[2]+1]=0
+    *_,_,term,trunc,info=measure(env)
+    ledger=env.match_task.last_terms[MatchTask.terms.index('penalty_area')]
+    assert ledger[0].item()==pytest.approx(-.01/8) and ledger[1]==0
+    assert not term.any() and not trunc.any() and not info['robot_resets'].any()
+
+
+def test_real_ball_contact_records_integer_physics_substep(env):
+    env.reset();env.qpos[0,env.ballq:env.ballq+3]=env.xpos[0,env.feet[2,0]]
+    env.qpos[0,env.ballq+2]=.101;env.forward()
+    for _ in range(8):
+        *_,info=env.step(torch.zeros((2,8,22),device=env.device))
+        if env.touch_time[0,2]>=0:break
+    assert env.touch_time.dtype==torch.int32 and env.touch_time[0,2]>0
+    assert info['last_touch_mask'][0].any()
 
 
 def test_first_foot_bonus_cannot_be_farmed_by_respawning_or_body_contact(env):

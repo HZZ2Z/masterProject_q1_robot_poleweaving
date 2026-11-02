@@ -1,5 +1,6 @@
 """History causality, exact policy handoff, optimizer continuation and AMP gates."""
 from types import SimpleNamespace
+import os
 import numpy as np
 import pytest
 import torch
@@ -116,7 +117,23 @@ def test_amp_standing_and_stalling_cannot_collect_imitation_reward():
     assert not prior.reward(env).any()
     env.xpos[:,env.feet[2],0]+=.01
     reward=prior.reward(env)
-    assert reward[0,2].item()==pytest.approx(.0045,abs=1e-7)
-    assert reward.max()<=.006
+    assert reward[0,2].item()==pytest.approx(.3,abs=1e-7)
+    assert reward.max()<=.6
     env.match_task.ball_skill.near_stall[0,2]=1
     assert not prior.reward(env).any()
+
+
+def test_parallel_match_groups_share_amp_replay_without_cuda_stream_races():
+    if os.environ.get('Q1_TEST_WARP')!='1':pytest.skip('Explicit CUDA opt-in')
+    from q1_4v4.mixed_env import MixedCourseEnv
+    env=MixedCourseEnv(4,'cuda:0',42,{'teamplay':2,'match':2})
+    prior=MotionPrior(ROOT/'resources/motions/q1','cuda:0',.3,0);prior.iteration=200
+    groups=[(name,group) for name,(_,group) in env.groups.items()]
+    for _ in range(4):
+        prior.begin_step(groups)
+        env.step(torch.randn((4,8,22),device='cuda:0')*.2)
+        env.finish_step()
+    torch.cuda.synchronize()
+    assert prior.reward_statistics[1]==4*4*8 and prior.size>0
+    assert all(np.isfinite(v) for v in prior.update().values())
+    for _,group in groups:assert torch.isfinite(group.match_task.style_reward).all()

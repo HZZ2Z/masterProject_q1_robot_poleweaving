@@ -37,8 +37,16 @@ class DeviceValueNorm(nn.Module):
         return mean, (self.running_mean_sq/weight-mean.square()).clamp(min=.01)
 
     @torch.no_grad()
-    def update(self, x):
-        if enabled():
+    def update(self, x, mask=None):
+        if mask is not None:
+            selected=x[mask.bool().expand_as(x)]
+            stats=torch.stack((selected.double().sum(),selected.double().square().sum(),
+                               torch.tensor(selected.numel(),device=x.device,dtype=torch.float64)))
+            if enabled():dist.all_reduce(stats)
+            if not stats[2].item():return
+            mean=(stats[0]/stats[2]).to(x.dtype)
+            second=(stats[1]/stats[2]).to(x.dtype)
+        elif enabled():
             mean, variance = moments(x)
             second = variance + mean.square()
         else:
@@ -57,7 +65,7 @@ class DeviceValueNorm(nn.Module):
 
 
 class GpuRollout:
-    def __init__(self, horizon, count, device, obs_dim=121):
+    def __init__(self, horizon, count, device, obs_dim=121, amp_groups=False):
         self.horizon, self.count, self.device = horizon, count, device
         self.course_ids=None
         self.history=None
@@ -71,13 +79,22 @@ class GpuRollout:
         self.active = torch.ones((horizon,count,8),device=device,dtype=torch.bool)
         self.masks = torch.ones((horizon, count, 8, 1), device=device)
         self.returns = zeros(horizon, count, 8, 1)
+        self.amp_groups=amp_groups
+        if amp_groups:
+            self.amp_values=zeros(horizon+1,count,8,1)
+            self.amp_rewards=zeros(horizon,count,8,1)
+            self.amp_returns=zeros(horizon,count,8,1)
+            self.amp_active=torch.zeros((horizon,count,8),device=device,dtype=torch.bool)
 
     def compute_returns(self, gamma=.99, lam=.95):
-        gae = torch.zeros_like(self.values[0])
-        for step in reversed(range(self.horizon)):
-            delta = self.rewards[step]+gamma*self.values[step+1]*self.masks[step]-self.values[step]
-            gae = delta+gamma*lam*self.masks[step]*gae
-            self.returns[step] = gae+self.values[step]
+        groups=[(self.values,self.rewards,self.returns)]
+        if self.amp_groups:groups.append((self.amp_values,self.amp_rewards,self.amp_returns))
+        for values,rewards,returns in groups:
+            gae = torch.zeros_like(values[0])
+            for step in reversed(range(self.horizon)):
+                delta = rewards[step]+gamma*values[step+1]*self.masks[step]-values[step]
+                gae = delta+gamma*lam*self.masks[step]*gae
+                returns[step] = gae+values[step]
 
     def update(self, team, trainer, args, active=None):
         shared = team is None
@@ -95,6 +112,19 @@ class GpuRollout:
             adv = (adv-mean)/(variance.sqrt()+1e-5)
         else:
             adv = (adv-selected_adv.mean())/(selected_adv.std(unbiased=False)+1e-5)
+        group_metrics={}
+        if self.amp_groups:
+            amp_valid=valid&self.amp_active[:,:,sl,None]
+            amp_adv=self.amp_returns[:,:,sl]-self.amp_values[:-1,:,sl]
+            # Per-course moments also handle entirely empty AMP courses/ranks.
+            course_ids=self.course_ids if self.course_ids is not None else torch.zeros(self.count,device=self.device,dtype=torch.long)
+            amp_adv=normalize_by_course(amp_adv,amp_valid,course_ids)*amp_valid
+            weight=getattr(args,'amp_advantage_weight',1.)
+            group_metrics={'task_advantage_abs':(2*adv[valid]).abs().mean().item(),
+                           'amp_advantage_abs':(weight*amp_adv[valid]).abs().mean().item()}
+            adv=2*adv+weight*amp_adv
+            old_amp=trainer.amp_value_normalizer.normalize(self.amp_values[:-1,:,sl]).detach()
+            group_losses=torch.zeros(2,device=self.device)
         norm = trainer.value_normalizer
         # Snapshot normalized old values before ppo_update changes ValueNorm statistics.
         old_values = norm.normalize(self.values[:-1, :, sl]).detach()
@@ -125,11 +155,17 @@ class GpuRollout:
                 sample = (state, obs, rnn, rnn, self.actions[t, w, robot], old_values[t, w, a],
                           self.returns[t, w, robot], mask, mask, self.log_probs[t, w, robot],
                           adv[t, w, a], None)
+                if self.amp_groups:
+                    trainer.amp_batch=(old_amp[t,w,a],self.amp_returns[t,w,robot],amp_valid[t,w,a].float())
                 result = trainer.ppo_update(sample)
+                if self.amp_groups:
+                    group_losses+=torch.stack((trainer.last_task_value_loss,trainer.last_amp_value_loss))
                 iw=result[-1].detach()
                 approximate_kl=((iw-1)-iw.clamp(min=1e-12).log()).mean()
                 clip_fraction=((iw-1).abs()>trainer.clip_param).float().mean()
                 sums += torch.stack([x.detach().mean() for x in result]+[approximate_kl,clip_fraction])
                 updates += 1
         names = ('value_loss', 'critic_grad_norm', 'policy_loss', 'dist_entropy', 'actor_grad_norm', 'ratio', 'approx_kl', 'clip_fraction')
-        return dict(zip(names, (sums/updates).cpu().tolist()))
+        if self.amp_groups:
+            group_metrics.update(zip(('task_value_loss','amp_value_loss'),(group_losses/updates).tolist()))
+        return dict(zip(names, (sums/updates).cpu().tolist()),**group_metrics)

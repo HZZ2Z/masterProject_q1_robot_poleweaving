@@ -44,6 +44,8 @@ class CheckpointStore:
                     raise ValueError('Nonfinite checkpoint parameters')
             if any(not torch.isfinite(value).all().item() for value in team.get('value_normalizer',{}).values()):
                 raise ValueError('Nonfinite ValueNorm state')
+            if any(not torch.isfinite(value).all().item() for value in team.get('amp_value_normalizer',{}).values()):
+                raise ValueError('Nonfinite AMP ValueNorm state')
             for name in ('actor_optimizer','critic_optimizer'):
                 if 'state' not in team.get(name,{}) or 'param_groups' not in team[name]:
                     raise ValueError('Checkpoint has no optimizer state')

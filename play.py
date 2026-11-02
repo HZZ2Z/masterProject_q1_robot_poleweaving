@@ -79,6 +79,7 @@ def main():
         args.match_exploration_revision=ckpt.get('match_exploration_revision',0)
         args.history_frames=ckpt['args'].get('history_frames',0)
         args.history_bins=ckpt['args'].get('history_bins',5)
+        args.amp_groups=ckpt['args'].get('amp_groups',False)
         for state in ckpt['teams']:
             policy, trainer, _ = make_team(args, env, torch.device('cpu'), gpu_rollout=ckpt.get('backend') == 'warp',shared=shared)
             load_team(state, policy, trainer,match_features=stage in ('teamplay','match'))

@@ -106,6 +106,7 @@ def physical_state():
     e.gait_command=torch.zeros((1,8,3));e.gait_bad_contact=torch.zeros((1,8),dtype=torch.int32)
     e.foot_hits=torch.zeros((1,8,2),dtype=torch.int32);e.nonfoot_ball_hits=torch.zeros((1,8),dtype=torch.int32)
     e.touches=torch.zeros((1,8),dtype=torch.int32);e.ever_feet=torch.zeros((1,8,2),dtype=torch.bool)
+    e.touch_time=torch.full((1,8),-1,dtype=torch.int32)
     e.team_progress=torch.zeros((1,2));e.forward_kick=torch.zeros((1,8));e.side_kick=torch.zeros((1,8))
     e.tensor=lambda x,dtype=torch.float32:torch.as_tensor(x,dtype=dtype)
     e.foot_bounds=e.tensor([[-.057761,-.032936,-.039945],[.115435,.032936,.025686]])

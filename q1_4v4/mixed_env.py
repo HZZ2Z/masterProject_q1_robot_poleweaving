@@ -194,7 +194,8 @@ class MixedCourseEnv:
         keys=SKILL_NAMES
         skill_matrix=torch.stack([torch.stack([env.last_stats[k] for k in keys]) for _,env in self.groups.values()])
         self.course_skill_sum.index_add_(0,self.stat_course_ids,skill_matrix)
-        reward_matrix=torch.stack([active_team_reward(reward,env.active) for reward,(_,env) in zip(rewards,self.groups.values())])
+        reward_matrix=torch.stack([active_team_reward(reward-(env.match_task.style_reward[:,:,None] if env.course in FULL_MATCHES else 0),env.active)
+                                   for reward,(_,env) in zip(rewards,self.groups.values())])
         self.course_reward_sum.index_add_(0,self.stat_course_ids,reward_matrix)
         self._last_stats=dict(zip(keys,(skill_matrix*self.skill_weights[:,None]).sum(0).unbind()))
         return self._obs,self.state(self._obs),torch.cat(rewards),torch.cat(terminated),torch.cat(truncated),{}

@@ -4,6 +4,7 @@ import weakref
 from collections import deque
 from .match_locomotion import MatchLocomotion
 from .match_ball import MatchBall
+from .match_rules import MatchRules
 
 
 class MatchControl:
@@ -86,7 +87,7 @@ class MatchTask:
     terms=('survival','upright','height','joint_velocity','action_smooth','foot_slip',
            'nonfoot_ground','approach','role_progress','role_position','ball_potential','foot_contact',
            'goal_for','goal_against','robot_reset','ball_out','nonfoot_ball',
-           'stance_width','approach_distance','attack_milestone')+MatchLocomotion.terms+MatchBall.terms+('amp',)
+           'stance_width','approach_distance','attack_milestone')+MatchLocomotion.terms+MatchBall.terms+('amp','penalty_area')
     metrics=('standing_red','standing_blue','respawns_red_per_min','respawns_blue_per_min',
              'falls_red_per_min','falls_blue_per_min','reward_residual',
              'chaser_distance_red','chaser_distance_blue',
@@ -99,6 +100,8 @@ class MatchTask:
         self.amp_reward_provider=None
         self.ball_skill=MatchBall(env)
         n,d=env.count,env.device
+        self.rules=MatchRules(n,d)
+        self.style_reward=torch.zeros((n,8),device=d)
         self.failures=torch.zeros((n,2),device=d,dtype=torch.long)
         self.falls=torch.zeros((n,2),device=d,dtype=torch.long)
         self.foot_valid=torch.zeros(n,device=d,dtype=torch.bool)
@@ -129,6 +132,7 @@ class MatchTask:
         self.segment_start[ids]=0;self.agent_failures[ids]=0;self.agent_quality_steps[ids]=0
         self.quality_steps[ids]=0;self.attack_paid[ids]=False
         self.ball_skill.reset_worlds(ids)
+        self.rules.reset_worlds(ids)
         self.spawn[ids]=e.qpos[ids][:,e.rootq[:,None]+torch.arange(2,device=e.device)]
         self.update_targets()
 
@@ -289,10 +293,8 @@ class MatchTask:
         self.segment_start=torch.where(first_trajectory,before[:,0].clamp(-7.1,7.1),self.segment_start)
         self.has_foot|=anyfoot&~body
         self.foot_valid=torch.where(body,False,torch.where(anyfoot,True,self.foot_valid))
-        touched=e.touches.bool().reshape(e.count,2,4).any(-1)
-        unique=touched.sum(-1)==1
-        owner=touched.long().argmax(-1)
-        self.owner=torch.where(touched.any(-1),torch.where(unique,owner,-1),self.owner)
+        self.rules.update_touches(e.touch_time)
+        self.owner.copy_(self.rules.last_touch_team)
         first_foot=foot&~e.ever_feet.any(-1)
         e.ever_feet|=e.foot_hits.bool()&foot[:,:,None]
         self.failures+=robot_reset.reshape(e.count,2,4).sum(-1)
@@ -335,7 +337,7 @@ class MatchTask:
             'goal_for':20.*winner*legit_goal[:,None],
             'goal_against':-20.*conceded,
             'robot_reset':-5.*robot_reset,
-            'ball_out':-1.*base['out'][:,None]*(self.owner[:,None]==torch.arange(8,device=e.device)[None]//4),
+            'ball_out':self.rules.out_penalty(base['out']),
             'nonfoot_ball':-.05*e.nonfoot_ball_hits.bool().float(),
             'stance_width':-dt*.4*width_cost,
             'approach_distance':-dt*.4*self.distance_cost(ball_distance)*chase,
@@ -346,6 +348,8 @@ class MatchTask:
                           {key:torch.zeros_like(quality) for key in MatchLocomotion.terms})
         components.update(ball_rewards)
         components['amp']=self.amp_reward_provider(e) if self.amp_reward_provider is not None else torch.zeros_like(quality)
+        components['penalty_area']=-dt*.5*self.rules.penalty_area(pos)
+        self.style_reward=components['amp']*e.active
         if not self.gait_reward_enabled:
             for key in self.gait_terms:components[key]=torch.zeros_like(quality)
         reward=torch.stack([components[k] for k in self.terms]).sum(0)*e.active
@@ -403,7 +407,9 @@ class MatchTask:
             progress=e.team_progress.max(-1).values,touch=e.ever_feet.any(-1),recover=torch.zeros(e.count,device=e.device,dtype=torch.bool),
             team_stable=team_stable,team_success=team_success,team_fallen=self.falls>0,
             team_progress=e.team_progress,team_touch=team_touch,
-            world_terminated=world_term,world_truncated=world_trunc,robot_resets=robot_reset)
+            world_terminated=world_term,world_truncated=world_trunc,robot_resets=robot_reset,
+            last_touch_robot=self.rules.last_touch_robot.clone(),last_touch_team=self.rules.last_touch_team.clone(),
+            last_touch_mask=self.rules.last_touch_mask.clone())
         e.forward_kick=ball_rewards['forward_strike'];e.side_kick=ball_rewards['side_strike']
         e.last_stats=dict(upright=up.mean(),height=pos[:,:,2].mean(),forward=e.forward_kick.mean(),side=e.side_kick.mean(),
             task_distance=norm(pos[:,:,:2]-e.ball[:,None,:2]).mean(),

@@ -6,7 +6,7 @@ SKILL_NAMES=('upright','height','forward','side','left','right','task_distance')
 MATCH_TERM_LABELS=('存活','直立','基座高度','关节速度','动作平滑','支撑滑移','非脚部着地',
                    '追球','角色移动','角色站位','合法控球Potential','首次脚触球','有效进球','实际失球','机器人复位','球出界','非脚部触球',
                    '站距','追球距离','首次推进','移动速度跟踪','有效摆腿','有效落脚交替','支撑异常',
-                   '脚部接近','近球停滞','远球停滞','有效正踢','有效侧踢','向门新增净推进','动作示范AMP')
+                   '脚部接近','近球停滞','远球停滞','有效正踢','有效侧踢','向门新增净推进','动作示范AMP','非守门员进入禁区')
 assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)
 
 
@@ -57,7 +57,7 @@ def match_reward_specs(name):
             ('03 追球与角色',('追球','追球距离','角色移动','角色站位','脚部接近')),
             ('04 有效踢球与停滞',('近球停滞','远球停滞','有效正踢','有效侧踢','向门新增净推进','动作示范AMP')),
             ('05 合法控球与首次触球推进',('合法控球Potential','首次脚触球','首次推进')),
-            ('06 进球与终止事件',('有效进球','实际失球','机器人复位','球出界','非脚部触球'))]
+            ('06 进球与规则事件',('有效进球','实际失球','机器人复位','球出界','非脚部触球','非守门员进入禁区'))]
     return (f'{COURSES.index(name):02d} Reward分解 · {name}',[
         {'title':title+'（平均每控制步）','keys':[f'07_Reward/{name}/{team}/{label}' for label in labels for team in ('红队','蓝队')]}
         for title,labels in groups])
@@ -178,11 +178,11 @@ def dashboard_specs(names,parallel=True,per_course=True):
                 panel('05 中近距开球队有效踢球率',*[p+t+k for t in ('红队','蓝队') for k in ('近球开球队有效踢球率','中距开球队有效踢球率')]),
                 panel('06 开球队员安全率与整队稳定率',*[p+t+k for t in ('红队','蓝队') for k in ('开球队员安全通过率','近球开球队姿态稳定率')])]))
     if per_course:sections.append(('98 动作示范与历史编码',[
-        panel('01 AMP损失','debug/amp_loss'),
-        panel('02 AMP专家与策略评分','debug/amp_expert_score','debug/amp_policy_score'),
-        panel('03 AMP梯度正则','debug/amp_gradient_penalty'),
-        panel('04 AMP每秒奖励系数','debug/amp_coefficient'),
-        panel('05 历史帧数','debug/history_frames'),
+        panel('01 足球与AMP加权优势绝对值','debug/shared_task_advantage_abs','debug/shared_amp_advantage_abs'),
+        panel('02 专家与有效运动策略评分','debug/amp_expert_score','debug/amp_effective_policy_score'),
+        panel('03 足球与AMP价值损失','debug/shared_task_value_loss','debug/shared_amp_value_loss'),
+        panel('04 AMP发放资格占比','debug/amp_eligible_fraction'),
+        panel('05 有效运动风格得分','debug/amp_effective_style'),
         panel('06 历史编码输出权重范数','debug/history_output_weight_norm')]))
     sections.append(('99 学习诊断（按需展开）',[
         panel('价值损失','debug/shared_value_loss'),panel('策略损失','debug/shared_policy_loss'),

@@ -26,6 +26,11 @@ def worker(rank, store):
     normalizer=DeviceValueNorm('cpu');normalizer.update(values[:,None])
     torch.testing.assert_close(normalizer.running_mean,torch.tensor([.00002]))
     torch.testing.assert_close(normalizer.running_mean_sq,torch.tensor([.00006]))
+    masked=DeviceValueNorm('cpu')
+    masked.update(values[:,None],torch.full((len(values),1),float(rank)))
+    mean,var=masked.running_mean_var()
+    torch.testing.assert_close(mean,torch.tensor([3.]))
+    torch.testing.assert_close(var,torch.tensor([2/3]))
     torch.manual_seed(4)
     actor=torch.nn.Sequential(torch.nn.Linear(2,4),torch.nn.Tanh(),torch.nn.Linear(4,1))
     reference=torch.nn.Sequential(torch.nn.Linear(2,4),torch.nn.Tanh(),torch.nn.Linear(4,1))
@@ -48,6 +53,27 @@ def worker(rank, store):
     local=torch.tensor([[rank,0],[rank,1]],dtype=torch.float32) if rank else torch.empty((0,2))
     torch.testing.assert_close(context.rows(local),torch.tensor([[1.,0.],[1.,1.]]))
     assert context.objects(rank)==[0,1]
+    # A rank with zero local AMP eligibility must still run every head's
+    # reduction and receive the globally averaged gradient.
+    import numpy as np
+    from gymnasium.spaces import Box
+    from q1_4v4.learning import make_args,make_team,with_team_identity
+    from q1_4v4.gpu_learning import GpuRollout
+    args=make_args(1,2,1);args.amp_groups=True
+    spaces=SimpleNamespace(observation_space=Box(-np.inf,np.inf,(135,),dtype=np.float32),
+        share_observation_space=Box(-np.inf,np.inf,(1084,),dtype=np.float32),
+        action_space=Box(-1.,1.,(22,),dtype=np.float32))
+    p,t,_=make_team(args,spaces,'cpu',gpu_rollout=True,shared=True);context.attach(p)
+    r=GpuRollout(2,1,'cpu',135,amp_groups=True);r.obs.normal_();r.returns.normal_();r.amp_returns.normal_()
+    r.amp_active.fill_(bool(rank))
+    with torch.no_grad():
+        for step in range(2):
+            obs=with_team_identity(r.obs[step,0],torch.arange(8)//4)
+            a,lp,_=p.actor(obs,torch.zeros(8,1,128),torch.ones(8,1))
+            r.actions[step,0]=a;r.log_probs[step,0]=lp
+    metrics=r.update(None,t,args)
+    assert all(np.isfinite(v) for v in metrics.values())
+    assert context.check_parameters([(p,t,None)])==0 and p.critic.v_out.amp_weight.norm()>0
     context.check_health(lambda:None)
     def injected_failure():
         if rank==1:raise RuntimeError('injected EPA_HORIZON')
