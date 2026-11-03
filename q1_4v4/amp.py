@@ -172,6 +172,8 @@ class MotionPrior(nn.Module):
         commanded=(following[:,:,3:5]*command[:,:,:2]).sum(-1)>.001
         productive=torch.where(chase,(speed>.02)|(near&(foot_speed>.05)),commanded)
         gate = healthy*productive*(1-torch.maximum(task.near_stall,task.far_stall))*env.active
+        motion=getattr(env.match_task,'motion',None)
+        if motion is not None:gate=gate*motion.quality
         eligible=gate>0
         selected=pairs[eligible][::16]
         length=min(len(selected),len(self.replay))

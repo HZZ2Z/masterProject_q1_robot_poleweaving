@@ -19,6 +19,7 @@ from .telemetry import SKILL_NAMES, active_team_reward, course_metrics, macro_me
 from .course_table import COURSE_TABLE_KEY,course_table_html
 from .match_task import MatchTask,MatchControl
 from .history import ActorHistory,history_payload,configure_history
+from .match_motion import configure_motion
 
 
 def run(options):
@@ -45,6 +46,7 @@ def _run(options,device,distributed):
         if options.learning_rate<=0:raise ValueError('learning-rate must be positive')
         args.lr=args.critic_lr=options.learning_rate
     checkpoint = torch.load(options.checkpoint,map_location=device,weights_only=False) if options.checkpoint else None
+    motion_config,motion_change=configure_motion(options,checkpoint,checkpoint['iteration'] if checkpoint else 0)
     history_change=configure_history(args,options,checkpoint)
     saved_amp=checkpoint.get('amp',{}) if checkpoint else {}
     from .amp import AMP_REVISION
@@ -67,6 +69,12 @@ def _run(options,device,distributed):
     if temporal_change:curriculum.recertify('temporal_change_recertification')
     if history_change:curriculum.recertify('history_encoder_recertification')
     if amp_change:curriculum.recertify('amp_change_recertification')
+    if motion_change:
+        if parallel:
+            for name in FULL_MATCHES:
+                curriculum.courses[name].recertify('motion_constraints_recertification')
+                curriculum.mastered.discard(name)
+        elif curriculum.stage in FULL_MATCHES:curriculum.recertify('motion_constraints_recertification')
     start=checkpoint['iteration'] if checkpoint else 0
     direct_start=curriculum.stage if options.start_course is not None else checkpoint.get('direct_start_course') if checkpoint else None
     task_switch=checkpoint is not None and options.start_course is not None and curriculum.stage!=checkpoint['curriculum']['stage']
@@ -108,6 +116,8 @@ def _run(options,device,distributed):
                 state={'amplitude':state['amplitude'],'level':state.get('level',0)}
             if amp_change and state is not None:
                 state={'amplitude':state['amplitude'],'level':state.get('level',0)}
+            if motion_change and state is not None:
+                state={'amplitude':state['amplitude'],'level':state.get('level',0)}
             if gait_reward_change and state is not None:
                 state={'amplitude':state['amplitude'],'level':state.get('level',0)}
             group.match_task.control=MatchControl(state)
@@ -129,10 +139,12 @@ def _run(options,device,distributed):
             raise ValueError('Checkpoint policy count does not match policy sharing')
         for state, (policy, trainer, _) in zip(checkpoint['teams'], teams):
             load_team(state, policy, trainer,match_features=uses_match and not parallel)
-            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match) or temporal_change or amp_change or (gait_reward_change and uses_match):
+            if checkpoint.get('reward_version',1) != REWARD_REVISION or task_switch or (match_change and uses_match) or temporal_change or amp_change or (motion_change and uses_match) or (gait_reward_change and uses_match):
                 trainer.value_normalizer.running_mean.zero_()
                 trainer.value_normalizer.running_mean_sq.zero_()
                 trainer.value_normalizer.debiasing_term.zero_()
+                if hasattr(trainer,'amp_value_normalizer'):
+                    for value in trainer.amp_value_normalizer.buffers():value.zero_()
         states = checkpoint.get('distributed_rng', [])
         state = states[distributed.rank] if len(states) == distributed.world_size else checkpoint
         if len(states) == distributed.world_size or distributed.primary:
@@ -208,6 +220,9 @@ def _run(options,device,distributed):
         for _,group in match_groups():
             group.match_task.discount=args.gamma
             group.match_task.gait_reward_enabled=options.match_gait_reward
+            group.match_task.motion.enabled=motion_config['enabled']
+            group.match_task.motion.start_iteration=motion_config['start_iteration']
+            group.match_task.motion.iteration=start
         obs, _ = env.reset()
         rollout.obs[0].copy_(obs)
         if history is not None:
@@ -231,6 +246,7 @@ def _run(options,device,distributed):
         if not distributed.primary:
             return
         payload = dict(version=4, physics_config=env.physics_config,match_task_revision=MATCH_TASK_REVISION,
+                       motion_constraints=motion_config,
                        match_gait_reward=options.match_gait_reward,
                        match_exploration_revision=MATCH_EXPLORATION_REVISION,
                        match_controls={name:group.match_task.control.state_dict() for name,group in match_groups()},
@@ -267,6 +283,7 @@ def _run(options,device,distributed):
             (out/'wandb_run.json').write_text(json.dumps({'id': wandb_run.id, 'url': wandb_run.url}))
         distributed.maximum(0)  # All workers wait for primary W&B initialization.
         for iteration in range(start+1, start+options.iterations+1):
+            for _,group in match_groups():group.match_task.motion.iteration=iteration
             if amp is not None:
                 amp.iteration=iteration
                 args.amp_advantage_weight=min(1.,max(0.,(iteration-amp.start_iteration)/200))
@@ -461,6 +478,8 @@ def _run(options,device,distributed):
             update_match_controls()
             cloud['debug/比赛任务修订']=MATCH_TASK_REVISION
             cloud['debug/比赛步态奖励启用']=int(options.match_gait_reward)
+            cloud['debug/运动约束启用']=int(motion_config['enabled'])
+            cloud['debug/运动约束过渡比例']=min(1.,max(0.,(iteration-motion_config['start_iteration'])/64)) if motion_config['enabled'] else 0.
             cloud['debug/history_frames']=args.history_frames
             cloud['debug/amp_coefficient']=options.amp_coef
             if amp is not None:

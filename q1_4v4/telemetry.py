@@ -6,7 +6,8 @@ SKILL_NAMES=('upright','height','forward','side','left','right','task_distance')
 MATCH_TERM_LABELS=('存活','直立','基座高度','关节速度','动作平滑','支撑滑移','非脚部着地',
                    '追球','角色移动','角色站位','合法控球Potential','首次脚触球','有效进球','实际失球','机器人复位','球出界','非脚部触球',
                    '站距','追球距离','首次推进','移动速度跟踪','有效摆腿','有效落脚交替','支撑异常',
-                   '脚部接近','近球停滞','远球停滞','有效正踢','有效侧踢','向门新增净推进','动作示范AMP','非守门员进入禁区')
+                   '脚部接近','近球停滞','远球停滞','有效正踢','有效侧踢','向门新增净推进','动作示范AMP','非守门员进入禁区',
+                   '支撑脚滑移约束','姿态边界约束','持续腾空约束','上肢摆动约束')
 assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)
 
 
@@ -46,6 +47,15 @@ def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,nea
             for key,title in (('training_quality','开球队员安全通过率'),('mid_touch','中距开球队脚触球率'),
                               ('far_touch','远距开球队脚触球率'),('mid_advance','中距开球队有效推进率'),('far_advance','远距开球队有效推进率')):
                 data[prefix+label+title]=rates[key+'_'+team]
+            for key,title in (('owner_pose_pass','开球队员姿态通过率'),('owner_reset_pass','开球队员复位通过率'),
+                ('owner_time_pass','开球队员时长通过率'),('owner_healthy_sum','开球队员健康姿态时间占比'),
+                ('owner_bad_up','开球队员倾斜时间占比'),('owner_bad_height','开球队员高度异常时间占比'),
+                ('owner_bad_width','开球队员站距异常时间占比'),('owner_bad_contact','开球队员非脚部着地时间占比')):
+                data[prefix+label+title]=rates[key+'_'+team]
+    for side,label in (('red','红队'),('blue','蓝队')):
+        for key,title in (('slip','约束接触滑移_mps'),('flight','移动腾空时间占比'),
+                          ('quality','移动质量系数'),('upper_error','上肢偏离中立_弧度')):
+            data[prefix+label+title]=values.get('motion_'+key+'_'+side,0.)
     for label,pair in zip(MATCH_TERM_LABELS,terms):
         for team,value in zip(('红队','蓝队'),pair):data[f'07_Reward/{name}/{team}/{label}']=value
     return data
@@ -53,7 +63,8 @@ def match_metrics(name,values,terms,amplitude,control=None,standard_worlds=0,nea
 
 def match_reward_specs(name):
     groups=[('01 基础姿态',('存活','直立','基座高度','站距')),
-            ('02 动作与支撑约束',('关节速度','动作平滑','支撑滑移','非脚部着地','移动速度跟踪','有效摆腿','有效落脚交替','支撑异常')),
+            ('02 动作与支撑约束',('关节速度','动作平滑','支撑滑移','非脚部着地','移动速度跟踪','有效摆腿','有效落脚交替','支撑异常',
+                                '支撑脚滑移约束','姿态边界约束','持续腾空约束','上肢摆动约束')),
             ('03 追球与角色',('追球','追球距离','角色移动','角色站位','脚部接近')),
             ('04 有效踢球与停滞',('近球停滞','远球停滞','有效正踢','有效侧踢','向门新增净推进','动作示范AMP')),
             ('05 合法控球与首次触球推进',('合法控球Potential','首次脚触球','首次推进')),
@@ -177,6 +188,13 @@ def dashboard_specs(names,parallel=True,per_course=True):
                 panel('04 各类开球场数',*[p+k for k in ('近球训练球场数','中距训练球场数','远距训练球场数','标准阵型球场数')]),
                 panel('05 中近距开球队有效踢球率',*[p+t+k for t in ('红队','蓝队') for k in ('近球开球队有效踢球率','中距开球队有效踢球率')]),
                 panel('06 开球队员安全率与整队稳定率',*[p+t+k for t in ('红队','蓝队') for k in ('开球队员安全通过率','近球开球队姿态稳定率')])]))
+            sections.append((f'{COURSES.index(name):02d} 支撑与姿态 · {name}',[
+                panel('01 开球队员姿态、复位、时长与综合通过率',*[p+t+k for t in ('红队','蓝队') for k in ('开球队员姿态通过率','开球队员复位通过率','开球队员时长通过率','开球队员安全通过率')]),
+                panel('02 开球队员姿态异常时间占比',*[p+t+k for t in ('红队','蓝队') for k in ('开球队员倾斜时间占比','开球队员高度异常时间占比','开球队员站距异常时间占比','开球队员非脚部着地时间占比')]),
+                panel('03 支撑接触滑移（m/s）',p+'红队约束接触滑移_mps',p+'蓝队约束接触滑移_mps'),
+                panel('04 AMP示范奖励与接触姿态约束（每控制步）',*[f'07_Reward/{name}/{t}/{k}' for t in ('红队','蓝队') for k in ('动作示范AMP','支撑脚滑移约束','姿态边界约束','持续腾空约束','上肢摆动约束')]),
+                panel('05 移动质量与腾空比例',*[p+t+k for t in ('红队','蓝队') for k in ('移动质量系数','移动腾空时间占比')]),
+                panel('06 上肢偏离中立（弧度）',p+'红队上肢偏离中立_弧度',p+'蓝队上肢偏离中立_弧度')]))
     if per_course:sections.append(('98 动作示范与历史编码',[
         panel('01 足球与AMP加权优势绝对值','debug/shared_task_advantage_abs','debug/shared_amp_advantage_abs'),
         panel('02 专家与有效运动策略评分','debug/amp_expert_score','debug/amp_effective_policy_score'),

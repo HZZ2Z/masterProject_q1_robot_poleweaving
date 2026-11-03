@@ -65,6 +65,10 @@ def main():
         env = CoursePreview(stage,device=a.device,marching_target_observation=marching_observation_mode(checkpoint=ckpt),
             match_control=ckpt.get('match_controls',{}).get(stage) if ckpt else None,match_layout=a.match_layout,
             match_gait_reward=ckpt.get('match_gait_reward',True) if ckpt else True)
+        if ckpt and hasattr(env,'env'):
+            motion=env.env.match_task.motion;cfg=ckpt.get('motion_constraints',{})
+            motion.enabled=cfg.get('enabled',False);motion.start_iteration=cfg.get('start_iteration',0)
+            motion.iteration=ckpt['iteration']
     else:
         env = SoccerEnv(stage=stage)
     print({'course':stage,'checkpoint':a.checkpoint,'control':'policy' if ckpt else 'neutral PD',

@@ -55,7 +55,9 @@ def course_table_html(summary,iteration,parallel=True):
     for name in ('teamplay','match'):
         p='06_课程/'+name+'/'
         if p+'比赛子阶段' not in summary:continue
-        reasons={'samples':'等待完整回合','posture':'姿态或复位未达标','touch':'脚触球未达标',
+        reasons={'samples':'等待完整回合','posture':'整体姿态或复位未达标',
+                 'owner_posture':'开球队员姿态未达标','owner_respawns':'开球队员复位过多',
+                 'short_episode':'短回合时长未达标','owner_quality':'开球队员综合条件未达标','touch':'脚触球未达标',
                  'advance':'有效推进未达标','mid_touch':'中距脚触球未达标','mid_advance':'中距推进未达标',
                  'goals':'标准比赛进球未达标','pass':'累计通过窗口','expanded':'已扩大接近距离'}
         reason=reasons.get(summary.get(p+'子阶段门控'),'等待采样')

@@ -76,7 +76,7 @@ def test_reward_dashboard_accounts_for_every_component_once_per_team():
     _,plots=match_reward_specs('match')
     keys=[k for plot in plots for k in plot['keys']]
     assert len(plots)==6 and len(keys)==len(set(keys))==2*len(MatchTask.terms)
-    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==32
+    assert len(MATCH_TERM_LABELS)==len(MatchTask.terms)==36
 
 
 @pytest.fixture(scope='module')

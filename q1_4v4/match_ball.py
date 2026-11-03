@@ -23,6 +23,7 @@ class MatchBall:
         self.anchor_ball = torch.zeros((n, 8, 3), device=d)
         self.goal_speed = torch.zeros_like(self.near_idle)
         self.effective = torch.zeros((n, 8), device=d, dtype=torch.bool)
+        self.strikes = torch.zeros((n, 8, 2), device=d, dtype=torch.bool)
         self.legal_owner = torch.full((n,), -1, device=d, dtype=torch.long)
         self.best_goal_distance = torch.zeros((n, 2), device=d)
         self.chase = torch.zeros_like(self.near)
@@ -54,9 +55,11 @@ class MatchBall:
                      'window_steps', 'goal_speed', 'effective', 'chase'):
             getattr(self, name)[ids] = 0
         self.legal_owner[ids] = -1
+        self.strikes[ids] = False
         self.best_goal_distance[ids] = self.distances_to_goals()[ids]
 
     def reset_agents(self, w, a):
+        self.strikes[w,a] = False
         # The rally's strike history and progress budget survive individual falls.
         for name in ('near', 'near_idle', 'far_idle', 'near_stall', 'far_stall',
                      'window_steps', 'goal_speed', 'chase'):
@@ -121,6 +124,7 @@ class MatchBall:
         straight = (credit * speed * forward.clamp(min=0) / magnitude.clamp(min=1e-6)).sum(-1)
         lateral = (credit * speed * side.abs() / magnitude.clamp(min=1e-6)).sum(-1)
         strikes = valid & (self.goal_speed > .2)[..., None]
+        self.strikes[:] = strikes
         self.effective |= strikes.any(-1)
 
         distance = self.distances_to_goals()

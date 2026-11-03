@@ -19,6 +19,7 @@ def run(options):
         from q1_4v4.gpu_runner import run as run_gpu
         return run_gpu(options)
     if getattr(options,'curriculum_mode',None)=='parallel':raise ValueError('Parallel curricula require the Warp backend')
+    if getattr(options,'match_motion_constraints',False):raise ValueError('Match motion constraints require the Warp backend')
     if options.episode_steps is not None and options.episode_steps < 1:
         raise ValueError('episode-steps must be positive')
     if options.save_interval < 1:
@@ -225,6 +226,8 @@ def parser():
     p.add_argument('--history-bins',type=int,help='Ordered temporal pooling bins; defaults to 5')
     p.add_argument('--amp-coef',type=float,help='AMP imitation coefficient; 0 disables AMP')
     p.add_argument('--amp-motion-path',help='Q1 motion CSV directory; defaults to resources/motions/q1')
+    p.add_argument('--match-motion-constraints',action=argparse.BooleanOptionalAction,default=None,
+                   help='Contact/posture constraints in the AMP group; resume restores checkpoint mode')
     p.add_argument('--match-gait-reward',action=argparse.BooleanOptionalAction,default=None,
                    help='Enable match gait/style rewards; resume restores the saved setting')
     p.add_argument('--episode-steps', type=int, help='Override match length, primarily for timeout smoke tests')

@@ -86,7 +86,7 @@ def test_mid_distance_evidence_and_individual_safety_gate_expansion():
     assert c.level==0 and c.reason=='mid_touch'
     good['mid_touch_blue']=16.;good['training_quality_blue']=0.;c=MatchControl()
     for _ in range(48):c.update([.99,.99],[1.,1.],good)
-    assert c.level==0 and c.reason=='posture'
+    assert c.level==0 and c.reason=='owner_quality'
 
 
 @pytest.fixture
@@ -371,3 +371,37 @@ def test_temporal_resume_and_timeout_masks_keep_correct_value_boundaries():
     r=GpuRollout(1,1,'cpu',135);r.values[0].fill_(1);r.values[1].fill_(999);r.rewards[0].fill_(.999*3);r.masks.zero_()
     r.compute_returns(.999,.99);torch.testing.assert_close(r.returns,torch.full_like(r.returns,2.997))
     r.rewards.fill_(20);r.compute_returns(.999,.99);assert (r.returns==20).all()
+
+
+def test_motion_constraints_feed_style_group_and_reduce_only_positive_progress(physical_state):
+    e,t=physical_state;t.gait_reward_enabled=False
+    e.qpos=torch.zeros(1,176);e.qidx=e.vidx.clone();e.neutral=torch.zeros(22)
+    before=e.xpos[:,:8].clone();feet=e.xpos[:,e.feet].clone()
+    e.xpos[0,2,0]+=.01;e.xpos[0,e.feet[2],0]+=.01
+    action=torch.zeros(1,8,22);base=dict(goal=torch.zeros(1),out=torch.zeros(1,dtype=torch.bool))
+    t.step(action,action,e.ball.clone(),before,base,feet)
+    index=MatchTask.terms.index('approach');normal=t.last_terms[index,0].clone()
+    e.foot_slip.fill_(.25);t.motion.enabled=True;t.motion.iteration=64
+    t.step(action,action,e.ball.clone(),before,base,feet)
+    assert 0<t.last_terms[index,0]<normal*.2
+    assert t.style_reward.max()<0
+    assert all(not t.last_terms[MatchTask.terms.index(k)].any() for k in t.gait_terms)
+    e.xpos[0,2,0]-=.02;e.xpos[0,e.feet[2],0]-=.02
+    t.step(action,action,e.ball.clone(),before,base,feet)
+    assert t.last_terms[index,0].item()==pytest.approx(-.04/4,abs=1e-6)
+    assert t.last_residual==0
+
+
+def test_owner_diagnostics_preserve_failure_evidence_and_explain_gate(physical_state):
+    e,t=physical_state;e.steps.fill_(1500)
+    t.kickoff_robot.fill_(2);t.spawn_bucket.zero_();t.spawn_level.zero_()
+    t.quality_steps.fill_(1500);t.agent_quality_steps.fill_(1500)
+    t.agent_quality_steps[0,2]=1300;t.agent_bad_steps[0,2,1]=200
+    action=torch.zeros(1,8,22)
+    *_,info=t.step(action,action,e.ball.clone(),e.xpos[:,:8].clone(),
+        dict(goal=torch.zeros(1),out=torch.zeros(1,dtype=torch.bool)))
+    assert not info['owner_pose_pass'][0] and info['owner_reset_pass'][0] and info['owner_time_pass'][0]
+    values=dict(zip(t.metrics,t.last_metrics))
+    assert values['owner_diag_samples_red']==1 and values['owner_pose_pass_red']==0
+    assert values['owner_time_pass_red']==values['owner_reset_pass_red']==1
+    assert values['owner_bad_height_red'].item()==pytest.approx(200/1500)
