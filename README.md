@@ -68,10 +68,10 @@ docker run --rm --gpus all --ipc=host \
   q1-supermimic python train.py --config configs/soccer.json
 ```
 
-## Pole weaving
+## 杆间绕行
 
-The independent Q1 S-route training, headless evaluation, and playback flow is
-documented in [docs/pole-weaving.md](docs/pole-weaving.md).
+独立的 Q1 S 形路线训练、无界面评估和回放流程见
+[docs/pole-weaving.md](docs/pole-weaving.md)。
 
 ## 代码
 

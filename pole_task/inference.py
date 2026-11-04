@@ -73,9 +73,9 @@ def load_pole_actor(
     config = json.loads(config_path.read_text())
     root = config_path.parents[1]
     source_manifest_path = (root / config["source_manifest"]).resolve()
-    report = verify_source_manifest(source_manifest_path)
+    report = verify_source_manifest(source_manifest_path, purpose="runtime")
     manifest = json.loads(source_manifest_path.read_text())
-    recipe = resolve_source_recipe(config_path, project_root=root)
+    recipe = resolve_source_recipe(config_path, project_root=root, purpose="runtime")
     if identity.get("source_warmup_checkpoint_sha256") != recipe.warmup_checkpoint_sha256:
         raise ValueError("Pole checkpoint was initialized from a different source warmup")
     if identity.get("source_revision") != recipe.source_revision:

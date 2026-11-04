@@ -237,6 +237,7 @@ def resolve_source_recipe(
     config_path: Path,
     *,
     project_root: Path | None = None,
+    purpose: str = "runtime",
 ) -> SourceRecipe:
     """Resolve and cross-check the task 7.7 recipe from project config + manifest."""
     config_path = Path(config_path).resolve()
@@ -250,7 +251,7 @@ def resolve_source_recipe(
     if not isinstance(settings, dict):
         raise ValueError("Pole config must define a source_training recipe")
     source_manifest_path = (root / config["source_manifest"]).resolve()
-    report = verify_source_manifest(source_manifest_path)
+    report = verify_source_manifest(source_manifest_path, purpose=purpose)
     manifest = json.loads(source_manifest_path.read_text())
     training = manifest["training_contract"]
 

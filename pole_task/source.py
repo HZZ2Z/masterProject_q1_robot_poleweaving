@@ -15,35 +15,46 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def source_robot_xml(manifest_path: Path) -> Path:
-    """Resolve and hash-check the registered source robot XML.
+def _asset_root(manifest_path: Path, manifest: dict) -> Path:
+    value = Path(manifest.get("asset_root", manifest.get("source_root", ".")))
+    root = value if value.is_absolute() else manifest_path.parent / value
+    return root.resolve()
 
-    Scene composition needs the source robot without hashing the large policy
-    checkpoints, so this verifies only the registered robot contract entry.
-    """
+
+def _artifact_file(manifest_path: Path, manifest: dict, artifact_id: str) -> tuple[Path, str]:
+    root = _asset_root(manifest_path, manifest)
+    try:
+        artifact = next(row for row in manifest["artifacts"] if row["id"] == artifact_id)
+    except (KeyError, StopIteration) as exc:
+        raise ValueError(f"Source manifest does not register {artifact_id!r}") from exc
+    relative_path = Path(artifact["path"])
+    if relative_path.is_absolute():
+        raise ValueError(f"Managed artifact {artifact_id} path must be relative")
+    path = (root / relative_path).resolve()
+    if path != root and root not in path.parents:
+        raise ValueError(f"Managed artifact {artifact_id} escapes the project root")
+    return path, str(artifact["sha256"]).lower()
+
+
+def source_robot_xml(manifest_path: Path) -> Path:
+    """Resolve and hash-check the robot XML bundled with this project."""
     manifest_path = Path(manifest_path).resolve()
     manifest = json.loads(manifest_path.read_text())
-    source_root_value = Path(manifest["source_root"])
-    source_root = source_root_value if source_root_value.is_absolute() else manifest_path.parent / source_root_value
-    source_root = source_root.resolve()
-    contract = manifest["robot_contract"]
-    path = (source_root / Path(contract["xml"])).resolve()
-    if source_root not in path.parents:
-        raise ValueError("Registered source robot XML escapes the source root")
+    path, expected_hash = _artifact_file(manifest_path, manifest, "robot_xml")
     if not path.is_file():
         raise ValueError(f"Registered source robot XML is missing: {path}")
-    if _sha256(path) != str(contract["xml_sha256"]).lower():
+    if _sha256(path) != expected_hash:
         raise ValueError(f"Source robot XML SHA-256 mismatch: {path}")
     return path
 
 
-def verify_source_manifest(manifest_path: Path) -> dict:
-    """Verify every registered source artifact without loading policy weights."""
+def verify_source_manifest(manifest_path: Path, *, purpose: str = "training") -> dict:
+    """Verify project assets needed for training or runtime, without loading weights."""
+    if purpose not in {"training", "runtime"}:
+        raise ValueError(f"Unknown source manifest verification purpose: {purpose!r}")
     manifest_path = manifest_path.resolve()
     manifest = json.loads(manifest_path.read_text())
-    source_root_value = Path(manifest["source_root"])
-    source_root = source_root_value if source_root_value.is_absolute() else manifest_path.parent / source_root_value
-    source_root = source_root.resolve()
+    source_root = _asset_root(manifest_path, manifest)
     artifacts = manifest["artifacts"]
     if not isinstance(artifacts, list) or not artifacts:
         raise ValueError("Source manifest must register at least one artifact")
@@ -56,6 +67,9 @@ def verify_source_manifest(manifest_path: Path) -> dict:
         if artifact_id in seen_ids:
             raise ValueError(f"Duplicate source artifact id: {artifact_id}")
         seen_ids.add(artifact_id)
+        required_for = artifact.get("required_for", ["training", "runtime"])
+        if purpose not in required_for:
+            continue
         relative_path = Path(artifact["path"])
         if relative_path.is_absolute():
             raise ValueError(f"Source artifact {artifact_id} path must be relative")
@@ -77,6 +91,7 @@ def verify_source_manifest(manifest_path: Path) -> dict:
 
     return {
         "manifest": str(manifest_path),
+        "asset_root": str(source_root),
         "source_root": str(source_root),
         "source_revision": manifest["source_revision"],
         "verified_artifacts": verified,

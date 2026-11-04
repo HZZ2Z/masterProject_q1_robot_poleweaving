@@ -1,6 +1,6 @@
 {
   "format": "supermimic_source_task_manifest_v1",
-  "source_root": "../../SuperMimic",
+  "asset_root": "..",
   "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
   "source_change": "openspec/changes/q1-pole-weaving-demo",
   "source_task": "7.7",
@@ -12,7 +12,7 @@
     "final": "hash for provenance only; never load for policy execution or training initialization"
   },
   "robot_contract": {
-    "xml": "assets/q1_v3/xml/q1_v3_mc.xml",
+    "xml": "expert/resources/q1_description/source_task_7_7/q1_v3_mc.xml",
     "xml_sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
     "actuated_dofs": 22,
     "per_frame_observation_dim": 78,
@@ -76,9 +76,9 @@
     "critic_state_scale": "same 79-value state scale as the world model"
   },
   "training_contract": {
-    "warmup_config": "configs/q1-pole-weaving-warmup-v10.toml",
+    "warmup_config": "pole_task/data/source-configs/warmup-v10.toml",
     "warmup_config_sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
-    "actor_config": "configs/q1-pole-weaving-actor-v10-block7.toml",
+    "actor_config": "pole_task/data/source-configs/actor-v10-block7.toml",
     "actor_config_sha256": "74a0df4d4129d55da06afd35ebe01e2d5decee835693a1b02220756f38b4da92",
     "warmup_updates": 2000,
     "actor_updates": 500,
@@ -107,81 +107,97 @@
   "artifacts": [
     {
       "id": "warmup_checkpoint",
-      "path": "runs/q1-pole-weaving/stage-7-7/course-warmup-v10/checkpoint_2000.pt",
+      "path": "pole_task/assets/checkpoints/source-task-7.7-warmup.pt",
       "sha256": "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5",
-      "use": "strict_training_initialization"
+      "use": "strict_training_initialization",
+      "required_for": ["training"]
     },
     {
       "id": "passed_final_checkpoint_reference",
-      "path": "runs/q1-pole-weaving/stage-7-7/actor-block7/checkpoint_2500.pt",
+      "source_path": "runs/q1-pole-weaving/stage-7-7/actor-block7/checkpoint_2500.pt",
       "sha256": "c42237dff52a5664d83af37fa7afed00670d09955f562855161dc59f7b73f8d6",
-      "use": "provenance_hash_only"
+      "use": "provenance_hash_only",
+      "required_for": ["provenance"]
     },
     {
       "id": "warmup_config",
-      "path": "configs/q1-pole-weaving-warmup-v10.toml",
-      "sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
-      "use": "training_recipe_reference"
+      "path": "pole_task/data/source-configs/warmup-v10.toml",
+      "sha256": "55b710d402567e0d4ccc4db6a6c0f3a9794ce89eec5b6077745fc6d7f3b45634",
+      "source_sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
+      "use": "training_recipe_reference",
+      "required_for": ["training", "runtime"]
     },
     {
       "id": "actor_config",
-      "path": "configs/q1-pole-weaving-actor-v10-block7.toml",
-      "sha256": "74a0df4d4129d55da06afd35ebe01e2d5decee835693a1b02220756f38b4da92",
-      "use": "training_recipe_reference"
+      "path": "pole_task/data/source-configs/actor-v10-block7.toml",
+      "sha256": "7fc2369d9088c2a5706b0a2011d0f706bf682ed737425de6dcac430b36dac240",
+      "source_sha256": "74a0df4d4129d55da06afd35ebe01e2d5decee835693a1b02220756f38b4da92",
+      "use": "training_recipe_reference",
+      "required_for": ["training", "runtime"]
     },
     {
       "id": "robot_xml",
-      "path": "assets/q1_v3/xml/q1_v3_mc.xml",
+      "path": "expert/resources/q1_description/source_task_7_7/q1_v3_mc.xml",
       "sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
-      "use": "robot_physics_identity"
+      "source_sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
+      "use": "robot_physics_identity",
+      "required_for": ["training", "runtime"]
     },
     {
       "id": "course_catalog",
-      "path": "runs/q1-pole-weaving/configs/catalog-v7.toml",
+      "path": "pole_task/data/course/source-catalog-v7.toml",
       "sha256": "79b487e1ed5000c9df9f3b35c929c9bd57277659c40f68cd7998f2653bb19e2c",
-      "use": "course_reference_pairing"
+      "use": "course_reference_pairing",
+      "required_for": ["training", "runtime"]
     },
     {
       "id": "course_geometry",
-      "path": "runs/q1-pole-weaving/configs/course.toml",
+      "path": "pole_task/data/course/geometry.toml",
       "sha256": "001623883404e6e1ca08d4b5bc97d5d238ea3b9fbe08eacdc0fcadb392dfffe8",
-      "use": "pole_geometry"
+      "use": "pole_geometry",
+      "required_for": ["training", "runtime"]
     },
     {
       "id": "passed_result",
-      "path": "runs/q1-pole-weaving/stage-7-7/actor-block7-result.json",
+      "source_path": "runs/q1-pole-weaving/stage-7-7/actor-block7-result.json",
       "sha256": "405794c501fdb07bf73d79eb6968e957a2d036ce146887a7f0b993d3d54a0b12",
-      "use": "acceptance_reference"
+      "use": "acceptance_reference",
+      "required_for": ["provenance"]
     },
     {
       "id": "source_models",
-      "path": "src/supermimic/models.py",
+      "source_path": "src/supermimic/models.py",
       "sha256": "99b4b59bd17d4118a2632d1768b38d4a487d17afc18de1d8ecc77843d6b3654c",
-      "use": "architecture_reference"
+      "use": "architecture_reference",
+      "required_for": ["provenance"]
     },
     {
       "id": "source_course_model",
-      "path": "src/supermimic/course_model.py",
+      "source_path": "src/supermimic/course_model.py",
       "sha256": "4c8a32b193e789e6d0770b613ab711acf86bfb313515ae322df0d26d86008e93",
-      "use": "scene_composition_reference"
+      "use": "scene_composition_reference",
+      "required_for": ["provenance"]
     },
     {
       "id": "source_robot",
-      "path": "src/supermimic/robot.py",
+      "source_path": "src/supermimic/robot.py",
       "sha256": "a3898a668a75588a4ca471217b6231967ad693ec0376f20c9a8ddf60669ee023",
-      "use": "robot_semantics_reference"
+      "use": "robot_semantics_reference",
+      "required_for": ["provenance"]
     },
     {
       "id": "source_course",
-      "path": "src/supermimic/course.py",
+      "source_path": "src/supermimic/course.py",
       "sha256": "d683a3da5faac0321bda3524b3a811d135a224c569a9385788d153d963d9fff0",
-      "use": "course_semantics_reference"
+      "use": "course_semantics_reference",
+      "required_for": ["provenance"]
     },
     {
       "id": "source_training",
-      "path": "src/supermimic/train.py",
+      "source_path": "src/supermimic/train.py",
       "sha256": "57aab8dd57933dd58130dce87e89b3499b523c0a5e96f4248ba17e8e3b367121",
-      "use": "training_flow_reference"
+      "use": "training_flow_reference",
+      "required_for": ["provenance"]
     }
   ],
   "tensor_shapes": {

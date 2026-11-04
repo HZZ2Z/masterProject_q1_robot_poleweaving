@@ -148,6 +148,8 @@ def load_source_pole(
     artifact_paths = report["artifact_paths"]
     warmup_id = manifest["warmup_checkpoint_id"]
     final_id = manifest["final_checkpoint_reference_id"]
+    if warmup_id == final_id:
+        raise ValueError("Source final actor must not be used as training initialization")
     warmup_sha = next(
         artifact["sha256"] for artifact in manifest["artifacts"] if artifact["id"] == warmup_id
     )
@@ -155,8 +157,6 @@ def load_source_pole(
         artifact["sha256"] for artifact in manifest["artifacts"] if artifact["id"] == final_id
     )
     warmup_path = Path(artifact_paths[warmup_id]).resolve()
-    if Path(artifact_paths[final_id]).resolve() == warmup_path:
-        raise ValueError("Source final actor must not be used as training initialization")
 
     checkpoint = torch.load(warmup_path, map_location="cpu", weights_only=True)
     if not isinstance(checkpoint, dict):
@@ -171,8 +171,12 @@ def load_source_pole(
 
     robot_xml = Path(artifact_paths["robot_xml"]).resolve()
     robot = SourcePoleRobot(robot_xml)
-    if robot.sha256 != manifest["robot_contract"]["xml_sha256"]:
-        raise ValueError("Source robot XML hash differs from the migration manifest")
+    robot_xml_sha = next(
+        artifact["sha256"] for artifact in manifest["artifacts"]
+        if artifact["id"] == "robot_xml"
+    )
+    if robot.sha256 != robot_xml_sha:
+        raise ValueError("Bundled robot XML hash differs from the source asset manifest")
     robot.load_state_dict(checkpoint["robot"], strict=True)
     if checkpoint["identity"].get("reward_scaling") != robot.reward_identity():
         raise ValueError("Source warmup reward scaling differs from the Q1 XML identity")
@@ -205,6 +209,7 @@ def load_source_pole(
         "source_config_sha256": manifest["training_contract"]["warmup_config_sha256"],
         "robot_xml": str(robot_xml),
         "robot_xml_sha256": manifest["robot_contract"]["xml_sha256"],
+        "bundled_robot_xml_sha256": robot_xml_sha,
         "state_dict_mapping": "identity for actor, world model, critic and robot; no renamed or skipped keys",
         "observation_mapping": (
             f"{_EXPECTED_OBS_DIM} values: 22 joints + 22 joint velocities + 3 gyro + "

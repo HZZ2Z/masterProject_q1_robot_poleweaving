@@ -112,7 +112,12 @@ def _optional_viewer(environment: SourcePoleEnvironment, show_gui: bool):
         return
     import mujoco.viewer
 
-    viewer = mujoco.viewer.launch_passive(environment.model, environment.data)
+    viewer = mujoco.viewer.launch_passive(
+        environment.model,
+        environment.data,
+        show_left_ui=False,
+        show_right_ui=False,
+    )
     try:
         poles_xy = np.asarray(environment.case.poles_xy, dtype=np.float64)
         with viewer.lock():
@@ -127,6 +132,9 @@ def _optional_viewer(environment: SourcePoleEnvironment, show_gui: bool):
         yield viewer
     finally:
         viewer.close()
+
+
+source_playback_viewer = _optional_viewer
 
 
 @torch.no_grad()
@@ -148,6 +156,8 @@ def run_source_episode(
     max_steps: int | None = None,
     randomize: bool = False,
     show_gui: bool = False,
+    environment: SourcePoleEnvironment | None = None,
+    viewer=None,
 ) -> SourceEpisode:
     """Roll out one paired course in the source profile.
 
@@ -158,9 +168,11 @@ def run_source_episode(
         raise ValueError("Clip index is outside the paired motion library")
     if motions.cases[clip].identity != case.identity:
         raise ValueError("Motion clip and rollout case are not the same paired reference")
-    environment = SourcePoleEnvironment(
+    environment = environment or SourcePoleEnvironment(
         case, scene_path, robot, seed=seed, randomize=randomize
     )
+    if environment.case.identity != case.identity:
+        raise ValueError("Playback environment does not match the requested case")
     rng = np.random.default_rng(seed)
     last_frame = len(case.qpos) - 1
     if start_frame is None:
@@ -190,7 +202,12 @@ def run_source_episode(
     fall = False
     done = False
     step = 0
-    with _optional_viewer(environment, show_gui) as viewer:
+    viewer_context = (
+        nullcontext(viewer)
+        if viewer is not None
+        else _optional_viewer(environment, show_gui)
+    )
+    with viewer_context as viewer:
         while not done:
             validate_source_history(history)
             references = _reference_window(
