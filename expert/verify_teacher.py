@@ -9,12 +9,12 @@ import torch
 import yaml
 import mujoco
 
-from .runtime import ROOT
+from .runtime import DEFAULT_CHECKPOINT,ROOT
 from .policy import ActorCritic
 from .dataset import observation_history
 
 
-def check(root,checkpoint=ROOT/'checkpoints/best.pth'):
+def check(root,checkpoint=DEFAULT_CHECKPOINT):
     root=Path(root);checkpoint=Path(checkpoint)
     manifest=json.loads((root/'manifest.json').read_text())
     if hashlib.sha256(checkpoint.read_bytes()).hexdigest()!=manifest['checkpoint_sha256']:
@@ -56,6 +56,6 @@ def check(root,checkpoint=ROOT/'checkpoints/best.pth'):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('dataset',type=Path)
-    parser.add_argument('--checkpoint',type=Path,default=ROOT/'checkpoints/best.pth');args=parser.parse_args()
+    parser.add_argument('--checkpoint',type=Path,default=DEFAULT_CHECKPOINT);args=parser.parse_args()
     torch.set_num_threads(2)
     print(json.dumps(check(args.dataset,args.checkpoint),indent=2),flush=True)

@@ -101,6 +101,7 @@ def latest_g1_checkpoint():
 
 
 ROOT = Path(__file__).resolve().parent
+DEFAULT_CHECKPOINT = ROOT / 'checkpoints/model_17800.pth'
 
 
 class SoccerPlayer:
@@ -132,7 +133,7 @@ class SoccerPlayer:
             from .motion import Motion
             torch.manual_seed(seed)
             self.q1_motion = Motion(self.cfg, 'cpu')
-        path = Path(checkpoint) if checkpoint and checkpoint != '-1' else ROOT/'checkpoints/best.pth'
+        path = Path(checkpoint) if checkpoint and checkpoint != '-1' else DEFAULT_CHECKPOINT
         # Preserve initialization's RNG consumption before reference reset,
         # including when a standalone student policy is supplied.
         self.policy = ActorCritic(self.cfg)

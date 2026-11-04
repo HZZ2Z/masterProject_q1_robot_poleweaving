@@ -1,0 +1,9 @@
+# Nominal three-pole course for the Q1 pole-weaving experiment.
+[course]
+pole_radius_m = 0.04
+pole_height_m = 1.2
+nominal_spacing_m = 2.0
+spacing_bounds_m = [1.8, 2.2]
+lateral_offset_bounds_m = [-0.2, 0.2]
+origin_xyz_m = [0.0, 0.0, 0.0]
+yaw_rad = 0.0

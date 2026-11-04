@@ -11,7 +11,7 @@ conda env create -f environment.yml
 conda activate q1-supermimic
 ```
 
-将专家权重放到 `expert/checkpoints/best.pth`。准备带关节目标角和力矩限幅的数据：
+使用仓库记录的专家权重 `expert/checkpoints/model_17800.pth`。准备带关节目标角和力矩限幅的数据：
 
 ```bash
 python -m expert.collect --bounded-targets --episodes 256 --seed 100000 \
@@ -26,6 +26,8 @@ python -m expert.verify_teacher expert/datasets/q1_bounded_v1
 python train.py --check
 python -m q1_soccer.verify --device cpu --smoke
 ```
+
+数据采集与训练默认使用该专家权重；如需换教师，采集和验证命令都应显式传入同一个 `--checkpoint`，并将 `configs/soccer.json` 的 `checkpoint` 改为相同文件。足球播放器仍只加载项目训练生成的学生 checkpoint。
 
 启动训练：
 
@@ -65,6 +67,11 @@ docker run --rm --gpus all --ipc=host \
   -v "$PWD/logs:/workspace/logs" \
   q1-supermimic python train.py --config configs/soccer.json
 ```
+
+## Pole weaving
+
+The independent Q1 S-route training, headless evaluation, and playback flow is
+documented in [docs/pole-weaving.md](docs/pole-weaving.md).
 
 ## 代码
 

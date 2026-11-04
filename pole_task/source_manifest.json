@@ -1,0 +1,258 @@
+{
+  "format": "supermimic_source_task_manifest_v1",
+  "source_root": "../../SuperMimic",
+  "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
+  "source_change": "openspec/changes/q1-pole-weaving-demo",
+  "source_task": "7.7",
+  "source_success_stage": "7.12 actor block 7",
+  "warmup_checkpoint_id": "warmup_checkpoint",
+  "final_checkpoint_reference_id": "passed_final_checkpoint_reference",
+  "checkpoint_policy": {
+    "warmup": "load strictly as the pole training initialization",
+    "final": "hash for provenance only; never load for policy execution or training initialization"
+  },
+  "robot_contract": {
+    "xml": "assets/q1_v3/xml/q1_v3_mc.xml",
+    "xml_sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
+    "actuated_dofs": 22,
+    "per_frame_observation_dim": 78,
+    "history_frames": 10,
+    "action_dim": 22,
+    "control_timestep_s": 0.002,
+    "course_pole_radius_m": 0.04,
+    "course_pole_height_m": 1.2
+  },
+  "observation_contract": {
+    "per_frame_dim": 78,
+    "history_frames": 10,
+    "history_order": "oldest_to_newest",
+    "slices": {
+      "joint_position": [0, 22],
+      "joint_velocity": [22, 44],
+      "angular_velocity_heading_frame": [44, 47],
+      "gravity_heading_frame": [47, 50],
+      "previous_action": [50, 72],
+      "pole_xy_heading_frame": [72, 78]
+    },
+    "proprioception": "q - default_q - context.motor_offset, dq, R^-1*w, R^-1*g, last_action",
+    "pole_features": "world_pole = course_origin + Rz(course_yaw) * context.course_poles; (R^-1 * (world_pole - root_xyz))[..., :2]",
+    "noise": "OBSERVATION_NOISE_STD(72) followed by six exact zero-noise pole coordinates"
+  },
+  "action_contract": {
+    "dim": 22,
+    "scale": 0.5,
+    "target": "default_q + context.motor_offset + action_scale * action",
+    "control_timestep_s": 0.02,
+    "action_range": [-1, 1]
+  },
+  "goal_contract": {
+    "dim": 570,
+    "features_per_frame": 57,
+    "window_frames": 10,
+    "representation": "robot",
+    "layout": "root position and WXYZ rotation in the robot root frame, joints - default_q, root linear/angular velocity in the root frame divided by 3, joint velocity divided by 10"
+  },
+  "context_contract": {
+    "dim": 149,
+    "slices": {
+      "friction": [0, 1],
+      "reserved_scalar": [1, 2],
+      "motor_offset": [2, 24],
+      "kp_factor": [24, 46],
+      "kd_factor": [46, 68],
+      "reserved_joints": [68, 90],
+      "root_com": [90, 93],
+      "torso_added_mass": [93, 94],
+      "reserved_bodies": [94, 120],
+      "delay_s": [120, 121],
+      "previous_executed_action": [121, 143],
+      "course_poles": [143, 149]
+    }
+  },
+  "normalization_contract": {
+    "actor_obs_scale": "checkpoint actor.obs_scale (78 values; six pole columns are 1.0)",
+    "world_model_state_scale": "1.0 x 29 + 3.0 x 6 + 10.0 x 22 + 1.0 x 22",
+    "world_model_context_scale": "ones(149) with the delay_s column set to 0.016",
+    "critic_state_scale": "same 79-value state scale as the world model"
+  },
+  "training_contract": {
+    "warmup_config": "configs/q1-pole-weaving-warmup-v10.toml",
+    "warmup_config_sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
+    "actor_config": "configs/q1-pole-weaving-actor-v10-block7.toml",
+    "actor_config_sha256": "74a0df4d4129d55da06afd35ebe01e2d5decee835693a1b02220756f38b4da92",
+    "warmup_updates": 2000,
+    "actor_updates": 500,
+    "actor_learning_rate": 0.00001,
+    "imagination_horizon": 32,
+    "freeze_pole_input_columns": true
+  },
+  "passed_result": {
+    "result_path": "runs/q1-pole-weaving/stage-7-7/actor-block7-result.json",
+    "result_sha256": "405794c501fdb07bf73d79eb6968e957a2d036ce146887a7f0b993d3d54a0b12",
+    "nominal_steps": 675,
+    "held_out_steps": 671,
+    "retention_steps": {
+      "straight": 198,
+      "left_turn": 298,
+      "right_turn": 298
+    }
+  },
+  "policy_fixture": {
+    "project_path": "data/fixtures/source-policy-fixture.npz",
+    "sha256": "772739612e7c785b73c1df57133cda4b40ca39c0b79bc2902d09d63679ee9cfa",
+    "metadata_path": "data/fixtures/source-policy-fixture.json",
+    "generator": "tools/generate_source_fixtures.py",
+    "use": "observation_order_goal_and_actor_parity"
+  },
+  "artifacts": [
+    {
+      "id": "warmup_checkpoint",
+      "path": "runs/q1-pole-weaving/stage-7-7/course-warmup-v10/checkpoint_2000.pt",
+      "sha256": "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5",
+      "use": "strict_training_initialization"
+    },
+    {
+      "id": "passed_final_checkpoint_reference",
+      "path": "runs/q1-pole-weaving/stage-7-7/actor-block7/checkpoint_2500.pt",
+      "sha256": "c42237dff52a5664d83af37fa7afed00670d09955f562855161dc59f7b73f8d6",
+      "use": "provenance_hash_only"
+    },
+    {
+      "id": "warmup_config",
+      "path": "configs/q1-pole-weaving-warmup-v10.toml",
+      "sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
+      "use": "training_recipe_reference"
+    },
+    {
+      "id": "actor_config",
+      "path": "configs/q1-pole-weaving-actor-v10-block7.toml",
+      "sha256": "74a0df4d4129d55da06afd35ebe01e2d5decee835693a1b02220756f38b4da92",
+      "use": "training_recipe_reference"
+    },
+    {
+      "id": "robot_xml",
+      "path": "assets/q1_v3/xml/q1_v3_mc.xml",
+      "sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
+      "use": "robot_physics_identity"
+    },
+    {
+      "id": "course_catalog",
+      "path": "runs/q1-pole-weaving/configs/catalog-v7.toml",
+      "sha256": "79b487e1ed5000c9df9f3b35c929c9bd57277659c40f68cd7998f2653bb19e2c",
+      "use": "course_reference_pairing"
+    },
+    {
+      "id": "course_geometry",
+      "path": "runs/q1-pole-weaving/configs/course.toml",
+      "sha256": "001623883404e6e1ca08d4b5bc97d5d238ea3b9fbe08eacdc0fcadb392dfffe8",
+      "use": "pole_geometry"
+    },
+    {
+      "id": "passed_result",
+      "path": "runs/q1-pole-weaving/stage-7-7/actor-block7-result.json",
+      "sha256": "405794c501fdb07bf73d79eb6968e957a2d036ce146887a7f0b993d3d54a0b12",
+      "use": "acceptance_reference"
+    },
+    {
+      "id": "source_models",
+      "path": "src/supermimic/models.py",
+      "sha256": "99b4b59bd17d4118a2632d1768b38d4a487d17afc18de1d8ecc77843d6b3654c",
+      "use": "architecture_reference"
+    },
+    {
+      "id": "source_course_model",
+      "path": "src/supermimic/course_model.py",
+      "sha256": "4c8a32b193e789e6d0770b613ab711acf86bfb313515ae322df0d26d86008e93",
+      "use": "scene_composition_reference"
+    },
+    {
+      "id": "source_robot",
+      "path": "src/supermimic/robot.py",
+      "sha256": "a3898a668a75588a4ca471217b6231967ad693ec0376f20c9a8ddf60669ee023",
+      "use": "robot_semantics_reference"
+    },
+    {
+      "id": "source_course",
+      "path": "src/supermimic/course.py",
+      "sha256": "d683a3da5faac0321bda3524b3a811d135a224c569a9385788d153d963d9fff0",
+      "use": "course_semantics_reference"
+    },
+    {
+      "id": "source_training",
+      "path": "src/supermimic/train.py",
+      "sha256": "57aab8dd57933dd58130dce87e89b3499b523c0a5e96f4248ba17e8e3b367121",
+      "use": "training_flow_reference"
+    }
+  ],
+  "tensor_shapes": {
+    "actor": {
+      "obs_scale": [78],
+      "encoder.0.weight": [2048, 570],
+      "encoder.0.bias": [2048],
+      "encoder.2.weight": [1024, 2048],
+      "encoder.2.bias": [1024],
+      "encoder.4.weight": [512, 1024],
+      "encoder.4.bias": [512],
+      "encoder.6.weight": [256, 512],
+      "encoder.6.bias": [256],
+      "encoder.8.weight": [32, 256],
+      "encoder.8.bias": [32],
+      "decoder.0.weight": [2048, 812],
+      "decoder.0.bias": [2048],
+      "decoder.2.weight": [1024, 2048],
+      "decoder.2.bias": [1024],
+      "decoder.4.weight": [512, 1024],
+      "decoder.4.bias": [512],
+      "decoder.6.weight": [256, 512],
+      "decoder.6.bias": [256],
+      "decoder.8.weight": [22, 256],
+      "decoder.8.bias": [22]
+    },
+    "model": {
+      "scale": [79],
+      "context_scale": [149],
+      "termination_scale": [2],
+      "heading_state.input_scale": [79],
+      "heading_state.output_scale": [56],
+      "heading_state.error_scale": [56],
+      "dynamics.0.weight": [2048, 250],
+      "dynamics.0.bias": [2048],
+      "dynamics.2.weight": [2048, 2048],
+      "dynamics.2.bias": [2048],
+      "dynamics.4.weight": [2048, 2048],
+      "dynamics.4.bias": [2048],
+      "dynamics.6.weight": [56, 2048],
+      "dynamics.6.bias": [56],
+      "termination.0.weight": [64, 4],
+      "termination.0.bias": [64],
+      "termination.2.weight": [64, 64],
+      "termination.2.bias": [64],
+      "termination.4.weight": [1, 64],
+      "termination.4.bias": [1]
+    },
+    "critic": {
+      "scale": [79],
+      "network.0.weight": [256, 798],
+      "network.0.bias": [256],
+      "network.2.weight": [128, 256],
+      "network.2.bias": [128],
+      "network.4.weight": [1, 128],
+      "network.4.bias": [1]
+    },
+    "robot": {
+      "arm_links": [26],
+      "body_pos": [27, 3],
+      "body_quat": [27, 4],
+      "joint_axis": [23, 3],
+      "joint_anchor": [23, 3],
+      "default_q": [22],
+      "joint_limits": [22, 2],
+      "actuator_qindex": [22],
+      "actuator_gear": [22],
+      "ctrl_limits": [22, 2],
+      "course_origin": [3],
+      "course_yaw": [],
+      "course_pole_radius": []
+    }
+  }
+}
