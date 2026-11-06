@@ -1,88 +1,35 @@
-# Q1 Robot Soccer
+# Q1 机器人足球课程
 
-启元 PrimeBot Q1 V3 足球训练项目。仿真使用 MuJoCo Warp，训练使用 PyTorch、PPO 和 AMP。
+本项目提供三门围绕启元 Q1 人形机器人的实践课程。每门课程都包含一个可运行的算法基线；学生可以复现实验，并在课程目录中独立替换或迭代算法。
 
-## 使用
+## 课程
 
-### 安装
+- [足球踢球](courses/football-kicking/README.md)：视觉足球策略、专家轨迹与策略训练。
+- [S 型绕杆](courses/pole-weaving/README.md)：沿三杆路线完成连续绕行。
+- [4v4 足球对抗](courses/soccer-4v4/README.md)：从基础步态逐步训练到团队比赛。
 
-需要 Linux、Conda 和支持 CUDA 12.8 的 NVIDIA 驱动。
+## 快速开始
 
-```bash
-git clone git@github.com:MohismLab/Q1-Robot-Soccer.git
-cd Q1-Robot-Soccer
-conda env create -f environment.yml
-conda activate q1-kick
-```
-
-### 训练
+需要 Linux、Conda/Mamba，以及支持 CUDA 12.8 的 NVIDIA GPU。创建统一环境：
 
 ```bash
-# 环境检查：运行两轮
-python train.py --task Q1 --headless --device cuda:0 \
-  --num_envs 8 --max_iterations 2 --save_path logs/q1_smoke --no_wandb
-
-# 训练
-python train.py --task Q1 --headless --device cuda:0 \
-  --num_envs 4096 --save_path logs/q1 --no_wandb
+git submodule update --init --recursive
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple conda env create -f environment.yml
+conda activate q1-kick-4v4
 ```
 
-`--num_envs` 设置并行环境数，按可用显存调整。
+环境文件通过 pip 安装 Python 依赖；PyTorch CUDA wheel 另从 `requirements.txt` 声明的官方 PyTorch 索引获取。
 
-权重目录：`logs/q1/logs/<时间>/nn/`。`last.pth` 为最新权重，`best.pth` 按训练指标选取。
-
-启用 W&B：执行 `wandb login`，去掉 `--no_wandb`。
-
-### 回放与录像
-
-将 `CHECKPOINT` 替换为本地权重路径。
+查看 4v4 基础场景的无头演示（不加载模型）：
 
 ```bash
-CHECKPOINT="logs/q1/logs/你的训练时间/nn/best.pth"
-
-# 窗口回放并录像
-python play_mujoco.py --task Q1 --checkpoint "$CHECKPOINT" \
-  --out-video "$PWD/video"
-
-# 无窗口录像
-MUJOCO_GL=egl python play_mujoco.py --task Q1 --checkpoint "$CHECKPOINT" \
-  --headless --steps 5000 --out-video "$PWD/video"
+python play.py --neutral --headless --steps 30 --device cuda:0
 ```
 
-每个回合保存一个 MP4，分辨率 1280×720，帧率 50 FPS。关闭窗口或按 Ctrl+C 时保存当前回合。
+按所选课程准备训练数据或模型，再运行课程指南中的训练和策略演示命令。演示和训练输出写入本地 `logs/`，模型和训练数据不会提交到 Git。
 
-去掉 `--out-video` 可关闭录像。窗口中按 **F** 显示或隐藏相机视锥。
+## 实验复现
 
-### Docker
+选择一门课程并按对应快速开始说明执行。课程页面列出依赖、基线算法、训练配置、模型路径、评估方式和演示命令。根目录保留旧脚本导入路径，新的开发和实验入口以 `courses/` 下的任务目录为准。
 
-宿主机需要 Docker、NVIDIA 驱动和 NVIDIA Container Toolkit。
-
-```bash
-docker build -t q1-robot-soccer:local .
-mkdir -p logs video
-
-# 训练
-docker run --rm --gpus all --ipc=host \
-  --user "$(id -u):$(id -g)" \
-  -v "$PWD/logs:/workspace/logs" \
-  q1-robot-soccer:local \
-  python train.py --task Q1 --headless --device cuda:0 \
-    --num_envs 4096 --save_path logs/q1 --no_wandb
-
-# 无窗口录像
-docker run --rm --gpus all --ipc=host \
-  --user "$(id -u):$(id -g)" \
-  -v "$PWD/logs:/workspace/logs:ro" \
-  -v "$PWD/video:/workspace/video" \
-  q1-robot-soccer:local \
-  python play_mujoco.py --task Q1 --checkpoint "$CHECKPOINT" \
-    --headless --steps 5000 --out-video /workspace/video
-```
-
-容器中启用 W&B：在宿主机设置 `WANDB_API_KEY`，为 `docker run` 添加 `-e WANDB_MODE=online -e WANDB_API_KEY`，去掉 `--no_wandb`。
-
-## 来源
-
-- 方法：[Learning Vision-Driven Reactive Soccer Skills for Humanoid Robots](https://humanoid-kick.github.io/)
-- Q1 模型：[PrimebotTech/primebot-q1-urdf](https://github.com/PrimebotTech/primebot-q1-urdf)
-- 许可证：[BSD-3-Clause](LICENSE)
+通用 MuJoCo 环境、机器人模型和动作数据位于 `shared/q1-mujoco/`；SuperMimic 训练框架位于 `shared/supermimic/`。

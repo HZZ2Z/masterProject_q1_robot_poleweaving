@@ -38,6 +38,7 @@ RUN apt-get update \
 
 WORKDIR /workspace
 COPY requirements.txt ./requirements.txt
+COPY courses/soccer-4v4/third_party/mappo ./courses/soccer-4v4/third_party/mappo
 # The base image supplies PyTorch 2.9.0 with CUDA 12.8. imageio[ffmpeg]
 # supplies the H.264 encoder used by --out-video.
 RUN python -m pip install --no-cache-dir -r requirements.txt \
@@ -47,4 +48,4 @@ COPY . .
 RUN mkdir -p logs video
 
 # Override the command for smoke runs, CPU checks, evaluation or playback.
-CMD ["python", "train.py", "--task", "Q1", "--headless", "--device", "cuda:0", "--num_envs", "1024", "--no_wandb"]
+CMD ["python", "train.py", "--backend", "warp", "--device", "cuda:0", "--num-envs", "1024", "--no-wandb"]

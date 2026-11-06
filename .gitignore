@@ -5,6 +5,7 @@ __pycache__/
 .ipynb_checkpoints/
 .venv*/
 .venv/
+**/.venv*/
 *.egg-info/
 
 # Training output and downloaded model artifacts
@@ -33,7 +34,14 @@ MUJOCO_LOG.TXT
 .env.*
 .netrc
 *.netrc
+server2.json
+**/id_rsa
+**/id_ed25519
 
-# Generated 4v4 artifacts; retain the source scene image
+# Generated artifacts; retain the source scene image
 artifacts/*
 !artifacts/scene_4v4.png
+courses/soccer-4v4/artifacts/*
+!courses/soccer-4v4/artifacts/scene_4v4.png
+.design
+docs/superpowers
