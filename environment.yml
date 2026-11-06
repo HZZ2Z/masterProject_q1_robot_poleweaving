@@ -1,19 +1,8 @@
-name: q1-kick
+name: q1-kick-4v4
 channels:
   - defaults
 dependencies:
   - python=3.11
   - pip
   - pip:
-      - --extra-index-url https://download.pytorch.org/whl/cu128
-      - torch==2.9.0+cu128
-      - mujoco-warp==3.17.0
-      - warp-lang==1.18.0
-      - mujoco==3.17.0
-      - numpy
-      - scipy
-      - pyyaml
-      - tensorboard
-      - wandb
-      - imageio[ffmpeg]
-      - pytest
+      - -r requirements.txt
