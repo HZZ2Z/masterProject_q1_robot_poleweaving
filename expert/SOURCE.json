@@ -1,0 +1,326 @@
+{
+  "extracted_at": "2026-10-31T18:01:00.636110+08:00",
+  "source_repository": "https://github.com/MohismLab/Q1-Robot-Soccer",
+  "source_branch": "PPO",
+  "source_commit": "2966fc57a595bd236fffff20b2070f85d29578e3",
+  "source_runtime_sha256": "1d1f655c432527a1f18b10f4ed7fe336a593923845060d7725558f7c523d4c72",
+  "checkpoint": "checkpoints/model_17800.pth",
+  "checkpoint_iteration": 17800,
+  "checkpoint_sha256": "66faa8a2e8c9f4064477d5cb422bb14265996343e462ee4424a648de6ce9d65e",
+  "observation_dim": 79,
+  "history_frames": 50,
+  "history_order": "newest_first",
+  "action_dim": 22,
+  "physics": "native MuJoCo nominal; original playback behavior",
+  "changes": [
+    "Package-relative imports",
+    "Asset paths relative to expert package",
+    "Q1-only runtime",
+    "Read-only control/physics observation callbacks"
+  ],
+  "files": [
+    {
+      "source": "resources/q1_description/SOURCE.json",
+      "target": "resources/q1_description/SOURCE.json",
+      "sha256": "ad726fed9ef9b0da53882de119d2b0140e4d1adbe9163edbfe5dc07f2ded532d"
+    },
+    {
+      "source": "resources/q1_description/meshes/head_link.STL",
+      "target": "resources/q1_description/meshes/head_link.STL",
+      "sha256": "46e89bdd9cec2ac9832fdb7a7db2c04ac791307a67584a62b14afac8c5c76e68"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_ankle_pitch_link.STL",
+      "target": "resources/q1_description/meshes/left_ankle_pitch_link.STL",
+      "sha256": "51b73d20787d9f9c2139e829e17d1d7befaf67d65c20cd40467f22fc0f3e4e92"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_ankle_roll_link.STL",
+      "target": "resources/q1_description/meshes/left_ankle_roll_link.STL",
+      "sha256": "3a4c01dfa708f45bb925485040bbb2a286fb74ecfce03d5635b2c5701e35ab04"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_elbow_link.STL",
+      "target": "resources/q1_description/meshes/left_elbow_link.STL",
+      "sha256": "a56a951f45e4af8fa657be3a0e558ae75300adb2c5fc34695307ba1f9b324314"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_hip_pitch_link.STL",
+      "target": "resources/q1_description/meshes/left_hip_pitch_link.STL",
+      "sha256": "5e0d4ec7f6b430537d9a23fd13df2fef95e6d46ced86db6e13d2978a8fb05345"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_hip_roll_link.STL",
+      "target": "resources/q1_description/meshes/left_hip_roll_link.STL",
+      "sha256": "fe2255e995cea72657fe8f7e7c62b9e2d3ecf1abeab40f0ad482752ccf2b43ab"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_hip_yaw_link.STL",
+      "target": "resources/q1_description/meshes/left_hip_yaw_link.STL",
+      "sha256": "5bbf6d4e292d5793f40a531967eb876e57dedda774e3b3bc716dbea89d06985c"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_knee_link.STL",
+      "target": "resources/q1_description/meshes/left_knee_link.STL",
+      "sha256": "29bea4221f7e3ffc973715e4a36cebf40b280517419c0bed9e75ece40b82795e"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_shoulder_pitch_link.STL",
+      "target": "resources/q1_description/meshes/left_shoulder_pitch_link.STL",
+      "sha256": "1d033e05dcd5c4a300643ab5c35878b97185d9f271f5b8901adbf1c3dfd1df53"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_shoulder_roll_link.STL",
+      "target": "resources/q1_description/meshes/left_shoulder_roll_link.STL",
+      "sha256": "55dbe108707fb25f6528bf55cf84edba352cb82fc86110e2bcac5bd1183f884c"
+    },
+    {
+      "source": "resources/q1_description/meshes/left_shoulder_yaw_link.STL",
+      "target": "resources/q1_description/meshes/left_shoulder_yaw_link.STL",
+      "sha256": "447d7f76a2e48fb3118d5eb6eb9a68bd7ce1a4d72ce71ba5c9a313860f79b7cd"
+    },
+    {
+      "source": "resources/q1_description/meshes/pelvis.STL",
+      "target": "resources/q1_description/meshes/pelvis.STL",
+      "sha256": "6aded646308edfd9c139e8638f92d78e62396c2035462c217c5e26a23c6c1b1b"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_ankle_pitch_link.STL",
+      "target": "resources/q1_description/meshes/right_ankle_pitch_link.STL",
+      "sha256": "a5e04d5ef7c164a9108d5e37ec19e2dfe088b8bcb877312256d019b60f44e0d5"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_ankle_roll_link.STL",
+      "target": "resources/q1_description/meshes/right_ankle_roll_link.STL",
+      "sha256": "072c4b056fee37f778e1c018bf883a98caf49cbb543738275e4d2ccd34635506"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_elbow_link.STL",
+      "target": "resources/q1_description/meshes/right_elbow_link.STL",
+      "sha256": "6b27f06854e6256e4ca1d28bd179034913e2dafcebfacef73b8d72658a25d9ac"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_hip_pitch_link.STL",
+      "target": "resources/q1_description/meshes/right_hip_pitch_link.STL",
+      "sha256": "75dc6bc206539cc97e94148f02398030cca116bf1d188cc4edfabccdf64d65c4"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_hip_roll_link.STL",
+      "target": "resources/q1_description/meshes/right_hip_roll_link.STL",
+      "sha256": "40587318fa6392586f05aa5add7d586b6823f56dcf2733ae091a4d69220c2ce0"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_hip_yaw_link.STL",
+      "target": "resources/q1_description/meshes/right_hip_yaw_link.STL",
+      "sha256": "47e20a1356a758f3f00e8386309170e081efe3d191622915a997921eea29e384"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_knee_link.STL",
+      "target": "resources/q1_description/meshes/right_knee_link.STL",
+      "sha256": "5729c90f603515b8d4472d369917ffc20c91c7581ae84f4b4389184546febc83"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_shoulder_pitch_link.STL",
+      "target": "resources/q1_description/meshes/right_shoulder_pitch_link.STL",
+      "sha256": "e94308ba1ea3bf092af87df26ccaaae13dcbef1098ce5829d3bd01f9d17a9095"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_shoulder_roll_link.STL",
+      "target": "resources/q1_description/meshes/right_shoulder_roll_link.STL",
+      "sha256": "b67b9e4b49c73d1c1ecf4fd106493fed266fbd1ac60d0c0c68b16c5f2f174b03"
+    },
+    {
+      "source": "resources/q1_description/meshes/right_shoulder_yaw_link.STL",
+      "target": "resources/q1_description/meshes/right_shoulder_yaw_link.STL",
+      "sha256": "b7696cc9d2ffe049896f88123d9daf03424ca35f2c9b204fd6cc11f9cea0d7d9"
+    },
+    {
+      "source": "resources/q1_description/meshes/torso_link.STL",
+      "target": "resources/q1_description/meshes/torso_link.STL",
+      "sha256": "15a47cf9b24422536015dfd6f170c93f7bbbbaee2be5062390390e45d360b76a"
+    },
+    {
+      "source": "resources/q1_description/meshes/waist_roll_link.STL",
+      "target": "resources/q1_description/meshes/waist_roll_link.STL",
+      "sha256": "67b5abf2a19a41d4b668a1e3717ca0534c66b7ddd9089a23fbfa1c9f0e1cf682"
+    },
+    {
+      "source": "resources/q1_description/q1_soccer.xml",
+      "target": "resources/q1_description/q1_soccer.xml",
+      "sha256": "11b737bba76907dc40cf7da2802200775cb102b6c3031c9033563b1830efc09e"
+    },
+    {
+      "source": "resources/q1_description/textures/soccer.png",
+      "target": "resources/q1_description/textures/soccer.png",
+      "sha256": "c17da9298e647a24304fd56942de10f3af868daa8cdc92e21afa1c909ce6372a"
+    },
+    {
+      "source": "resources/q1_description/urdf/q1_v3.urdf",
+      "target": "resources/q1_description/urdf/q1_v3.urdf",
+      "sha256": "a4e0f017fe77308150c1cc098538418eb6c305d33632edbb355a2b6936d38adc"
+    },
+    {
+      "source": "data/q1/left_kick_1.csv",
+      "target": "data/q1/left_kick_1.csv",
+      "sha256": "60ebd3db4f0ecca360e54b18e73089b100a6ea8432be015ad3215638bcd0bec2"
+    },
+    {
+      "source": "data/q1/left_kick_2.csv",
+      "target": "data/q1/left_kick_2.csv",
+      "sha256": "4ffa2f7e150641110f4595edc4afb551cb0fc555257bba768a5b88f850b752d7"
+    },
+    {
+      "source": "data/q1/left_kick_3.csv",
+      "target": "data/q1/left_kick_3.csv",
+      "sha256": "15300d8f1520189bc008a4a3dae9971bd97c0a545f29ff6e3a65cb806fc30f99"
+    },
+    {
+      "source": "data/q1/left_kick_4.csv",
+      "target": "data/q1/left_kick_4.csv",
+      "sha256": "687d12f76d70e95737b026bbe87f1dd62c2a1ae85336d34b1eae9c0e057cead9"
+    },
+    {
+      "source": "data/q1/left_kick_5.csv",
+      "target": "data/q1/left_kick_5.csv",
+      "sha256": "09924b900471770dfe1cffb69fc2f9795ae2c9c1a6de00be1852388fe9d2b95c"
+    },
+    {
+      "source": "data/q1/left_kick_6.csv",
+      "target": "data/q1/left_kick_6.csv",
+      "sha256": "c6ad9bf255d613716309785205c31ba6705594af9e2f6803d0fd17d090b41e1b"
+    },
+    {
+      "source": "data/q1/male1_side_step_left.csv",
+      "target": "data/q1/male1_side_step_left.csv",
+      "sha256": "5721d7e177e757ada6c45512bf7a05afeacc62a84b54264d829c0e7edbe6e117"
+    },
+    {
+      "source": "data/q1/male1_side_step_right.csv",
+      "target": "data/q1/male1_side_step_right.csv",
+      "sha256": "3bc45855b89884a491d78382b172c95a6900167bf5f032e3fbf23df58cc3a9e4"
+    },
+    {
+      "source": "data/q1/male1_walk_back.csv",
+      "target": "data/q1/male1_walk_back.csv",
+      "sha256": "4dd62852d627b45c3ecd00b635e34fe96cde48361b345fe845bc4d653e587511"
+    },
+    {
+      "source": "data/q1/male1_walk_turn_around.csv",
+      "target": "data/q1/male1_walk_turn_around.csv",
+      "sha256": "221232fb709d5ef24c9fc150e8937b63d67977f26c67ef2b63bccfc7c95621e1"
+    },
+    {
+      "source": "data/q1/male1_walk_turn_change.csv",
+      "target": "data/q1/male1_walk_turn_change.csv",
+      "sha256": "359daee342410da9c094ea864075eb22c3c56891fb9b6cf1ba4b477e1bd07923"
+    },
+    {
+      "source": "data/q1/male1_walk_turn_left_45.csv",
+      "target": "data/q1/male1_walk_turn_left_45.csv",
+      "sha256": "8ed20ffaca7c57c7cf19def1113be1e52da906dd5c9fbb016d8869a820400a9a"
+    },
+    {
+      "source": "data/q1/male1_walk_turn_right_45.csv",
+      "target": "data/q1/male1_walk_turn_right_45.csv",
+      "sha256": "13b3c6aab3256b92b004404001c06adfd92803d882ae9fcbb04ab23c034a34c3"
+    },
+    {
+      "source": "data/q1/male2_walk_turn_left_135.csv",
+      "target": "data/q1/male2_walk_turn_left_135.csv",
+      "sha256": "5fd301bca8b5f6461dd3011d6e8e2008e767defd96248ecc8e348a76c1d6906b"
+    },
+    {
+      "source": "data/q1/male2_walk_turn_left_45.csv",
+      "target": "data/q1/male2_walk_turn_left_45.csv",
+      "sha256": "25066bea3f16519592168dfddee64aeab98cc44c9e045dfcf8d8bc1e2bdd207e"
+    },
+    {
+      "source": "data/q1/male2_walk_turn_right_45.csv",
+      "target": "data/q1/male2_walk_turn_right_45.csv",
+      "sha256": "19f9d9811475759a159506561172a61d4ff91241f3f4a7392c7d042ab9a35197"
+    },
+    {
+      "source": "data/q1/retarget_manifest.json",
+      "target": "data/q1/retarget_manifest.json",
+      "sha256": "339d76325b5812c8074ee29022cb6344a43c4637b4647164840c29efc7907dcc"
+    },
+    {
+      "source": "data/q1/right_kick_1.csv",
+      "target": "data/q1/right_kick_1.csv",
+      "sha256": "503c093eb06db3b7d4c42a5a78728b9269b6a20144061265a20b35a0dab8b53f"
+    },
+    {
+      "source": "data/q1/right_kick_2.csv",
+      "target": "data/q1/right_kick_2.csv",
+      "sha256": "35dd2675f6ae8b6942375df6254b40435beaba7224a9531073eb6112c0fea0b6"
+    },
+    {
+      "source": "data/q1/right_kick_3.csv",
+      "target": "data/q1/right_kick_3.csv",
+      "sha256": "8210ee32b32c81cfd956974b43c458bab02148afef6fb6dfe0b12c6dfa0d2073"
+    },
+    {
+      "source": "data/q1/right_kick_4.csv",
+      "target": "data/q1/right_kick_4.csv",
+      "sha256": "2225ef8b24aea9b9595d417091d6102693be74339df22d822ca8a1a149128853"
+    },
+    {
+      "source": "data/q1/right_kick_5.csv",
+      "target": "data/q1/right_kick_5.csv",
+      "sha256": "37a321e87df3230fbf4ffaaf5feb874b84df79e5d6b680c28f42c75dab2f46c9"
+    },
+    {
+      "source": "data/q1/right_kick_6.csv",
+      "target": "data/q1/right_kick_6.csv",
+      "sha256": "b25c2efaec8569838c646837acc8460f964b53efebfad4b01a89451717303061"
+    },
+    {
+      "source": "envs/Q1.yaml",
+      "target": "configs/Q1.yaml",
+      "sha256": "9eb2f902b3129e5e270aca86a64e70378a5b11cca26fdf81d234cb5749ae22d7"
+    },
+    {
+      "source": "LICENSE",
+      "target": "LICENSE",
+      "sha256": "657dd4880051697e5ed9f1e8d10223eb8cbd79c4360a3bdd4c00b67b19cb84a9"
+    },
+    {
+      "source": "utils/torch_math.py",
+      "target": "torch_math.py",
+      "source_sha256": "05c04aa5d38e3975e9c4d7c6eac360cec38a84aac67db8bc701b2c3a0848c5c5",
+      "sha256": "05c04aa5d38e3975e9c4d7c6eac360cec38a84aac67db8bc701b2c3a0848c5c5"
+    },
+    {
+      "source": "utils/kinematics.py",
+      "target": "kinematics.py",
+      "source_sha256": "e897c6cd03b6771ec39b5d83121830288fc6405785f879c259cb646b752c4355",
+      "sha256": "a0179300f363eade19a0472e083d91913d5220b5e20e3d82bccf921838e92aa7"
+    },
+    {
+      "source": "utils/motion.py",
+      "target": "motion.py",
+      "source_sha256": "c8676738a7d678222e68eb5f0c2ed7ac4d4e65b748538be8f635a4c5b26c488c",
+      "sha256": "8d3eb470f2070fe669102c048a7d2e12539093016ad971234d16684c99cd9bcb"
+    },
+    {
+      "source": "logs/q1/logs/2026-10-30-01-27-54/nn/model_17800.pth",
+      "target": "checkpoints/model_17800.pth",
+      "sha256": "66faa8a2e8c9f4064477d5cb422bb14265996343e462ee4424a648de6ce9d65e"
+    }
+  ],
+  "implementation_sha256": {
+    "runtime.py": "611163ffb860dd40f6959d6cf2d30ff6a6e6f6f36fa095eabdd542d280a2ecd4",
+    "policy.py": "1e4a52a5fba31d0ba5e1c4d2ec192e23245cfb57432ed609c9bbc8091fc44bdf",
+    "motion.py": "8d3eb470f2070fe669102c048a7d2e12539093016ad971234d16684c99cd9bcb",
+    "kinematics.py": "a0179300f363eade19a0472e083d91913d5220b5e20e3d82bccf921838e92aa7",
+    "torch_math.py": "05c04aa5d38e3975e9c4d7c6eac360cec38a84aac67db8bc701b2c3a0848c5c5",
+    "termination.py": "95d0a42eb8b94e6042bdc9ccc78130cd373bd051571c5f1e14647f04224666a2",
+    "collect.py": "b761c11b98927779a2ae0b73b89b3a3ef828be5f075c4e2a53c072ae7d89d67d",
+    "dataset.py": "87adf38fdea06e993bfbe022dcace7affd61b4db52e3665480fc7080a8469f1a",
+    "check_dataset.py": "a076241460e45097847ff496b878ee08eac19fb9fd37fb0afc9b637065a04c2f",
+    "replay_check.py": "cde7922156aa994763089d747b0c8c575d67c07b17eb6b6a312a586548714728",
+    "play.py": "7f6e757fe90f420e1e42d75ed3b566f6aa006c93108379375e7b42a2fdfccd7d",
+    "video.py": "330d45d76693fd4953af1bfc2e1983419e6660381ee63cd580d6bcc0204fee26",
+    "validate.py": "2413c6264da6652cabecea1373f7dca82d884455707c7b40800884153d631ab7"
+  }
+}

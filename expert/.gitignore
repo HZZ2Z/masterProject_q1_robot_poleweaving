@@ -1,0 +1,8 @@
+checkpoints/
+datasets/
+validation/
+__pycache__/
+STATUS.json
+*.pyc
+video/
+videos/
