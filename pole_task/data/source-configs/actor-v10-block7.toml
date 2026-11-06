@@ -1,0 +1,75 @@
+# Stage 7.12 actor block 7: identical to block 6 except that the actor's six
+# pole-coordinate input columns are frozen (a parameter trust region). Block 6
+# showed that those columns alone break the native gait when a replay presents
+# distant poles, while the rest of the actor carries the entire course gain.
+# Pre-registered in runs/q1-pole-weaving/stage-7-7/actor-block7-protocol.json.
+# Paths resolve relative to this file.
+[train]
+robot_xml = "../../../expert/resources/q1_description/source_task_7_7/q1_v3_mc.xml"
+motion_dir = "../references"
+output_dir = "../../../logs/q1-pole-weaving/source-actor-block7"
+course_config = "../course/geometry.toml"
+course_catalog = "../course/source-catalog-v7.toml"
+motion_pattern = "*.npz"
+max_motions = 0
+motion_selection = "first"
+motion_seed = 0
+motion_memory_gb = 8.0
+motion_storage = "device"
+device = "cuda:0"
+num_envs = 512
+iterations = 2500
+max_env_steps = 0
+eval_interval_env_steps = 0
+eval_patience = 0
+eval_min_delta = 0.0
+replay_steps = 4000
+model_batch_size = 512
+policy_batch_size = 512
+model_batches = 10
+critic_epochs = 5
+critic_minibatches = 4
+learning_rate = 0.0001
+actor_learning_rate = 1e-05
+actor_warmup_updates = 0
+freeze_pole_input_columns = true
+action_scale = 0.5
+use_tn = true
+action_noise = 0.0
+clean_policy_actions = true
+action_lag = false
+modeled_action_delay = true
+network_activation = "silu"
+dynamics_representation = "heading"
+goal_representation = "robot"
+normalize_policy_objective = true
+normalize_model_objective = true
+randomize = true
+small_networks = false
+save_interval = 25
+initial_save_iteration = 0
+seed = 20261101
+profile_iterations = 0
+profile_every = 0
+compile_networks = false
+compile_collection = false
+fuse_model_loss = false
+cache_reference_heads = false
+cache_goals = false
+capture_reset = false
+capture_imagination = false
+compile_critic = false
+fused_optimizers = false
+physics_timestep = 0.002
+q1_reward_scaling = true
+reward_arm_joint_weight = 0.05
+reward_arm_pd_target_weight = 0.0
+reward_arm_error_std = 0.8
+reward_pole_clearance_weight = 0.0
+reward_pole_safe_clearance_m = 0.25
+runtime_checks = "per_update"
+collective_timeout_seconds = 300
+resume = "../../../logs/q1-pole-weaving/source-course-warmup-v10/checkpoint_2000.pt"
+warm_start_progress = false
+checkpoint_replay = false
+resume_replay = false

@@ -1,0 +1,88 @@
+{
+  "source_manifest": "pole_task/source_manifest.json",
+  "source_training": {
+    "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
+    "stages": {
+      "warmup": {
+        "updates": 2000,
+        "actor_updates_enabled": false,
+        "randomize": false,
+        "freeze_pole_input_columns": false
+      },
+      "actor": {
+        "updates": 500,
+        "actor_updates_enabled": true,
+        "randomize": true,
+        "freeze_pole_input_columns": true
+      }
+    },
+    "model_learning_rate": 0.0001,
+    "critic_learning_rate": 0.0001,
+    "actor_learning_rate": 0.00001,
+    "imagination_horizon": 32,
+    "model_batch_size": 512,
+    "policy_batch_size": 512,
+    "model_batches": 10,
+    "critic_epochs": 5,
+    "critic_minibatches": 4,
+    "action_scale": 0.5,
+    "clean_policy_actions": true,
+    "modeled_action_delay": true,
+    "model_optimizer": {
+      "name": "adam",
+      "betas": [0.9, 0.999],
+      "eps": 1e-08,
+      "weight_decay": 0.0
+    },
+    "critic_optimizer": {
+      "name": "adam",
+      "betas": [0.9, 0.999],
+      "eps": 1e-08,
+      "weight_decay": 0.0
+    },
+    "actor_optimizer": {
+      "name": "adam",
+      "betas": [0.9, 0.95],
+      "eps": 1e-08,
+      "weight_decay": 0.0
+    },
+    "learning_rate_schedule": {
+      "kind": "cosine",
+      "period_updates": 250000,
+      "floor": 0.03
+    }
+  },
+  "manifest": "pole_task/data/manifest.json",
+  "output_root": "logs/q1-pole-weaving",
+  "device": "cuda:0",
+  "gpu_min_free_gb": 4.0,
+  "seed": 20261103,
+  "model_hidden": [512, 512, 512],
+  "model_learning_rate": 0.0003,
+  "critic_learning_rate": 0.0003,
+  "horizon": 16,
+  "batch_size": 128,
+  "collection_episodes": 4,
+  "model_pretrain_updates": 2000,
+  "critic_warmup_updates": 5000,
+  "exploration_std": 0.03,
+  "held_out_validation_episodes": 4,
+  "max_environment_steps": 2000000,
+  "max_actor_updates": 2500,
+  "evaluation_interval": 25,
+  "success_patience": 100,
+  "actor_learning_rate": 0.0003,
+  "trust_action_rms": 0.2,
+  "trust_action_max": 0.5,
+  "held_out_model_rmse_max": 0.15,
+  "held_out_termination_bce_max": 0.1,
+  "critic_relative_rmse_max": 0.35,
+  "course_success_endpoint_m": 0.5,
+  "course_success_rmse_m": 0.5,
+  "course_regression_tolerance_m": 0.1,
+  "retention_rmse_m": 0.3,
+  "training_case_ids": ["nominal-01", "straight", "left_turn", "right_turn"],
+  "retention_collection_episodes": 2,
+  "evaluation_case_ids": ["eval-01"],
+  "retention_case_ids": ["straight", "left_turn", "right_turn"]
+}

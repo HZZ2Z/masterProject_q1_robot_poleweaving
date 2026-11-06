@@ -5,7 +5,7 @@ from pathlib import Path
 import threading
 import time
 import mujoco.viewer
-from .runtime import ROOT,SoccerPlayer,draw_camera_frustum
+from .runtime import DEFAULT_CHECKPOINT,ROOT,SoccerPlayer,draw_camera_frustum
 
 
 @contextmanager
@@ -95,7 +95,7 @@ def run(checkpoint=None, headless=False, steps=None, seed=42, reset_mode='refere
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--task',choices=['Q1'],default='Q1')
-    parser.add_argument('--checkpoint',type=Path,default=ROOT/'checkpoints/best.pth')
+    parser.add_argument('--checkpoint',type=Path,default=DEFAULT_CHECKPOINT)
     parser.add_argument('--seed',type=int,default=42)
     parser.add_argument('--reset-mode',choices=['reference','default'],default='reference')
     parser.add_argument('--headless',action='store_true')

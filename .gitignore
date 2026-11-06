@@ -1,16 +1,39 @@
+# Python, notebook, and environment caches
 __pycache__/
-logs/
-videos/
-video/
-.ipynb_checkpoints
-MUJOCO_LOG.TXT
-.DS_Store
-.venv*/
+*.pyc
 .pytest_cache/
+.ipynb_checkpoints/
+.venv*/
+.venv/
+*.egg-info/
+
+# Training output and downloaded model artifacts
+logs/
 wandb/
 checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.log
+
+# Video and simulator output
+video/
+videos/
+*.mp4
+MUJOCO_LOG.TXT
+
+# Local editor and agent configuration
+.DS_Store
+.agents/
+.claude/
 
 # Local credentials and environment overrides
 .env
 .env.*
 .netrc
+*.netrc
+
+# Generated 4v4 artifacts; retain the source scene image
+artifacts/*
+!artifacts/scene_4v4.png

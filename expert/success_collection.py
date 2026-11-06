@@ -15,7 +15,7 @@ import time
 import numpy as np
 import torch
 
-from .runtime import ROOT
+from .runtime import DEFAULT_CHECKPOINT,ROOT
 from .control import BoundedSoccerPlayer
 from .collect import atomic_json, collect_episode, digest, episode_seed, split_for
 from .dataset import validate_arrays
@@ -385,7 +385,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
-        "--checkpoint", type=Path, default=ROOT / "checkpoints/best.pth"
+        "--checkpoint", type=Path, default=DEFAULT_CHECKPOINT
     )
     parser.add_argument("--successes", type=int, required=True)
     parser.add_argument("--seed", type=int, default=50000000)

@@ -15,7 +15,7 @@ import mujoco
 import numpy as np
 import torch
 
-from .runtime import ROOT,SoccerPlayer
+from .runtime import DEFAULT_CHECKPOINT,ROOT,SoccerPlayer
 from .dataset import SCHEMA_VERSION,observation_history,outcome,validate_arrays
 
 
@@ -154,7 +154,7 @@ def collect_episode(player,stop_requested=lambda:False,max_control_steps=None):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--checkpoint',type=Path,default=ROOT/'checkpoints/best.pth')
+    parser.add_argument('--checkpoint',type=Path,default=DEFAULT_CHECKPOINT)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--episodes',type=int,default=24)
     parser.add_argument('--seed',type=int,default=100000)

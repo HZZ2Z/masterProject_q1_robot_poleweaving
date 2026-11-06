@@ -1,6 +1,6 @@
 {
   "dataset": "expert/datasets/q1_bounded_v1",
-  "checkpoint": "expert/checkpoints/best.pth",
+  "checkpoint": "expert/checkpoints/model_17800.pth",
   "output": "logs/auto",
   "device": "cuda:0",
   "iterations": 10000,

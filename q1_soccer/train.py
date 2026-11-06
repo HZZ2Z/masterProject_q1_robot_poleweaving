@@ -28,7 +28,7 @@ from .trust import PolicyTrust
 @dataclass
 class TrainConfig:
     dataset: str = "expert/datasets/q1_bounded_v1"
-    checkpoint: str = "expert/checkpoints/best.pth"
+    checkpoint: str = "expert/checkpoints/model_17800.pth"
     output: str = "logs/auto"
     device: str = "cuda:0"
     iterations: int = 10000
@@ -668,7 +668,7 @@ def train(cfg, resume=None):
             tracker.finish()
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / "configs/soccer.json")
     parser.add_argument("--resume", type=Path)
@@ -677,7 +677,7 @@ def main():
         action="store_true",
         help="Check configuration/data/model wiring without optimization",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     cfg = TrainConfig.load(args.config)
     if args.check:
         from .verify import check

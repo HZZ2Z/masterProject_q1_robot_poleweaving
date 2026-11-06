@@ -1,0 +1,17 @@
+# v7 references: contact-consistent S course (supersedes v5 as the training
+# reference, v5 retained as the control). Root motion keeps the blended
+# source velocity, and on frames where the stance sole is flat and remains the
+# stance sole the root is moved to hold that sole patch fixed.
+# Project-local paired catalog. The source copy is kept alongside this file.
+
+[[case]]
+id = "nominal-01"
+split = "train"
+poles_xy_m = [[0.0, 0.018], [2.024, 0.146], [3.839, 0.117]]
+motion = "../references/nominal-01.npz"
+
+[[case]]
+id = "eval-01"
+split = "held_out"
+poles_xy_m = [[0.0, -0.06], [1.93, 0.09], [3.95, -0.02]]
+motion = "../references/eval-01.npz"

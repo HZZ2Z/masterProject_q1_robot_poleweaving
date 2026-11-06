@@ -11,6 +11,7 @@ import tempfile
 import numpy as np
 
 ROOT=Path(__file__).resolve().parent
+DEFAULT_CHECKPOINT=ROOT/'checkpoints/model_17800.pth'
 
 # Each interpreter imports only its own package. The original workspace is used
 # exclusively for this comparison and is not an expert runtime dependency.
@@ -51,7 +52,7 @@ pathlib.Path(output+'.json').write_text(json.dumps(summaries))
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root',type=Path,required=True)
-    parser.add_argument('--checkpoint',type=Path,default=ROOT/'checkpoints/best.pth')
+    parser.add_argument('--checkpoint',type=Path,default=DEFAULT_CHECKPOINT)
     parser.add_argument('--physics-steps',type=int,default=500)
     parser.add_argument('--output',type=Path,default=ROOT/'validation/parity.json')
     args=parser.parse_args()
