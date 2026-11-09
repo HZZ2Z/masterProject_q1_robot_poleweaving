@@ -1,24 +1,18 @@
 # S 型绕杆
 
-本课程以现有杆间控制策略作为可复现基线。学生可从任务环境、观测与奖励入手，独立调整策略和训练方法。
+本课程提供基于 SuperMimic 世界模型框架的 Q1 三杆 S 型绕行基线，涵盖任务环境、观测与奖励设计，可用于复现基线和改进策略。
 
-使用 SuperMimic 世界模型框架实现的杆间任务基线，复现三杆 S 型路线。任务拥有独立的观测、奖励、重置、终止条件和 checkpoint 格式。
+## 首次体验前
 
-本配置在仓库的足球场景中复现源任务 7.7 的三杆 S 形路线。它使用与源任务兼容的
-Q1 机器人和控制接口、每帧 78 维观测、10 帧历史、149 维路线信息、以机器人为基准的
-目标，以及源任务的 Actor、世界模型和 Critic 架构。
+先按[统一环境搭建指南](../../docs/setup.md)完成安装。训练配置默认使用 `cuda:0`，需要可用的 NVIDIA GPU 和至少 4 GB 空闲显存；评估和演示默认在 CPU 上运行。训练需要登记的任务 7.7 warmup checkpoint；它不随仓库提交，也不能用足球专家权重替代。请先按[资产与复现说明](../../docs/pole-weaving.md)联系维护者获取并登记 checkpoint。已有课程训练 checkpoint 时，可直接评估或回放，不需要 warmup 文件。
 
-训练严格使用 `pole_task/source_manifest.json` 中登记的任务 7.7 warmup checkpoint 初始化，
-不会改用足球专家权重或源任务最终 Actor。训练和演示需要初始化仓库自带的
-`3rdparty/SuperMimic` 子模块；无需另行克隆上游仓库。源机器人模型、路线数据
-和训练配置快照均由本仓库管理。从头训练需要 warmup checkpoint，可联系
-Xiaofeng Kuang（`stevenkwong@qq.com`）获取。文件路径、SHA-256、数据划分和完整命令见
-[../../docs/pole-weaving.md](../../docs/pole-weaving.md)。使用本项目训练得到的 checkpoint
-进行评估或回放时，不需要该 warmup 文件。
+训练和演示需要初始化仓库自带的 `3rdparty/SuperMimic` 子模块，无需另行克隆上游仓库。源机器人模型、路线数据和训练配置快照均由本仓库管理。
+
+基线在仓库足球场景中复现源任务 7.7 的三杆路线，采用任务专属的观测、奖励、重置、终止条件和 checkpoint 格式。任务与源实现的兼容细节、资产路径、SHA-256、数据划分和完整复现命令见[资产与复现说明](../../docs/pole-weaving.md)。
 
 ## 快速开始
 
-训练前需要维护者提供并登记的任务 7.7 warmup checkpoint；本课程不会用足球策略权重替代它。训练成功后，冒烟运行产生的 `latest.pt` 即可检查模型加载和无头演示，无需训练出达到任务指标的完整策略。模型位于 `logs/q1-pole-weaving/run-<timestamp>/latest.pt`；正式运行通常还会生成 `best.pt`。模型评估和演示不再需要 warmup 文件。详细资产清单见[维护说明](../../docs/pole-weaving.md)。
+以下命令从仓库根目录执行。训练前需要维护者提供并登记任务 7.7 warmup checkpoint。冒烟运行执行一次更新，生成可用于检查模型加载和无头演示的 `latest.pt`，不要求训练出达到任务指标的策略。模型位于 `logs/q1-pole-weaving/run-<timestamp>/latest.pt`；正式运行通常还会生成 `best.pt`。评估和演示不需要 warmup 文件。
 
 ```bash
 # 只读检查：计算数据和源资产哈希，严格加载 warmup，解析源配置并检查硬件；不会创建运行目录。
@@ -48,8 +42,7 @@ python -m pole_task.play \
   --case nominal-01 --gui --seed 20261103 --loops 5
 ```
 
-默认输出目录为 `logs/q1-pole-weaving/`，与足球配置的 `logs/auto` 分开。杆间绕行的训练和
-回放不会加载足球策略或 checkpoint 代码。
+默认输出目录为 `logs/q1-pole-weaving/`，与足球配置的 `logs/auto` 分开。杆间绕行的训练和回放不会加载足球策略或 checkpoint 代码。
 
 ## 无头演示
 

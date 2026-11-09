@@ -1,35 +1,25 @@
 # Q1 机器人足球课程
 
-本项目提供三门围绕启元 Q1 人形机器人的实践课程。每门课程都包含一个可运行的算法基线；学生可以复现实验，并在课程目录中独立替换或迭代算法。
+本项目提供三门基于启元 Q1 人形机器人的实践课程，涵盖机器人控制与强化学习。每门课程都包含可运行的算法基线，可用于观察机器人行为、复现实验和迭代算法。
 
-## 课程
+## 选择一门课程
 
-- [足球踢球](courses/football-kicking/README.md)：视觉足球策略、专家轨迹与策略训练。
-- [S 型绕杆](courses/pole-weaving/README.md)：沿三杆路线完成连续绕行。
-- [4v4 足球对抗](courses/soccer-4v4/README.md)：从基础步态逐步训练到团队比赛。
+| 课程 | 任务目标 | 主要实践内容 |
+| --- | --- | --- |
+| [足球踢球](courses/football-kicking/README.md) | 让机器人根据视觉信息接近并踢球 | 专家轨迹、模仿学习、策略更新 |
+| [S 型绕杆](courses/pole-weaving/README.md) | 控制机器人沿三杆路线连续绕行 | 观测与奖励设计、世界模型策略训练 |
+| [4v4 足球对抗](courses/soccer-4v4/README.md) | 从稳定步态逐步进入团队足球对抗 | 分阶段强化学习、团队策略与课程训练 |
 
-## 快速开始
+可先选择一门课程，再按课程页依次完成环境准备、资源检查和首次体验。足球踢球和 S 型绕杆从头训练分别需要专用模型或数据资产；4v4 提供不依赖预训练模型的基础场景预览和 CPU 冒烟训练。
 
-需要 Linux、Conda/Mamba，以及支持 CUDA 12.8 的 NVIDIA GPU。创建统一环境：
+## 开始之前
 
-```bash
-git submodule update --init --recursive
-PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple conda env create -f environment.yml
-conda activate q1-kick-4v4
-```
+项目的统一环境基于 Linux、Conda/Mamba 和 Python 3.11。完成基础安装不要求先准备 NVIDIA GPU：4v4 和足球踢球都提供 CPU 冒烟训练，可在没有 GPU 时检查训练管线；其余训练流程和 4v4 Warp 场景预览需要 NVIDIA GPU。各课程的数据与 checkpoint 要求见对应课程页。
 
-环境文件通过 pip 安装 Python 依赖；PyTorch CUDA wheel 另从 `requirements.txt` 声明的官方 PyTorch 索引获取。
+按[环境搭建指南](docs/setup.md)安装依赖并完成检查，然后进入所选课程的 README，运行该课程的首次体验步骤。环境指南也说明了子模块初始化、依赖安装以及常见问题的处理方式。
 
-查看 4v4 基础场景的无头演示（不加载模型）：
+## 课程与共享资源
 
-```bash
-python play.py --neutral --headless --steps 30 --device cuda:0
-```
+课程入口和算法实现位于 `courses/`。通用 MuJoCo 环境、机器人模型和动作数据位于 `shared/q1-mujoco/`；SuperMimic 训练框架位于 `shared/supermimic/`。课程模型、训练数据和运行日志保存在本地 `logs/` 或课程指定目录，不纳入 Git。
 
-按所选课程准备训练数据或模型，再运行课程指南中的训练和策略演示命令。演示和训练输出写入本地 `logs/`，模型和训练数据不会提交到 Git。
-
-## 实验复现
-
-选择一门课程并按对应快速开始说明执行。课程页面列出依赖、基线算法、训练配置、模型路径、评估方式和演示命令。根目录保留旧脚本导入路径，新的开发和实验入口以 `courses/` 下的任务目录为准。
-
-通用 MuJoCo 环境、机器人模型和动作数据位于 `shared/q1-mujoco/`；SuperMimic 训练框架位于 `shared/supermimic/`。
+每门课程页都介绍了基线、所需资源、训练、演示和评估方式。开始运行时可从所选课程的“快速开始”或“首次体验”小节开始，再按需阅读完整训练说明。
