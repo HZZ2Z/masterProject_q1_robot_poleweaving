@@ -2,6 +2,8 @@
 
 本课程提供基于 SuperMimic 世界模型框架的 Q1 三杆 S 型绕行基线，涵盖任务环境、观测与奖励设计，可用于复现基线和改进策略。
 
+![S 型绕杆策略演示](../../docs/assets/demos/pole-weaving.gif)
+
 ## 首次体验前
 
 先按[统一环境搭建指南](../../docs/setup.md)完成安装。训练配置默认使用 `cuda:0`，需要可用的 NVIDIA GPU 和至少 4 GB 空闲显存；评估和演示默认在 CPU 上运行。训练需要登记的任务 7.7 warmup checkpoint；它不随仓库提交，也不能用足球专家权重替代。请先按[资产与复现说明](../../docs/pole-weaving.md)联系维护者获取并登记 checkpoint。已有课程训练 checkpoint 时，可直接评估或回放，不需要 warmup 文件。

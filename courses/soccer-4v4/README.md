@@ -2,6 +2,8 @@
 
 本课程提供从基础步态到团队足球对抗的分阶段强化学习基线，支持调整策略网络、课程调度和奖励设计。课程阶段见[课程表](docs/CURRICULUM.md)。
 
+![4v4 足球对抗演示](../../docs/assets/demos/soccer-4v4-match.gif)
+
 ## 首次体验
 
 先按[统一环境搭建指南](../../docs/setup.md)安装环境。无需预训练模型即可预览基础场景；该 Warp 场景预览需要可用的 NVIDIA GPU：
