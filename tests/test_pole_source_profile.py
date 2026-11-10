@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.source import verify_source_manifest
 from pole_task.source_profile import (
     SOURCE_ACTION_DIM,
@@ -23,7 +23,7 @@ from pole_task.source_profile import (
     validate_source_history,
 )
 
-MANIFEST_PATH = ROOT / "pole_task/source_manifest.json"
+MANIFEST_PATH = COURSE_ROOT / "pole_task/source_manifest.json"
 
 
 def _manifest() -> dict:
@@ -33,7 +33,7 @@ def _manifest() -> dict:
 def _fixture() -> dict[str, np.ndarray]:
     manifest = _manifest()
     fixture = manifest["policy_fixture"]
-    path = ROOT / "pole_task" / fixture["project_path"]
+    path = COURSE_ROOT / "pole_task" / fixture["project_path"]
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     assert digest == fixture["sha256"]
     with np.load(path, allow_pickle=False) as data:
@@ -57,7 +57,7 @@ def _robot() -> tuple[SourcePoleRobot, dict]:
 def test_source_profile_dimensions_and_context_layout_match_the_manifest():
     manifest = _manifest()
     fixture_metadata = json.loads(
-        (ROOT / "pole_task" / manifest["policy_fixture"]["metadata_path"]).read_text()
+        (COURSE_ROOT / "pole_task" / manifest["policy_fixture"]["metadata_path"]).read_text()
     )
 
     assert SOURCE_OBS_DIM == manifest["observation_contract"]["per_frame_dim"] == 78

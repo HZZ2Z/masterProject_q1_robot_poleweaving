@@ -10,7 +10,7 @@
 
 ```bash
 python -m expert.collect --bounded-targets --episodes 4 --seed 100008 \
-  --threads 1 --checkpoint expert/checkpoints/model_17800.pth \
+  --threads 1 --checkpoint shared/supermimic/expert/checkpoints/model_17800.pth \
   --output logs/football-kicking-smoke-data
 python -m q1_soccer.train --config courses/football-kicking/configs/smoke.json
 ```
@@ -25,8 +25,8 @@ python -m q1_soccer.play --checkpoint logs/latest/last.pt --headless --steps 100
 
 课程正式训练使用登记的完整成功轨迹数据集。教师权重和数据均不纳入 Git：
 
-- 专家权重：`expert/checkpoints/model_17800.pth`
-- 训练数据：`expert/datasets/q1_bounded_v1/`
+- 专家权重：`shared/supermimic/expert/checkpoints/model_17800.pth`
+- 训练数据：`shared/supermimic/expert/datasets/q1_bounded_v1/`
 - 留出验证集：位于上述数据集目录
 
 若本地缺少专家权重或正式数据集，请按 [SuperMimic 专家资源说明](../../shared/supermimic/expert/README.md) 联系维护者获取。只有专家权重时，可按上方命令采集冒烟数据；采集输出目录必须为空，重跑时请使用新目录并同步修改 `configs/smoke.json` 中的 `dataset` 路径。

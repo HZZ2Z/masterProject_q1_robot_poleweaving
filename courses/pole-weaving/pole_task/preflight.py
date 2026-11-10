@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import yaml
 
-from . import ROOT
+from . import COURSE_ROOT, ROOT, project_path
 from .data import load_course, load_manifest, load_retention
 from .source import verify_source_manifest
 from .source_checkpoint import load_source_pole
@@ -29,8 +29,10 @@ def preflight(config_path: Path) -> dict:
     config_path = config_path.resolve()
     config = json.loads(config_path.read_text())
     root = ROOT
-    manifest_path = (root / config["manifest"]).resolve()
-    source_manifest_path = (root / config.get("source_manifest", "pole_task/source_manifest.json")).resolve()
+    manifest_path = project_path(config["manifest"]).resolve()
+    source_manifest_path = project_path(config.get(
+        "source_manifest", "courses/pole-weaving/pole_task/source_manifest.json"
+    )).resolve()
     source = verify_source_manifest(source_manifest_path)
     warmup_path = Path(source["artifact_paths"][source["warmup_checkpoint_id"]])
     output_root = (root / config["output_root"]).resolve()
@@ -86,11 +88,11 @@ def preflight(config_path: Path) -> dict:
         reference = load_retention(name, manifest_path=manifest_path)
         retention[name] = {"frames": len(reference), "control_steps": len(reference) - 1}
 
-    robot_config_path = root / "expert/configs/Q1.yaml"
+    robot_config_path = ROOT / "shared/supermimic/expert/configs/Q1.yaml"
     robot_config = yaml.safe_load(robot_config_path.read_text())
     if robot_config["env"]["num_actions"] != 22 or len(robot_config["control"]["action_scale"]) != 22:
         raise ValueError("Q1 V3 expert config does not define the expected 22 actions")
-    scene_source = root / "expert/resources/q1_description/q1_soccer.xml"
+    scene_source = ROOT / "shared/q1-mujoco/resources/q1_description/q1_soccer.xml"
     xml = ET.parse(scene_source).getroot()
     actuator_names = [node.get("name") for node in xml.findall("./actuator/*")]
     expected_names = robot_config["asset"]["dof_names"]
@@ -190,7 +192,7 @@ def preflight(config_path: Path) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=ROOT / "pole_task/config.json")
+    parser.add_argument("--config", type=Path, default=COURSE_ROOT / "pole_task/config.json")
     args = parser.parse_args(argv)
     try:
         report = preflight(args.config)

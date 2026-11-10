@@ -1,4 +1,4 @@
-"""Opt-in hardware tests: Q1_TEST_WARP=1 ./scripts/python.sh -m pytest -q tests/test_warp.py."""
+"""Opt-in hardware tests: Q1_TEST_WARP=1 ./courses/soccer-4v4/scripts/python.sh -m pytest -q tests/test_warp.py."""
 import os
 import numpy as np
 import pytest

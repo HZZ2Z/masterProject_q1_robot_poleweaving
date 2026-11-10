@@ -6,7 +6,7 @@ Launch with torchrun exactly like train_distributed.py.
 """
 from pathlib import Path
 import sys
-sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 # Import before Torch: this entrypoint isolates the worker's visible physical GPU.
 from train_distributed import parser,run
 from q1_4v4.parallel_curriculum import ParallelCurriculum

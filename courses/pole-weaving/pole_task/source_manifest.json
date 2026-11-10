@@ -12,7 +12,7 @@
     "final": "hash for provenance only; never load for policy execution or training initialization"
   },
   "robot_contract": {
-    "xml": "expert/resources/q1_description/source_task_7_7/q1_v3_mc.xml",
+    "xml": "shared/q1-mujoco/resources/q1_description/source_task_7_7/q1_v3_mc.xml",
     "xml_sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
     "actuated_dofs": 22,
     "per_frame_observation_dim": 78,
@@ -76,9 +76,9 @@
     "critic_state_scale": "same 79-value state scale as the world model"
   },
   "training_contract": {
-    "warmup_config": "pole_task/data/source-configs/warmup-v10.toml",
+    "warmup_config": "courses/pole-weaving/pole_task/data/source-configs/warmup-v10.toml",
     "warmup_config_sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
-    "actor_config": "pole_task/data/source-configs/actor-v10-block7.toml",
+    "actor_config": "courses/pole-weaving/pole_task/data/source-configs/actor-v10-block7.toml",
     "actor_config_sha256": "74a0df4d4129d55da06afd35ebe01e2d5decee835693a1b02220756f38b4da92",
     "warmup_updates": 2000,
     "actor_updates": 500,
@@ -107,7 +107,7 @@
   "artifacts": [
     {
       "id": "warmup_checkpoint",
-      "path": "pole_task/assets/checkpoints/source-task-7.7-warmup.pt",
+      "path": "courses/pole-weaving/pole_task/assets/checkpoints/source-task-7.7-warmup.pt",
       "sha256": "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5",
       "use": "strict_training_initialization",
       "required_for": ["training"]
@@ -121,23 +121,23 @@
     },
     {
       "id": "warmup_config",
-      "path": "pole_task/data/source-configs/warmup-v10.toml",
-      "sha256": "55b710d402567e0d4ccc4db6a6c0f3a9794ce89eec5b6077745fc6d7f3b45634",
+      "path": "courses/pole-weaving/pole_task/data/source-configs/warmup-v10.toml",
+      "sha256": "967c3429a1fa1ad52f3e525681d79b0fe8ad3ec81c4d5aece3893fad87302b1d",
       "source_sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
       "use": "training_recipe_reference",
       "required_for": ["training", "runtime"]
     },
     {
       "id": "actor_config",
-      "path": "pole_task/data/source-configs/actor-v10-block7.toml",
-      "sha256": "7fc2369d9088c2a5706b0a2011d0f706bf682ed737425de6dcac430b36dac240",
+      "path": "courses/pole-weaving/pole_task/data/source-configs/actor-v10-block7.toml",
+      "sha256": "e82d0794c342edb83220fa6f939765210a8c178af09e7b7f0f9269acdcd1fead",
       "source_sha256": "74a0df4d4129d55da06afd35ebe01e2d5decee835693a1b02220756f38b4da92",
       "use": "training_recipe_reference",
       "required_for": ["training", "runtime"]
     },
     {
       "id": "robot_xml",
-      "path": "expert/resources/q1_description/source_task_7_7/q1_v3_mc.xml",
+      "path": "shared/q1-mujoco/resources/q1_description/source_task_7_7/q1_v3_mc.xml",
       "sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
       "source_sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
       "use": "robot_physics_identity",
@@ -145,14 +145,14 @@
     },
     {
       "id": "course_catalog",
-      "path": "pole_task/data/course/source-catalog-v7.toml",
+      "path": "courses/pole-weaving/pole_task/data/course/source-catalog-v7.toml",
       "sha256": "79b487e1ed5000c9df9f3b35c929c9bd57277659c40f68cd7998f2653bb19e2c",
       "use": "course_reference_pairing",
       "required_for": ["training", "runtime"]
     },
     {
       "id": "course_geometry",
-      "path": "pole_task/data/course/geometry.toml",
+      "path": "courses/pole-weaving/pole_task/data/course/geometry.toml",
       "sha256": "001623883404e6e1ca08d4b5bc97d5d238ea3b9fbe08eacdc0fcadb392dfffe8",
       "use": "pole_geometry",
       "required_for": ["training", "runtime"]

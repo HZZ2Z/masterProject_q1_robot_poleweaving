@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.source import verify_source_manifest
 from pole_task.source_checkpoint import (
     SOURCE_ACTOR_PARITY_TOLERANCE,
@@ -14,12 +14,12 @@ from pole_task.source_checkpoint import (
 )
 from pole_task.source_profile import SOURCE_ACTION_DIM, source_goal_features
 
-MANIFEST_PATH = ROOT / "pole_task/source_manifest.json"
+MANIFEST_PATH = COURSE_ROOT / "pole_task/source_manifest.json"
 
 
 def _fixture() -> dict[str, np.ndarray]:
     manifest = json.loads(MANIFEST_PATH.read_text())
-    path = ROOT / "pole_task" / manifest["policy_fixture"]["project_path"]
+    path = COURSE_ROOT / "pole_task" / manifest["policy_fixture"]["project_path"]
     with np.load(path, allow_pickle=False) as data:
         return {name: data[name] for name in data.files}
 

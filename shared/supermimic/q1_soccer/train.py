@@ -27,8 +27,8 @@ from .trust import PolicyTrust
 
 @dataclass
 class TrainConfig:
-    dataset: str = "expert/datasets/q1_bounded_v1"
-    checkpoint: str = "expert/checkpoints/model_17800.pth"
+    dataset: str = "shared/supermimic/expert/datasets/q1_bounded_v1"
+    checkpoint: str = "shared/supermimic/expert/checkpoints/model_17800.pth"
     output: str = "logs/auto"
     device: str = "cuda:0"
     iterations: int = 10000

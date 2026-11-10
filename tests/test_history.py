@@ -9,7 +9,7 @@ from q1_4v4.history import ActorHistory,history_payload,configure_history
 from q1_4v4.learning import make_args,make_team,save_team,load_team,with_team_identity
 from q1_4v4.course_config import command
 from q1_4v4.amp import MotionPrior
-from q1_4v4.scene import ROOT
+from q1_4v4.scene import MUJOCO_ROOT
 
 
 def policy(frames=0):
@@ -92,18 +92,18 @@ def test_ppo_replays_the_same_history_used_for_sampling():
 
 def test_amp_expert_schema_learning_and_resumption():
     torch.set_num_threads(2)
-    prior=MotionPrior(ROOT/'resources/motions/q1','cpu',.3,100)
+    prior=MotionPrior(MUJOCO_ROOT/'resources/motions/q1','cpu',.3,100)
     assert prior.expert.pairs.shape[1]==118 and len(prior.expert.pairs)>100
     assert torch.isfinite(prior.normalized(prior.expert.pairs)).all()
     prior.replay[:128]=prior.expert.sample(128);prior.size=128
     values=prior.update();assert all(np.isfinite(v) for v in values.values())
-    saved=prior.checkpoint();again=MotionPrior(ROOT/'resources/motions/q1','cpu',.3,999,saved)
+    saved=prior.checkpoint();again=MotionPrior(MUJOCO_ROOT/'resources/motions/q1','cpu',.3,999,saved)
     assert again.start_iteration==100 and saved['motion_sha256']==again.expert.sha256
     for a,b in zip(prior.parameters(),again.parameters()):torch.testing.assert_close(a,b,rtol=0,atol=0)
 
 
 def test_amp_standing_and_stalling_cannot_collect_imitation_reward():
-    prior=MotionPrior(ROOT/'resources/motions/q1','cpu',.3,0);prior.iteration=200
+    prior=MotionPrior(MUJOCO_ROOT/'resources/motions/q1','cpu',.3,0);prior.iteration=200
     with torch.no_grad():
         for param in prior.parameters():param.zero_()
     features=torch.zeros((1,8,59));features[:,:,2]=-1
@@ -127,7 +127,7 @@ def test_parallel_match_groups_share_amp_replay_without_cuda_stream_races():
     if os.environ.get('Q1_TEST_WARP')!='1':pytest.skip('Explicit CUDA opt-in')
     from q1_4v4.mixed_env import MixedCourseEnv
     env=MixedCourseEnv(4,'cuda:0',42,{'teamplay':2,'match':2})
-    prior=MotionPrior(ROOT/'resources/motions/q1','cuda:0',.3,0);prior.iteration=200
+    prior=MotionPrior(MUJOCO_ROOT/'resources/motions/q1','cuda:0',.3,0);prior.iteration=200
     groups=[(name,group) for name,(_,group) in env.groups.items()]
     for _ in range(4):
         prior.begin_step(groups)

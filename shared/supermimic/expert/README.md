@@ -10,12 +10,12 @@ python -m expert.play
 
 # 采集完整回合，保留成功、超时、出界和摔倒。
 python -m expert.collect --bounded-targets --episodes 256 --seed 200000 \
-  --output expert/datasets/new_batch
+  --output shared/supermimic/expert/datasets/new_batch
 
 # 校验数据、力矩回放及教师动作。
-python -m expert.check_dataset expert/datasets/new_batch
-python -m expert.replay_check expert/datasets/new_batch
-python -m expert.verify_teacher expert/datasets/new_batch
+python -m expert.check_dataset shared/supermimic/expert/datasets/new_batch
+python -m expert.replay_check shared/supermimic/expert/datasets/new_batch
+python -m expert.verify_teacher shared/supermimic/expert/datasets/new_batch
 ```
 
 默认完整运行到专家原来的终止条件。`--max-control-steps` 仅用于有界检查，截断标为 `collector_limit`，不会冒充环境超时或成功。Ctrl+C / SIGTERM 在完整控制步后保存当前片段为 `interrupted`。输出目录必须为空，不覆盖旧数据。
@@ -25,7 +25,7 @@ python -m expert.verify_teacher expert/datasets/new_batch
 在已有的纯成功数据集里额外采集 1500 个成功回合（CPU 并行，可与训练同时运行）：
 
 ```bash
-python -m expert.success_collection --output expert/datasets/q1_bounded_v1 \
+python -m expert.success_collection --output shared/supermimic/expert/datasets/q1_bounded_v1 \
   --successes 1500 --workers 8
 ```
 

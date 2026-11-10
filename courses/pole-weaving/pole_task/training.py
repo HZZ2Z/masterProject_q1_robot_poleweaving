@@ -15,7 +15,7 @@ import numpy as np
 import torch
 import yaml
 
-from . import ROOT
+from . import COURSE_ROOT, ROOT, SHARED_ROOT, project_path
 from .data import (
     CourseCase,
     PoleMotions,
@@ -61,7 +61,7 @@ def atomic_json(path: Path, value: dict) -> None:
 
 def case_from_retention(name: str) -> CourseCase:
     qpos = load_retention(name)
-    path = ROOT / "pole_task/data/references" / f"{name}.npz"
+    path = COURSE_ROOT / "pole_task/data/references" / f"{name}.npz"
     return CourseCase(
         name,
         "retention",
@@ -405,8 +405,8 @@ def train(config_path: Path, resume_checkpoint: Path | None = None) -> Path:
         )
     config = json.loads(config_path.read_text())
     root = ROOT
-    expert_path = (root / config["expert_checkpoint"]).resolve()
-    manifest_path = (root / config["manifest"]).resolve()
+    expert_path = project_path(config["expert_checkpoint"]).resolve()
+    manifest_path = project_path(config["manifest"]).resolve()
     output_root = (root / config["output_root"]).resolve()
     seed, device = int(config["seed"]), config["device"]
     random.seed(seed)
@@ -451,7 +451,7 @@ def train(config_path: Path, resume_checkpoint: Path | None = None) -> Path:
             f"Configured environment-step budget {config['max_environment_steps']} "
             f"cannot cover the bounded collection/evaluation plan ({worst_case_steps})"
         )
-    expert_cfg = yaml.safe_load((root / "expert/configs/Q1.yaml").read_text())
+    expert_cfg = yaml.safe_load((SHARED_ROOT / "supermimic/expert/configs/Q1.yaml").read_text())
     actor, mapping = PoleActor.from_project_expert(expert_path, expert_cfg)
     actor = actor.to(device)
     baseline = deepcopy(actor).to(device).eval()
@@ -512,7 +512,7 @@ def train(config_path: Path, resume_checkpoint: Path | None = None) -> Path:
             key: config[key]
             for key in ("max_environment_steps", "max_actor_updates", "evaluation_interval", "success_patience")
         },
-        "robot_scene_sha256": digest(root / "expert/resources/q1_description/q1_soccer.xml"),
+        "robot_scene_sha256": digest(SHARED_ROOT / "q1-mujoco/resources/q1_description/q1_soccer.xml"),
         "vendor_commit": "118338b19dcd14f768d1e7de5a48d04b78987688",
         "started_unix": time.time(),
         "resume_checkpoint": str(resume_checkpoint.resolve()) if resume_checkpoint else None,

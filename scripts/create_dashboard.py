@@ -1,1 +1,0 @@
-../courses/soccer-4v4/scripts/create_dashboard.py

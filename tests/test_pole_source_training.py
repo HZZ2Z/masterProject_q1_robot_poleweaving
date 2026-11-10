@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.preflight import preflight
 from pole_task.source_recipe import resolve_source_recipe
 from pole_task.source_training import (
@@ -22,9 +22,9 @@ from pole_task.source_training import (
     validate_resume_payload,
 )
 
-CONFIG = ROOT / "pole_task/config.json"
-MANIFEST = ROOT / "pole_task/data/manifest.json"
-SOURCE_MANIFEST = ROOT / "pole_task/source_manifest.json"
+CONFIG = COURSE_ROOT / "pole_task/config.json"
+MANIFEST = COURSE_ROOT / "pole_task/data/manifest.json"
+SOURCE_MANIFEST = COURSE_ROOT / "pole_task/source_manifest.json"
 
 
 def _digest(path) -> str:

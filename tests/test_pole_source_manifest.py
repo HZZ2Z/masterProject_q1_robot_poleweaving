@@ -9,7 +9,7 @@ from pole_task.source import verify_source_manifest
 def test_source_manifest_verifies_registered_artifact_hashes(tmp_path):
     project = tmp_path / "project"
     source = project / "source"
-    manifest_dir = project / "pole_task"
+    manifest_dir = project / "courses/pole-weaving/pole_task"
     manifest_dir.mkdir(parents=True)
     source.mkdir()
     artifact = source / "checkpoint.pt"
@@ -17,7 +17,7 @@ def test_source_manifest_verifies_registered_artifact_hashes(tmp_path):
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
     manifest_path = manifest_dir / "source_manifest.json"
     manifest_path.write_text(json.dumps({
-        "source_root": "../source",
+        "source_root": "../../../source",
         "source_revision": "fixture-revision",
         "warmup_checkpoint_id": "warmup_checkpoint",
         "final_checkpoint_reference_id": "passed_actor",

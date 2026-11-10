@@ -8,17 +8,17 @@ S 形路线。它有独立且与源任务兼容的观测、奖励、重置、终
 ## 所需资产
 
 杆间绕行任务不再需要旁边的 `../../SuperMimic` 仓库副本。源 Q1 XML 和训练配置快照已保存在
-本仓库中；XML 使用 `expert/resources` 下已有的机器人网格。路线参考数据保存在
-`pole_task/data/references/`。`pole_task/data/manifest.json` 中的绝对路径字段 `source`、
+本仓库中；XML 使用 `shared/q1-mujoco/resources/` 下已有的机器人网格。路线参考数据保存在
+`courses/pole-weaving/pole_task/data/references/`。`courses/pole-weaving/pole_task/data/manifest.json` 中的绝对路径字段 `source`、
 `source_catalog` 和 `source_geometry` 用于记录原始位置；程序运行时改用相对于仓库的 `file` 字段。
 
 只有从源 warmup 开始训练时才需要外部提供模型文件。请联系 Xiaofeng Kuang（`stevenkwong@qq.com`）
 获取 `checkpoint_2000.pt`，然后将其复制到登记路径：
 
 ```bash
-mkdir -p pole_task/assets/checkpoints
-cp /path/to/checkpoint_2000.pt pole_task/assets/checkpoints/source-task-7.7-warmup.pt
-sha256sum pole_task/assets/checkpoints/source-task-7.7-warmup.pt
+mkdir -p courses/pole-weaving/pole_task/assets/checkpoints
+cp /path/to/checkpoint_2000.pt courses/pole-weaving/pole_task/assets/checkpoints/source-task-7.7-warmup.pt
+sha256sum courses/pole-weaving/pole_task/assets/checkpoints/source-task-7.7-warmup.pt
 ```
 
 文件的 SHA-256 必须为
@@ -26,16 +26,16 @@ sha256sum pole_task/assets/checkpoints/source-task-7.7-warmup.pt
 训练前的预检查会核对该哈希。模型文件已加入 Git 忽略列表。源任务的最终 checkpoint 仅以哈希
 记录来源，不需要复制到新主机。
 
-`pole_task/source_manifest.json` 记录源代码版本和迁移文件的哈希。标记为
+`courses/pole-weaving/pole_task/source_manifest.json` 记录源代码版本和迁移文件的哈希。标记为
 `required_for: ["provenance"]` 的文件仅作为历史来源记录，不需要原始仓库副本：
 
 | 资产 | 登记路径 | 用途 |
 | --- | --- | --- |
-| `warmup_checkpoint` | `pole_task/assets/checkpoints/source-task-7.7-warmup.pt` | 严格用于训练初始化；通过邮件索取 |
+| `warmup_checkpoint` | `courses/pole-weaving/pole_task/assets/checkpoints/source-task-7.7-warmup.pt` | 严格用于训练初始化；通过邮件索取 |
 | `passed_final_checkpoint_reference` | 源任务 7.7 最终 checkpoint 的哈希 | 仅记录来源；不需要该文件 |
-| `warmup_config`, `actor_config` | `pole_task/data/source-configs/` | 本地训练配置快照 |
-| `robot_xml` | `expert/resources/q1_description/source_task_7_7/q1_v3_mc.xml` | 本地源机器人模型 |
-| 路线目录、几何数据和参考轨迹 | `pole_task/data/` | 本地任务输入 |
+| `warmup_config`, `actor_config` | `courses/pole-weaving/pole_task/data/source-configs/` | 本地训练配置快照 |
+| `robot_xml` | `shared/q1-mujoco/resources/q1_description/source_task_7_7/q1_v3_mc.xml` | 本地源机器人模型 |
+| 路线目录、几何数据和参考轨迹 | `courses/pole-weaving/pole_task/data/` | 本地任务输入 |
 | 源模型、路线和训练文件 | manifest 中记录的上游版本和哈希 | 仅记录来源；不需要原仓库副本 |
 
 程序先核对登记的 warmup 文件哈希，再通过 `strict=True` 加载 Actor、世界模型、Critic 和机器人的
@@ -46,7 +46,7 @@ checkpoint 都不会作为替代权重。本项目训练得到的 checkpoint 可
 
 ## 数据划分
 
-`pole_task/data/manifest.json` 将 `nominal-01`（675 个控制步）和留出的 `eval-01`
+`courses/pole-weaving/pole_task/data/manifest.json` 将 `nominal-01`（675 个控制步）和留出的 `eval-01`
 （671 个控制步）与其有序杆位布局对应起来。留出的参考轨迹不会进入训练批次，只用于评估。
 `straight`、`left_turn` 和 `right_turn` 是训练及固定步态保持测试使用的参考轨迹。每条参考轨迹和
 路线布局都记录了对应哈希。
@@ -57,7 +57,7 @@ checkpoint 都不会作为替代权重。本项目训练得到的 checkpoint 可
 2,000 + 500 次更新配置、输出目录隔离情况和硬件状态。预检查不会打开查看器或创建运行目录。
 
 ```bash
-python -m pole_task.training --preflight-only --config pole_task/config.json
+python -m pole_task.training --preflight-only --config courses/pole-weaving/pole_task/config.json
 ```
 
 训练只会向杆间绕行配置的输出目录写入文件。每次运行都会记录源代码版本、warmup 路径和哈希、
@@ -65,7 +65,7 @@ python -m pole_task.training --preflight-only --config pole_task/config.json
 checkpoint：
 
 ```bash
-python -m pole_task.training --config pole_task/config.json
+python -m pole_task.training --config courses/pole-weaving/pole_task/config.json
 ```
 
 训练配置固定为：先冻结 Actor，在确定性物理环境中进行 2,000 次 warmup 更新；再开启随机化并冻结
@@ -77,7 +77,7 @@ python -m pole_task.training --config pole_task/config.json
 恢复本项目的 Actor、世界模型、Critic、优化器、更新序号、训练阶段和最佳分数：
 
 ```bash
-python -m pole_task.training --config pole_task/config.json \
+python -m pole_task.training --config courses/pole-weaving/pole_task/config.json \
   --resume-checkpoint logs/q1-pole-weaving/run-<timestamp>/latest.pt
 ```
 

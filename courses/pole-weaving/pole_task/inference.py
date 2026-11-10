@@ -14,7 +14,7 @@ from pathlib import Path
 
 import torch
 
-from . import ROOT
+from . import COURSE_ROOT, ROOT, project_path
 from .source import source_robot_xml, verify_source_manifest
 from .source_profile import SourcePoleRobot
 from .source_recipe import resolve_source_recipe
@@ -32,7 +32,7 @@ def load_pole_actor(
     checkpoint_path: Path,
     device: str = "cpu",
     *,
-    config_path: Path = ROOT / "pole_task/config.json",
+    config_path: Path = COURSE_ROOT / "pole_task/config.json",
 ) -> tuple[torch.nn.Module, dict]:
     """Load a source-profile actor from a project-trained pole checkpoint."""
     checkpoint_path = Path(checkpoint_path).expanduser().resolve()
@@ -72,7 +72,7 @@ def load_pole_actor(
     config_path = Path(config_path).resolve()
     config = json.loads(config_path.read_text())
     root = ROOT
-    source_manifest_path = (root / config["source_manifest"]).resolve()
+    source_manifest_path = project_path(config["source_manifest"]).resolve()
     report = verify_source_manifest(source_manifest_path, purpose="runtime")
     manifest = json.loads(source_manifest_path.read_text())
     recipe = resolve_source_recipe(config_path, project_root=root, purpose="runtime")
@@ -84,7 +84,7 @@ def load_pole_actor(
         raise ValueError("Pole checkpoint records a different source final reference")
     if identity.get("robot_xml_sha256") != manifest["robot_contract"]["xml_sha256"]:
         raise ValueError("Pole checkpoint robot XML identity differs from the source contract")
-    data_manifest = (root / config["manifest"]).resolve()
+    data_manifest = project_path(config["manifest"]).resolve()
     if identity.get("data_manifest_sha256") != _sha256(data_manifest):
         raise ValueError("Pole checkpoint was trained on a different paired data manifest")
 

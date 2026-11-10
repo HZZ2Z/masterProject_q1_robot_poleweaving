@@ -45,7 +45,8 @@ RUN python -m pip install --no-cache-dir -r requirements.txt \
     && python -m pip check
 
 COPY . .
-RUN mkdir -p logs video
+RUN python -m pip install --no-deps -e . \
+    && mkdir -p logs video
 
 # Override the command for smoke runs, CPU checks, evaluation or playback.
-CMD ["python", "train.py", "--backend", "warp", "--device", "cuda:0", "--num-envs", "1024", "--no-wandb"]
+CMD ["python", "courses/soccer-4v4/train.py", "--backend", "warp", "--device", "cuda:0", "--num-envs", "1024", "--no-wandb"]

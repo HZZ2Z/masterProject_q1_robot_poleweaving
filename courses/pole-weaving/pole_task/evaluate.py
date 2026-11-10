@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from . import ROOT
+from . import COURSE_ROOT, ROOT
 from .inference import load_pole_actor
 from .source_playback import load_course_bundle
 from .source_runtime import evaluate_source_cases
@@ -23,7 +23,7 @@ def main(argv=None):
     actor, identity = load_pole_actor(args.checkpoint, args.device)
     output_dir = args.output.parent if args.output else ROOT / "logs/q1-pole-weaving/evaluations"
     robot, motions, cases, config = load_course_bundle(
-        ROOT / "pole_task/config.json",
+        COURSE_ROOT / "pole_task/config.json",
         output_dir / "references",
         device=args.device,
     )

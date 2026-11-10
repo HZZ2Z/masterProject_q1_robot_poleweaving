@@ -4,7 +4,6 @@ Read-only replay: no optimizer updates and no production checkpoint writes.
 """
 import argparse,json,sys,hashlib
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
 import torch
 from q1_4v4.course_env import CourseWarpEnv
 from q1_4v4.course_config import DURATIONS
@@ -58,7 +57,7 @@ def main():
     env.check()
     result={'case':options.case,'checkpoint_iteration':ck['iteration'],'robots':64,'steps':step+1,'episode_limit_seconds':env.episode_steps*env.dt,
             'fall_rate':falls.float().mean().item(),'observation_mode':env.marching_target_observation,
-            'source_sha256':{name:hashlib.sha256((Path(__file__).resolve().parents[3]/name).read_bytes()).hexdigest() for name in ('q1_4v4/gait.py','q1_4v4/course_env.py','resources/Q1.yaml')},'means':{k:v/count for k,v in total.items()},
+            'source_sha256':{name:hashlib.sha256((Path(__file__).resolve().parents[3]/name).read_bytes()).hexdigest() for name in ('courses/soccer-4v4/q1_4v4/gait.py','courses/soccer-4v4/q1_4v4/course_env.py','shared/q1-mujoco/resources/Q1.yaml')},'means':{k:v/count for k,v in total.items()},
             'episode':{k:{'mean':v.mean().item(),'max':v.max().item()} for k,v in saved.items()}}
     Path(options.output).write_text(json.dumps(result,indent=2));print(json.dumps(result),flush=True)
 

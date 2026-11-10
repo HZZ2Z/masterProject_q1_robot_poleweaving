@@ -185,7 +185,7 @@ def test_completed_target_and_stop_marker_do_not_launch(job):
 
 def test_detached_cli_start_status_and_stop_leave_training_running(job):
     supervisor,_,_,start,_=job;process=start()
-    script=Path(__file__).resolve().parents[1]/'scripts/watch_training.py'
+    script=Path(__file__).resolve().parents[1]/'courses/soccer-4v4/scripts/watch_training.py'
     def cli(action):
         result=subprocess.check_output([sys.executable,str(script),action,'--project',str(supervisor.project),
                                         '--root',str(supervisor.root),'--interval','1'],text=True)

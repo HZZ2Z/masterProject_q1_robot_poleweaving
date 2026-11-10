@@ -4,11 +4,11 @@ Run from the registered source project so that ``import supermimic`` resolves
 to the source implementation, not this project's vendored pin::
 
     cd /path/to/SuperMimic
-    uv run python /path/to/Q1-Robot-Soccer/pole_task/tools/generate_source_fixtures.py \
+    uv run python /path/to/Q1-Robot-Soccer/courses/pole-weaving/pole_task/tools/generate_source_fixtures.py \
         --checkpoint runs/q1-pole-weaving/stage-7-7/course-warmup-v10/checkpoint_2000.pt \
-        --reference /path/to/Q1-Robot-Soccer/pole_task/data/references/nominal-01.npz \
+        --reference /path/to/Q1-Robot-Soccer/courses/pole-weaving/pole_task/data/references/nominal-01.npz \
         --robot-xml assets/q1_v3/xml/q1_v3_mc.xml \
-        --output /path/to/Q1-Robot-Soccer/pole_task/data/fixtures/source-policy-fixture.npz
+        --output /path/to/Q1-Robot-Soccer/courses/pole-weaving/pole_task/data/fixtures/source-policy-fixture.npz
 
 The output is a deterministic input/output sample of the source robot
 observation, robot-relative goal encoding and actor forward pass.  Tests compare

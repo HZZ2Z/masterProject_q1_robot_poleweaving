@@ -8,7 +8,7 @@ import torch
 import yaml
 
 from expert.policy import ActorCritic
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.data import CourseCase, PoleMotions, features_at, load_course, policy_course_features, write_vendor_motion
 from pole_task.environment import PoleEnvironment
 from pole_task.inference import load_pole_actor
@@ -121,7 +121,7 @@ def test_pole_actor_training_scope_freezes_the_shared_expert_policy():
 def test_pole_preflight_registers_source_warmup_without_loading_final_actor():
     from pole_task import ROOT
 
-    report = preflight(ROOT / "pole_task/config.json")
+    report = preflight(COURSE_ROOT / "pole_task/config.json")
     assert report["initialization"]["source_checkpoint_id"] == "warmup_checkpoint"
     assert report["initialization"]["sha256"] == "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5"
     assert report["initialization"]["available"]
@@ -450,7 +450,7 @@ def test_training_case_selection_includes_retention_but_excludes_held_out():
         SimpleNamespace(case_id=name, split="retention")
         for name in ("straight", "left_turn", "right_turn")
     ]
-    config = json.loads((ROOT / "pole_task/config.json").read_text())
+    config = json.loads((COURSE_ROOT / "pole_task/config.json").read_text())
     assert config["training_case_ids"] == [
         "nominal-01", "straight", "left_turn", "right_turn"
     ]

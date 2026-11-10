@@ -36,12 +36,18 @@ conda env create -f environment.yml
 conda activate q1-kick-4v4
 ```
 
-## 检查安装
-
-确认 Python、PyTorch、MuJoCo 和 Warp 均可导入，并查看 PyTorch 是否识别 CUDA 设备：
+在仓库根目录将课程与共享 Python 包以可编辑模式安装。源码仍从 `courses/` 和 `shared/` 加载，修改后不需要重新安装：
 
 ```bash
-python -c "import sys, torch, mujoco, mujoco_warp, warp; print('Python:', sys.version.split()[0]); print('PyTorch:', torch.__version__); print('MuJoCo packages: OK'); print('CUDA available:', torch.cuda.is_available())"
+python -m pip install --no-deps -e .
+```
+
+## 检查安装
+
+确认 Python、项目包、PyTorch、MuJoCo 和 Warp 均可导入，并查看 PyTorch 是否识别 CUDA 设备：
+
+```bash
+python -c "import sys, torch, mujoco, mujoco_warp, warp, q1_4v4, q1_soccer, pole_task, envs, utils, expert; print('Python:', sys.version.split()[0]); print('Project packages: OK'); print('PyTorch:', torch.__version__); print('MuJoCo packages: OK'); print('CUDA available:', torch.cuda.is_available())"
 ```
 
 `CUDA available: False` 表示当前 PyTorch 没有发现可用的 CUDA 设备，不一定代表安装失败；你仍可运行 4v4 和足球踢球的 CPU 冒烟训练。需要 `cuda:0` 的训练与预览命令要求 CUDA 显示为可用。

@@ -16,16 +16,16 @@
 
 ```bash
 # 只读检查：计算数据和源资产哈希，严格加载 warmup，解析源配置并检查硬件；不会创建运行目录。
-python -m pole_task.training --preflight-only --config pole_task/config.json
+python -m pole_task.training --preflight-only --config courses/pole-weaving/pole_task/config.json
 
 # 短程冒烟训练：执行 1 次训练更新并写出可用于演示的 latest.pt。
-python -m pole_task.training --config pole_task/config.json --max-updates 1
+python -m pole_task.training --config courses/pole-weaving/pole_task/config.json --max-updates 1
 
 # 训练本项目的杆间绕行配置（2,000 次 warmup + 500 次 Actor 更新）。
-python -m pole_task.training --config pole_task/config.json
+python -m pole_task.training --config courses/pole-weaving/pole_task/config.json
 
 # 恢复本项目训练的运行任务。
-python -m pole_task.training --config pole_task/config.json \
+python -m pole_task.training --config courses/pole-weaving/pole_task/config.json \
   --resume-checkpoint logs/q1-pole-weaving/run-<timestamp>/latest.pt
 
 # 无界面评估、完整验收和回放（仅支持本项目杆间绕行 checkpoint）。

@@ -7,7 +7,7 @@ from q1_4v4.learning import make_args,make_team,load_team,save_team,with_team_id
 from q1_4v4.gpu_learning import GpuRollout,DeviceValueNorm
 from q1_4v4.match_rules import MatchRules
 from q1_4v4.amp import MotionPrior
-from q1_4v4.scene import ROOT
+from q1_4v4.scene import MUJOCO_ROOT
 
 
 def policy(grouped):
@@ -104,7 +104,7 @@ def test_last_touch_orders_physics_steps_and_splits_simultaneous_contacts():
 
 def test_amp_online_normalizer_and_bounded_score_do_not_have_dead_zone():
     torch.set_num_threads(2)
-    prior=MotionPrior(ROOT/'resources/motions/q1','cpu',.3,0)
+    prior=MotionPrior(MUJOCO_ROOT/'resources/motions/q1','cpu',.3,0)
     prior.sample_count.zero_();prior.mean.zero_();prior.variance.zero_()
     pairs=torch.stack((torch.ones(118),torch.full((118,),3.)))
     prior.update_normalizer(pairs)

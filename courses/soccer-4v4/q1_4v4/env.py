@@ -3,7 +3,7 @@ import numpy as np
 import mujoco
 import yaml
 from gymnasium.spaces import Box
-from .scene import ROOT, SCENE, PREFIXES, build_scene
+from .scene import MUJOCO_ROOT, SCENE, PREFIXES, build_scene
 from .curriculum import STAGES, AMPLITUDES
 
 
@@ -20,7 +20,7 @@ class SoccerEnv:
         self.episode_steps, self.stage = episode_steps, stage
         if stage not in STAGES:
             raise ValueError(stage)
-        cfg = yaml.safe_load((ROOT / 'resources/Q1.yaml').read_text())
+        cfg = yaml.safe_load((MUJOCO_ROOT / 'resources/Q1.yaml').read_text())
         names = cfg['asset']['dof_names']
         self.qidx = np.array([[self.model.jnt_qposadr[self.model.joint(p+n).id] for n in names] for p in PREFIXES])
         self.vidx = np.array([[self.model.jnt_dofadr[self.model.joint(p+n).id] for n in names] for p in PREFIXES])

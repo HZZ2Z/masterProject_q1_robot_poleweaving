@@ -10,7 +10,7 @@ import pytest
 import torch
 from torch import nn
 
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.data import CourseCase, PoleMotions, load_course, write_vendor_motion
 from pole_task.models import build_source_models
 from pole_task.scene import build_course_scene
@@ -35,7 +35,7 @@ from pole_task.source_runtime import (
 )
 from pole_task.training import case_from_retention
 
-SOURCE_MANIFEST = ROOT / "pole_task/source_manifest.json"
+SOURCE_MANIFEST = COURSE_ROOT / "pole_task/source_manifest.json"
 
 
 class ZeroActor(nn.Module):

@@ -3,8 +3,6 @@ import os
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 visible = os.environ.get('CUDA_VISIBLE_DEVICES', '')
 if visible:
     devices = visible.split(',')

@@ -119,12 +119,12 @@ def test_rollback_never_exits_training_when_limit_is_disabled():
 def test_soccer_training_defaults_to_the_recorded_expert_checkpoint():
     from pathlib import Path
 
-    from expert.runtime import DEFAULT_CHECKPOINT
+    from expert.runtime import DEFAULT_CHECKPOINT, ROOT as EXPERT_ROOT
     from q1_soccer import ROOT
     from q1_soccer.train import TrainConfig
 
-    expected = ROOT / "expert/checkpoints/model_17800.pth"
+    expected = EXPERT_ROOT / "checkpoints/model_17800.pth"
     assert DEFAULT_CHECKPOINT == expected
-    assert TrainConfig().checkpoint == "expert/checkpoints/model_17800.pth"
-    assert Path(TrainConfig.load(ROOT / "configs/soccer.json").checkpoint) == expected
+    assert TrainConfig().checkpoint == "shared/supermimic/expert/checkpoints/model_17800.pth"
+    assert Path(TrainConfig.load(ROOT / "courses/football-kicking/configs/soccer.json").checkpoint) == expected
     assert expected.is_file()

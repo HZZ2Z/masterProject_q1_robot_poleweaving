@@ -3,7 +3,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
 from q1_4v4.course_config import COURSES
 from q1_4v4.telemetry import dashboard_specs
 from q1_4v4.course_table import COURSE_TABLE_KEY

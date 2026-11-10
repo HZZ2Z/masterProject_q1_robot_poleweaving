@@ -117,7 +117,7 @@
 
 ## 部署与启动约束
 
-用户已授权为当前训练设置自动恢复监控。监控每15秒检查主进程、全部worker及checkpoint进度；退出、worker缺失或10分钟无checkpoint进展时，仅清理本任务的失败进程，并在原定GPU空闲、W&B网络可达后从有效checkpoint续训。优先使用 `last.pt`，损坏时回退到每分钟验证备份的 `logs/watchdog/last_good.pt`；保持同一W&B run、网络、Adam、ValueNorm、课程状态、训练模式和GPU配额，不重新执行 `--start-course`。手动停止训练前先执行 `./scripts/python.sh scripts/watch_training.py stop`，该命令只关闭监控。状态及恢复记录见 `logs/watchdog/state.json` 和 `events.jsonl`；目标轮次完成后不再恢复。监控不会切换课程模式或部署额外训练改动。课程0通过后可手动启用 `--curriculum-mode parallel`；课程0尚未通过时拒绝导入串行权重进入并行课程。
+用户已授权为当前训练设置自动恢复监控。监控每15秒检查主进程、全部worker及checkpoint进度；退出、worker缺失或10分钟无checkpoint进展时，仅清理本任务的失败进程，并在原定GPU空闲、W&B网络可达后从有效checkpoint续训。优先使用 `last.pt`，损坏时回退到每分钟验证备份的 `logs/watchdog/last_good.pt`；保持同一W&B run、网络、Adam、ValueNorm、课程状态、训练模式和GPU配额，不重新执行 `--start-course`。手动停止训练前先执行 `./courses/soccer-4v4/scripts/python.sh courses/soccer-4v4/scripts/watch_training.py stop`，该命令只关闭监控。状态及恢复记录见 `logs/watchdog/state.json` 和 `events.jsonl`；目标轮次完成后不再恢复。监控不会切换课程模式或部署额外训练改动。课程0通过后可手动启用 `--curriculum-mode parallel`；课程0尚未通过时拒绝导入串行权重进入并行课程。
 
 用户明确要求直接进行完整4v4试训时，可用 `--curriculum-mode serial --start-course 27` 加载串行或并行checkpoint。全部球场运行终局课程 `match`，红蓝八台共享actor/critic。跳过不等于认证此前课程；新run单独记录比赛回合，权重、Adam和全局轮次保留，ValueNorm按新任务重新积累，各卡使用独立场景随机种子。checkpoint保留直接起始课程标记，后续正常续训不再使用 `--start-course`。
 
@@ -273,7 +273,7 @@ Warp碰撞检测在每个训练进程内将EPA horizon容量设置为至少128�
 
 课程认证完成后、重建前，立即将已完成的模型更新和新课程状态原子写入 `last.pt`；重建成功后按原保存间隔再次记录新场景的随机状态。即使重建失败，也可保留晋级进度。
 
-`scripts/smoke_transition.py` 专用于独立输出目录中的单轮晋级重建测试，强制要求 `--job-type smoke --no-wandb --iterations 1`。它模拟课程通过以触发真实场景重建，不能作为课程能力认证，其输出不得用于正式续训。
+`courses/soccer-4v4/scripts/smoke_transition.py` 专用于独立输出目录中的单轮晋级重建测试，强制要求 `--job-type smoke --no-wandb --iterations 1`。它模拟课程通过以触发真实场景重建，不能作为课程能力认证，其输出不得用于正式续训。
 
 
 ## W&B 实时课程表
@@ -293,7 +293,7 @@ Warp碰撞检测在每个训练进程内将EPA horizon容量设置为至少128�
 
 几何可达性检查同时约束关节硬限和实际策略动作范围（中立角±课程幅度×action_scale），没有只用机械关节限位代替动作可达范围。当前中立角与动作范围下，2cm、2.5cm可精确达到，3cm误差约0.23mm；4–5cm不能在保持平脚、骨盆固定的该测试条件下达到。该结果仅证明运动学可达，不证明动态步态已学会。
 
-可复核工具：`scripts/audit_marching_geometry.py --output artifacts/marching_geometry_audit.json` 与 `scripts/audit_marching_policy.py --checkpoint <原始权重> --case legacy_observation_final --output <结果.json>`。回放不做优化器更新；冒烟测试使用单独输出目录。当次姿态审计后曾从原始第1021轮备份续训；后续修复从各次停机时的最新 `last.pt` 继续，不加载其他姿态试验或冒烟权重。奖励修订后仅清空需重新认证的课程窗口及ValueNorm，保留网络、优化器、全局轮次和已通过课程。
+可复核工具：`python courses/soccer-4v4/scripts/audit_marching_geometry.py --output artifacts/marching_geometry_audit.json` 与 `python courses/soccer-4v4/scripts/audit_marching_policy.py --checkpoint <原始权重> --case legacy_observation_final --output <结果.json>`。回放不做优化器更新；冒烟测试使用单独输出目录。当次姿态审计后曾从原始第1021轮备份续训；后续修复从各次停机时的最新 `last.pt` 继续，不加载其他姿态试验或冒烟权重。奖励修订后仅清空需重新认证的课程窗口及ValueNorm，保留网络、优化器、全局轮次和已通过课程。
 
 AMP框架参考[AMP论文](https://xbpeng.github.io/projects/AMP/AMP_2021.pdf)；当前有界对抗目标和两路advantage采用本仓库单机成功实现的做法。
 

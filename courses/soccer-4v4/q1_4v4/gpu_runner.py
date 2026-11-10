@@ -55,7 +55,9 @@ def _run(options,device,distributed):
     args.amp_groups=bool(options.amp_coef)
     amp_change=bool(checkpoint and (saved_amp.get('coefficient',0.)!=options.amp_coef or
                     (options.amp_coef and (saved_amp.get('revision',1)!=AMP_REVISION or not checkpoint['args'].get('amp_groups',False)))))
-    if not getattr(options,'amp_motion_path',None):options.amp_motion_path='resources/motions/q1'
+    if not getattr(options,'amp_motion_path',None):
+        from .scene import MUJOCO_ROOT
+        options.amp_motion_path=str(MUJOCO_ROOT/'resources/motions/q1')
     saved_gait=checkpoint.get('match_gait_reward',True) if checkpoint else True
     if getattr(options,'match_gait_reward',None) is None:options.match_gait_reward=saved_gait
     gait_reward_change=checkpoint is not None and options.match_gait_reward!=saved_gait

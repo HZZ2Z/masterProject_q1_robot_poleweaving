@@ -3,12 +3,12 @@ from types import SimpleNamespace
 
 import torch
 
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.source import verify_source_manifest
 
 
 def test_source_profile_models_match_registered_checkpoint_tensor_contract():
-    manifest_path = ROOT / "pole_task/source_manifest.json"
+    manifest_path = COURSE_ROOT / "pole_task/source_manifest.json"
     source = verify_source_manifest(manifest_path)
     manifest = json.loads(manifest_path.read_text())
     robot = SimpleNamespace(

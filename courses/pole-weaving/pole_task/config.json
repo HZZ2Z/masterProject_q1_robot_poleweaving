@@ -1,5 +1,5 @@
 {
-  "source_manifest": "pole_task/source_manifest.json",
+  "source_manifest": "courses/pole-weaving/pole_task/source_manifest.json",
   "source_training": {
     "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
     "stages": {
@@ -52,7 +52,7 @@
       "floor": 0.03
     }
   },
-  "manifest": "pole_task/data/manifest.json",
+  "manifest": "courses/pole-weaving/pole_task/data/manifest.json",
   "output_root": "logs/q1-pole-weaving",
   "device": "cuda:0",
   "gpu_min_free_gb": 4.0,

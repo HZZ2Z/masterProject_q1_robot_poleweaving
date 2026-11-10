@@ -19,7 +19,7 @@ import tomllib
 import torch
 from torch import Tensor, nn
 
-from . import ROOT
+from . import COURSE_ROOT, ROOT, project_path
 from .source import verify_source_manifest
 from .source_profile import (
     SOURCE_HISTORY_FRAMES,
@@ -251,7 +251,7 @@ def resolve_source_recipe(
     settings = config.get("source_training")
     if not isinstance(settings, dict):
         raise ValueError("Pole config must define a source_training recipe")
-    source_manifest_path = (root / config["source_manifest"]).resolve()
+    source_manifest_path = project_path(config["source_manifest"]).resolve()
     report = verify_source_manifest(source_manifest_path, purpose=purpose)
     manifest = json.loads(source_manifest_path.read_text())
     training = manifest["training_contract"]

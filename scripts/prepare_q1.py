@@ -16,6 +16,7 @@ import numpy as np
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+MUJOCO_ROOT = ROOT / 'shared/q1-mujoco'
 
 
 def create_soccer_texture(path):
@@ -175,8 +176,8 @@ def style_scene(scene):
 
 
 def prepare(source):
-    cfg = yaml.safe_load((ROOT / 'envs/Q1.yaml').read_text())
-    dest = ROOT / 'resources/q1_description'
+    cfg = yaml.safe_load((MUJOCO_ROOT / 'envs/Q1.yaml').read_text())
+    dest = MUJOCO_ROOT / 'resources/q1_description'
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source / 'meshes', dest / 'meshes', dirs_exist_ok=True)
     (dest / 'urdf').mkdir(exist_ok=True)
@@ -229,7 +230,7 @@ def prepare(source):
         effort = joints[name].find('limit').get('effort')
         ET.SubElement(actuator, 'motor', name=name, joint=name, ctrllimited='true', ctrlrange=f'-{effort} {effort}')
     # Reuse the upstream field, goal and ball dimensions.
-    field = ET.parse(ROOT / 'resources/g1_description/g1_soccer.xml').getroot()
+    field = ET.parse(MUJOCO_ROOT / 'resources/g1_description/g1_soccer.xml').getroot()
     for node in field.find('worldbody'):
         world.append(node)
     for node in field.find('sensor'):

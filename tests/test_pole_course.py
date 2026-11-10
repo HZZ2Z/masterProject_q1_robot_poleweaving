@@ -8,7 +8,7 @@ import tomllib
 import numpy as np
 import pytest
 
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.data import (
     COURSE_TRANSLATION,
     load_course,
@@ -18,10 +18,10 @@ from pole_task.data import (
 from pole_task.source import verify_source_manifest
 from pole_task.training import case_from_retention, select_training_cases
 
-MANIFEST_PATH = ROOT / "pole_task/source_manifest.json"
-DATA_MANIFEST = ROOT / "pole_task/data/manifest.json"
-COURSE_DIR = ROOT / "pole_task/data/course"
-CONFIG = json.loads((ROOT / "pole_task/config.json").read_text())
+MANIFEST_PATH = COURSE_ROOT / "pole_task/source_manifest.json"
+DATA_MANIFEST = COURSE_ROOT / "pole_task/data/manifest.json"
+COURSE_DIR = COURSE_ROOT / "pole_task/data/course"
+CONFIG = json.loads((COURSE_ROOT / "pole_task/config.json").read_text())
 
 
 def _sha256(path: Path) -> str:

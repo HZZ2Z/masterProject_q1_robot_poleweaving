@@ -155,8 +155,8 @@ def allocate(env):
     env.gait_weight_count=z(n,8)
     # Four conservative sole corners from the official Q1 foot collision bounds.
     import yaml
-    from .scene import ROOT
-    cfg=yaml.safe_load((ROOT/'resources/Q1.yaml').read_text())
+    from .scene import MUJOCO_ROOT
+    cfg=yaml.safe_load((MUJOCO_ROOT/'resources/Q1.yaml').read_text())
     bounds=cfg['asset']['foot_collision_bounds']
     env.foot_bounds=env.tensor(bounds)
     env.ball_radius=float(env.model.geom_size[env.reference.ballgeom,0])

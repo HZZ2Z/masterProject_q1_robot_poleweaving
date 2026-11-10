@@ -143,7 +143,8 @@ class Recorder:
             environment.pop(key, None)
         environment['CUDA_VISIBLE_DEVICES'] = ''
         with output.with_suffix('.log').open('w') as log:
-            process = subprocess.Popen([sys.executable, '-u', 'evaluate_q1.py', '--checkpoint', str(checkpoint),
+            evaluate_script = Path(__file__).resolve().parents[1] / 'evaluate_q1.py'
+            process = subprocess.Popen([sys.executable, '-u', str(evaluate_script), '--checkpoint', str(checkpoint),
                                         '--output', str(output)], stdout=log, stderr=subprocess.STDOUT,
                                        stdin=subprocess.DEVNULL, env=environment)
         self.evaluation = (process, output, iteration)

@@ -5,9 +5,9 @@
 # Pre-registered in runs/q1-pole-weaving/stage-7-7/actor-block7-protocol.json.
 # Paths resolve relative to this file.
 [train]
-robot_xml = "../../../expert/resources/q1_description/source_task_7_7/q1_v3_mc.xml"
+robot_xml = "../../../../shared/q1-mujoco/resources/q1_description/source_task_7_7/q1_v3_mc.xml"
 motion_dir = "../references"
-output_dir = "../../../logs/q1-pole-weaving/source-actor-block7"
+output_dir = "../../../../logs/q1-pole-weaving/source-actor-block7"
 course_config = "../course/geometry.toml"
 course_catalog = "../course/source-catalog-v7.toml"
 motion_pattern = "*.npz"

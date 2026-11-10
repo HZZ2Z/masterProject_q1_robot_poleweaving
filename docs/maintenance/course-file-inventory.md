@@ -1,41 +1,47 @@
-# 课程文件归属清单
+# 课程文件归属与入口迁移
 
-本文记录当前规范目录与仓库根兼容入口。课程实现只在规范目录维护；根目录符号链接用于兼容现有 Python 导入和命令，不是第二份源码。
+课程实现只在规范目录维护。先在仓库根目录按[环境指南](../setup.md)执行 `python -m pip install --no-deps -e .`，之后 Python 包从下表对应源码位置导入。仓库根目录不再提供兼容软链接。
 
 ## 课程专属内容
 
-| 规范位置 | 内容 | 说明 |
+| 规范位置 | 内容 | Python 包 / 命令 |
 | --- | --- | --- |
-| `courses/football-kicking/` | 踢球课程说明、训练配置与基线信息 | 训练代码通过 `q1_soccer` 使用共享 SuperMimic 框架。 |
-| `courses/pole-weaving/pole_task/` | 绕杆环境、训练、评估、回放、课程数据 | 绕杆任务代码唯一来源。 |
-| `courses/pole-weaving/q1_supermimic/` | 绕杆使用的 SuperMimic 训练入口/扩展 | 唯一源码位于课程目录；根 `q1_supermimic` 是兼容符号链接。 |
-| `courses/soccer-4v4/q1_4v4/` | 4v4 环境、训练算法、课程与比赛逻辑 | 唯一源码位于课程目录；根 `q1_4v4` 是兼容符号链接。 |
-| `courses/soccer-4v4/{train.py,train_distributed.py,play.py,scripts/,resources/,third_party/}` | 4v4 入口、辅助脚本、场景资源与 MAPPO 上游依赖 | 课程专属文件均归 4v4 目录。根训练入口和脚本链接仅作兼容。 |
+| `courses/football-kicking/` | 踢球课程配置、说明和基线 | `q1_soccer` 包由 `shared/supermimic/q1_soccer/` 提供；配置位于本目录。 |
+| `courses/pole-weaving/pole_task/` | 绕杆环境、训练、评估、回放与课程数据 | `pole_task` 包；命令使用 `python -m pole_task.<模块>`，配置路径为 `courses/pole-weaving/pole_task/config.json`。 |
+| `courses/pole-weaving/q1_supermimic/` | 绕杆的 SuperMimic 训练扩展 | `q1_supermimic` 包。 |
+| `courses/soccer-4v4/` | 4v4 环境、训练算法、课程和比赛逻辑 | `q1_4v4` 包；训练、回放和分布式入口使用本目录下的 `train.py`、`play.py`、`train_distributed.py`。 |
+| `courses/soccer-4v4/scripts/` | 4v4 辅助脚本和环境 Python 启动器 | 直接调用本目录中的脚本；如需项目 Python 启动器，使用 `courses/soccer-4v4/scripts/python.sh`。 |
 
 ## 跨课程共享内容
 
-| 规范位置 | 内容 | 根目录兼容入口 |
+| 规范位置 | 内容 | Python 包 / 资源 |
 | --- | --- | --- |
-| `shared/supermimic/q1_soccer/` | 踢球与绕杆共用的训练、模型、策略、数据和运行代码 | `q1_soccer -> shared/supermimic/q1_soccer` |
-| `shared/supermimic/expert/` | 共用专家策略、数据与工具 | `expert -> shared/supermimic/expert` |
-| `shared/q1-mujoco/` | 通用 MuJoCo 环境、工具、动作数据和机器人模型 | `envs`、`utils`、`data`、`resources`、`play_mujoco.py`、`evaluate_q1.py` 等链接 |
+| `shared/supermimic/q1_soccer/` | 踢球与绕杆共用的训练、模型和策略代码 | `q1_soccer` |
+| `shared/supermimic/expert/` | 专家策略、数据、配置与工具 | `expert` |
+| `shared/q1-mujoco/envs/` | 通用 MuJoCo 环境 | `envs` |
+| `shared/q1-mujoco/utils/` | 仿真、动作和训练工具 | `utils` |
+| `shared/q1-mujoco/` | 通用仿真脚本、模型、动作数据和资源 | `play_mujoco`、`evaluate_q1`；资源位于 `shared/q1-mujoco/resources/`。 |
 
-`3rdparty/SuperMimic/` 子模块和 `.gitmodules` 保持仓库根路径。根 `tests/`、环境文件、Docker 文件及项目 README 作为仓库级入口维护。
+可编辑安装通过项目 `setup.py` 映射上述 Python 包到唯一源码目录。仓库级 `tests/conftest.py` 只为测试进程加入规范源码路径，不提供运行时兼容入口。
 
-## 根目录兼容入口
+## 旧入口迁移表
 
-以下根路径当前为符号链接，不能在根目录另存一份实现：
+| 已移除的根入口 | 新位置或方式 |
+| --- | --- |
+| `data`、`envs`、`utils`、`resources` | 分别使用 `shared/q1-mujoco/data/`、`shared/q1-mujoco/envs/`、`shared/q1-mujoco/utils/`、`shared/q1-mujoco/resources/`。 |
+| `expert` | `shared/supermimic/expert/` |
+| `q1_soccer` | `shared/supermimic/q1_soccer/`（安装后仍以 Python 包名 `q1_soccer` 导入）。 |
+| `pole_task`、`q1_supermimic` | `courses/pole-weaving/pole_task/`、`courses/pole-weaving/q1_supermimic/`。 |
+| `q1_4v4` | `courses/soccer-4v4/q1_4v4/`（安装后仍以 Python 包名 `q1_4v4` 导入）。 |
+| 根目录 `train.py`、`train_distributed.py`、`play.py` | `courses/soccer-4v4/train.py`、`courses/soccer-4v4/train_distributed.py`、`courses/soccer-4v4/play.py`。 |
+| 根目录 `play_mujoco.py`、`evaluate_q1.py` | `shared/q1-mujoco/play_mujoco.py`、`shared/q1-mujoco/evaluate_q1.py`。 |
+| `scripts/python.sh` 及其下的 4v4 脚本别名 | `courses/soccer-4v4/scripts/` 中的规范脚本。 |
 
-- `q1_soccer -> shared/supermimic/q1_soccer`
-- `q1_supermimic -> courses/pole-weaving/q1_supermimic`
-- `q1_4v4 -> courses/soccer-4v4/q1_4v4`
-- `pole_task -> courses/pole-weaving/pole_task`
-- `train.py`、`train_distributed.py`、`play.py` 及 4v4 辅助脚本指向课程内入口
-- `expert`、`envs`、`utils`、`data`、`resources` 及通用仿真脚本指向 `shared/` 内规范实现
+旧命令示例 `python train.py ...` 请改为 `python courses/soccer-4v4/train.py ...`。旧模块导入应先执行可编辑安装；已有 Python 包名保持不变，但不再从根目录复制或链接源码。
 
 ## 维护约定
 
 - 修改课程实现时只改对应 `courses/<课程>/` 内的规范文件；修改共享实现时只改 `shared/` 内的规范文件。
-- 新增或移除兼容入口时，同步更新本文并检查链接目标和现有导入。
-- `q1_slalom/` 不是项目源码目录；目前只发现被忽略的 Python 缓存，且没有代码引用。缓存清理后不应重新提交或作为课程实现维护。
-- 通用数据和课程专属数据即使文件名相同，也须依据用途和内容判断归属，不因名字相同而合并。
+- 新增课程或共享包时，在 `setup.py` 映射到规范源码位置，并同步维护本文。
+- 课程训练数据和模型产物存放在 `logs/` 或课程指定目录，不纳入 Git。
+- 通用数据和课程专属数据即使文件名相同，也依据用途和内容判断归属，不因名字相同而合并。

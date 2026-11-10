@@ -17,12 +17,12 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from . import ROOT
+from . import COURSE_ROOT, ROOT, SHARED_ROOT
 from .data import CourseCase, load_course
 from .source import source_robot_xml
 
-SOURCE_SCENE = ROOT / "expert/resources/q1_description/q1_soccer.xml"
-SOURCE_MANIFEST = ROOT / "pole_task/source_manifest.json"
+SOURCE_SCENE = SHARED_ROOT / "q1-mujoco/resources/q1_description/q1_soccer.xml"
+SOURCE_MANIFEST = COURSE_ROOT / "pole_task/source_manifest.json"
 ASSET_ROOT = SOURCE_SCENE.parent
 
 SOURCE_POLE_RADIUS_M = 0.04
@@ -241,5 +241,5 @@ def verify_course_scene(model: mujoco.MjModel, case: CourseCase) -> None:
 
 def nominal_scene_path(output: Path | None = None) -> Path:
     if output is None:
-        output = ROOT / "pole_task/runs/scene/q1_soccer_pole_course.xml"
+        output = COURSE_ROOT / "pole_task/runs/scene/q1_soccer_pole_course.xml"
     return build_course_scene(load_course("nominal-01"), output)

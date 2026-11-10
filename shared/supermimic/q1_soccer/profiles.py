@@ -27,7 +27,7 @@ _PROFILE_DEFAULTS = {
         "checkpoint_format": "primebot_supermimic_soccer_v1",
     },
     "pole-weaving": {
-        "config": "pole_task/config.json",
+        "config": "courses/pole-weaving/pole_task/config.json",
         "output_key": "output_root",
         "other_output": "logs/auto",
         "model_contract": "source-q1-course-v1",

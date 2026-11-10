@@ -21,7 +21,7 @@ import time
 import numpy as np
 import torch
 
-from . import ROOT
+from . import COURSE_ROOT, ROOT, project_path
 from .data import (
     CourseCase,
     PoleMotions,
@@ -462,8 +462,8 @@ def train_source(
         )
     config = json.loads(config_path.read_text())
     root = ROOT
-    manifest_path = (root / config["manifest"]).resolve()
-    source_manifest_path = (root / config["source_manifest"]).resolve()
+    manifest_path = project_path(config["manifest"]).resolve()
+    source_manifest_path = project_path(config["source_manifest"]).resolve()
     recipe = resolve_source_recipe(config_path, project_root=root)
     if max_updates is not None:
         if not 0 < int(max_updates) <= recipe.total_updates:
@@ -773,7 +773,7 @@ def train_source(
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Source-compatible pole training")
-    parser.add_argument("--config", type=Path, default=ROOT / "pole_task/config.json")
+    parser.add_argument("--config", type=Path, default=COURSE_ROOT / "pole_task/config.json")
     parser.add_argument("--preflight-only", action="store_true")
     parser.add_argument("--resume-checkpoint", type=Path)
     parser.add_argument("--max-updates", type=int)

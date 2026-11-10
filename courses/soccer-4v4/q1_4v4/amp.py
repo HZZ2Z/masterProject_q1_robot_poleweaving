@@ -9,19 +9,19 @@ import torch
 from torch import nn
 import torch.distributed as dist
 import yaml
-from .scene import ROOT
+from .scene import MUJOCO_ROOT
 
 AMP_REVISION = 2
 
 
 class MotionExpert:
     def __init__(self, path, device):
-        cfg = yaml.safe_load((ROOT / 'resources/Q1.yaml').read_text())
+        cfg = yaml.safe_load((MUJOCO_ROOT / 'resources/Q1.yaml').read_text())
         names = cfg['asset']['dof_names']
         files = sorted(Path(path).glob('*.csv'))
         if not files:
             raise ValueError('AMP requires Q1 motion CSV files')
-        model = mujoco.MjModel.from_xml_path(str(ROOT / 'resources/q1_description/q1_soccer.xml'))
+        model = mujoco.MjModel.from_xml_path(str(MUJOCO_ROOT / 'resources/q1_description/q1_soccer.xml'))
         data = mujoco.MjData(model)
         addresses = [model.jnt_qposadr[model.joint(n).id] for n in names]
         root = model.body('pelvis').id

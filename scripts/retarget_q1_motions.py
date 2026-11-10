@@ -20,12 +20,13 @@ from scipy.spatial.transform import Rotation
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+MUJOCO_ROOT = ROOT / 'shared/q1-mujoco'
 
 
 class Robot:
     def __init__(self, cfg):
         self.names = cfg['asset']['dof_names']
-        path = ROOT / cfg['asset']['file']
+        path = MUJOCO_ROOT / cfg['asset']['file']
         urdf = ET.parse(path).getroot()
         # The inherited G1 URDF repeats 'meshes/' in its compiler and filenames.
         # Resolve filenames explicitly; this changes no kinematics or inertias.
@@ -50,8 +51,8 @@ class Robot:
 
 
 def retarget(input_dir, output_dir, dt):
-    cfg = yaml.safe_load((ROOT / 'envs/Q1.yaml').read_text())
-    source_cfg = yaml.safe_load((ROOT / 'envs/G1.yaml').read_text())
+    cfg = yaml.safe_load((MUJOCO_ROOT / 'envs/Q1.yaml').read_text())
+    source_cfg = yaml.safe_load((MUJOCO_ROOT / 'envs/G1.yaml').read_text())
     source, target = Robot(source_cfg), Robot(cfg)
     source_neutral, _ = source.fk(source.neutral)
     target_neutral, _ = target.fk(target.neutral)
@@ -145,8 +146,8 @@ def retarget(input_dir, output_dir, dt):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--input', type=Path, default=ROOT / 'data/g1')
-    parser.add_argument('--output', type=Path, default=ROOT / 'data/q1')
+    parser.add_argument('--input', type=Path, default=MUJOCO_ROOT / 'data/g1')
+    parser.add_argument('--output', type=Path, default=MUJOCO_ROOT / 'data/q1')
     parser.add_argument('--dt', type=float, default=.02)
     args = parser.parse_args()
     if args.dt <= 0:

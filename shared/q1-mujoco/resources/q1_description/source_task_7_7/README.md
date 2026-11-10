@@ -5,7 +5,7 @@
 `../q1_soccer.xml`。
 
 该 XML 使用项目已有并管理的网格资源目录
-`expert/resources/q1_description/meshes/`。源文件的逐字节哈希记录在
+`shared/q1-mujoco/resources/q1_description/meshes/`。源文件的逐字节哈希记录在
 `pole_task/source_manifest.json` 中。
 
 源项目采用 MIT 许可证，详见 `3rdparty/SuperMimic/LICENSE`。

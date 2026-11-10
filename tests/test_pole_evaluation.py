@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.source_playback import load_course_bundle
 from pole_task.source_runtime import evaluate_source_cases
 from pole_task.source_training import load_training_cases
 
-CONFIG = ROOT / "pole_task/config.json"
-MANIFEST = ROOT / "pole_task/data/manifest.json"
+CONFIG = COURSE_ROOT / "pole_task/config.json"
+MANIFEST = COURSE_ROOT / "pole_task/data/manifest.json"
 EXPECTED_STEPS = {
     "nominal-01": 675,
     "eval-01": 671,

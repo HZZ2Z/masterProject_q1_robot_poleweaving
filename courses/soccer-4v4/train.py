@@ -11,7 +11,6 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT))
 
 from q1_4v4.env import SoccerEnv
 from q1_4v4.learning import make_args, make_team, numpy, save_team, load_team, policy_sharing, with_team_identity, configure_temporal
@@ -230,7 +229,7 @@ def parser():
     p.add_argument('--history-frames',type=int,help='Causal actor history length; 0 keeps the original actor')
     p.add_argument('--history-bins',type=int,help='Ordered temporal pooling bins; defaults to 5')
     p.add_argument('--amp-coef',type=float,help='AMP imitation coefficient; 0 disables AMP')
-    p.add_argument('--amp-motion-path',help='Q1 motion CSV directory; defaults to resources/motions/q1')
+    p.add_argument('--amp-motion-path',help='Q1 motion CSV directory; defaults to shared/q1-mujoco/resources/motions/q1')
     p.add_argument('--match-motion-constraints',action=argparse.BooleanOptionalAction,default=None,
                    help='Contact/posture constraints in the AMP group; resume restores checkpoint mode')
     p.add_argument('--match-gait-reward',action=argparse.BooleanOptionalAction,default=None,

@@ -1,1 +1,0 @@
-shared/q1-mujoco/play_mujoco.py

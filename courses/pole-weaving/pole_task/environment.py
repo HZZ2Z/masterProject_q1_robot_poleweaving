@@ -6,7 +6,7 @@ import numpy as np
 import mujoco
 import yaml
 
-from . import ROOT
+from . import SHARED_ROOT
 from .data import CourseCase
 from .scene import build_course_scene, verify_course_scene
 
@@ -17,7 +17,7 @@ class PoleEnvironment:
     def __init__(self, case: CourseCase, scene_path, *, seed: int = 0):
         self.case = case
         self.rng = np.random.default_rng(seed)
-        with (ROOT / "expert/configs/Q1.yaml").open() as stream:
+        with (SHARED_ROOT / "supermimic/expert/configs/Q1.yaml").open() as stream:
             self.cfg = yaml.safe_load(stream)
         self.scene_path = build_course_scene(case, scene_path)
         self.model = mujoco.MjModel.from_xml_path(str(self.scene_path))

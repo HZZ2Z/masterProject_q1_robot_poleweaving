@@ -8,7 +8,7 @@ import math
 import pytest
 import torch
 
-from pole_task import ROOT
+from pole_task import COURSE_ROOT, ROOT
 from pole_task.models import build_source_models
 from pole_task.source import source_robot_xml
 from pole_task.source_profile import SourcePoleRobot
@@ -19,8 +19,8 @@ from pole_task.source_recipe import (
     resolve_source_recipe,
 )
 
-CONFIG = ROOT / "pole_task/config.json"
-MANIFEST = ROOT / "pole_task/source_manifest.json"
+CONFIG = COURSE_ROOT / "pole_task/config.json"
+MANIFEST = COURSE_ROOT / "pole_task/source_manifest.json"
 
 
 def _recipe():

@@ -4,12 +4,13 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[3]
 COURSE_ROOT = Path(__file__).resolve().parents[1]
+MUJOCO_ROOT = ROOT / 'shared/q1-mujoco'
 SCENE = COURSE_ROOT / 'resources/q1_description/q1_4v4.xml'
 PREFIXES = [f'{team}{i}_' for team in ('red', 'blue') for i in range(4)]
 
 
 def build_scene():
-    tree = ET.parse(ROOT / 'resources/q1_description/q1_soccer.xml')
+    tree = ET.parse(MUJOCO_ROOT / 'resources/q1_description/q1_soccer.xml')
     root = tree.getroot()
     root.set('model', 'q1_4v4')
     world = root.find('worldbody')

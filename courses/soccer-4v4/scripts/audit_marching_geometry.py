@@ -4,7 +4,6 @@ This is a kinematic audit; it does not establish dynamic gait stability.
 """
 import argparse,json,sys,hashlib,subprocess
 from pathlib import Path
-sys.path.insert(0,str(Path(__file__).resolve().parents[3]))
 import numpy as np,mujoco,torch,yaml
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
@@ -17,7 +16,8 @@ from q1_4v4.gait import marching_shaping
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',required=True);a=p.parse_args()
  env=SoccerEnv();model,data=env.model,env.data
- cfg=yaml.safe_load((ROOT/'resources/Q1.yaml').read_text());names=cfg['asset']['dof_names']
+ cfg_path=ROOT/'shared/q1-mujoco/resources/Q1.yaml'
+ cfg=yaml.safe_load(cfg_path.read_text());names=cfg['asset']['dof_names']
  low,high=np.array(cfg['asset']['foot_collision_bounds'])
  sole=np.array([[x,y,low[2]] for x in (low[0],high[0]) for y in (low[1],high[1])])
  results=[]
@@ -54,8 +54,8 @@ def main():
      tensor=lambda x:torch.tensor(x,dtype=torch.float32)
      score=marching_shaping(tensor(footlocal)[None],tensor(kneelocal)[None],tensor(neutral_knee),tensor(clear)[None],torch.full((1,2),height),expected,expected,*[torch.zeros(1) for _ in range(4)])[0].item()
      results.append({'robot':robot,'side':side,'target_m':height,'policy_bounds':bounded,'achieved_m':float(clear[index]),'orientation_error_rad':float(np.linalg.norm(residual(fit.x)[2:5]/2)),'normalized_target_max':float(np.abs((fit.x-neutral)/delta).max()),'knee_credit':score,'knee_rise_m':float(kneelocal[index,2]-neutral_knee[index,2])})
- original_cfg=yaml.safe_load(subprocess.check_output(['git','show','HEAD:resources/Q1.yaml'],cwd=ROOT,text=True))
- report={'neutral_unchanged':cfg['init_state']['default_joint_angles']==original_cfg['init_state']['default_joint_angles'],'config_sha256':hashlib.sha256((ROOT/'resources/Q1.yaml').read_bytes()).hexdigest(),'kinematic_only':True,'results':results}
+ original_cfg=yaml.safe_load(subprocess.check_output(['git','show','HEAD:shared/q1-mujoco/resources/Q1.yaml'],cwd=ROOT,text=True))
+ report={'neutral_unchanged':cfg['init_state']['default_joint_angles']==original_cfg['init_state']['default_joint_angles'],'config_sha256':hashlib.sha256(cfg_path.read_bytes()).hexdigest(),'kinematic_only':True,'results':results}
  Path(a.output).write_text(json.dumps(report,indent=2));print(json.dumps(report))
 
 

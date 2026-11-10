@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import ROOT
+from . import COURSE_ROOT, ROOT, project_path
 from .data import CourseCase, PoleMotions, write_vendor_motion
 from .source import source_robot_xml
 from .source_profile import SourcePoleRobot
@@ -13,7 +13,7 @@ from .source_training import load_training_cases
 
 
 def load_course_bundle(
-    config_path: Path = ROOT / "pole_task/config.json",
+    config_path: Path = COURSE_ROOT / "pole_task/config.json",
     reference_dir: Path | None = None,
     *,
     device: str = "cpu",
@@ -22,8 +22,8 @@ def load_course_bundle(
     config_path = Path(config_path).resolve()
     config = json.loads(config_path.read_text())
     root = ROOT
-    manifest_path = (root / config["manifest"]).resolve()
-    source_manifest_path = (root / config["source_manifest"]).resolve()
+    manifest_path = project_path(config["manifest"]).resolve()
+    source_manifest_path = project_path(config["source_manifest"]).resolve()
     training, evaluation, all_cases = load_training_cases(
         config, manifest_path=manifest_path
     )

@@ -1,4 +1,5 @@
 --extra-index-url https://download.pytorch.org/whl/cu128
+setuptools>=59
 torch==2.9.0+cu128
 mujoco==3.17.0
 mujoco-warp==3.17.0
