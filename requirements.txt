@@ -1,0 +1,16 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+setuptools>=59
+torch==2.9.0+cu128
+mujoco==3.17.0
+mujoco-warp==3.17.0
+warp-lang==1.18.0
+numpy==2.4.6
+PyYAML==6.0.3
+gymnasium==1.4.0
+tensorboard==2.21.0
+wandb==0.31.0
+imageio==2.38.1
+imageio-ffmpeg==0.7.0
+pytest==9.2.0
+wandb-workspaces==0.4.13
+-e ./courses/soccer-4v4/third_party/mappo

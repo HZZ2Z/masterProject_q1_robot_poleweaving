@@ -1,0 +1,226 @@
+{
+  "source": "data/g1",
+  "method": "bounded foot-pose IK about neutral stance",
+  "frame_dt": 0.02,
+  "translation_scale": 0.5385714385539299,
+  "neutral_base_height": 0.41694826518124817,
+  "limitations": "Geometric bootstrap only; no dynamic feasibility or kick success guarantee. New upper-body DoFs use neutral references.",
+  "files": {
+    "left_kick_1.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "67f83a8c4973bdfbfe01aeae17bbeccb7fa08e549f531f7d12ca999891962e46",
+      "output_sha256": "60ebd3db4f0ecca360e54b18e73089b100a6ea8432be015ad3215638bcd0bec2",
+      "foot_position_rmse_m": 0.005807249261677465,
+      "foot_position_max_error_m": 0.025082245766598902,
+      "max_floor_lift_m": 0.044955234724415094
+    },
+    "left_kick_2.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "eefbf571d42f7bb044f55a73936f829d7db80f863b9205be67292cee99d07a32",
+      "output_sha256": "4ffa2f7e150641110f4595edc4afb551cb0fc555257bba768a5b88f850b752d7",
+      "foot_position_rmse_m": 0.007421821805959908,
+      "foot_position_max_error_m": 0.03089097361307346,
+      "max_floor_lift_m": 0.032457696414604886
+    },
+    "left_kick_3.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "1074b7c87e760bc88786b41645e284b334dccaeb3b42478cf515a2d0e5221185",
+      "output_sha256": "15300d8f1520189bc008a4a3dae9971bd97c0a545f29ff6e3a65cb806fc30f99",
+      "foot_position_rmse_m": 0.007453216840520875,
+      "foot_position_max_error_m": 0.023014001038935847,
+      "max_floor_lift_m": 0.029145236689602505
+    },
+    "left_kick_4.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "091d9752b21d43586caf9770f9f0286676fdb90ccfa61e45c47d3cadafc72540",
+      "output_sha256": "687d12f76d70e95737b026bbe87f1dd62c2a1ae85336d34b1eae9c0e057cead9",
+      "foot_position_rmse_m": 0.0018961124543252082,
+      "foot_position_max_error_m": 0.004456159918289713,
+      "max_floor_lift_m": 0.015368441158341961
+    },
+    "left_kick_5.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "573cc2301f6931f1fb77e5bb8f10c929ef7ced9ca8359b3999aaa097498cc775",
+      "output_sha256": "09924b900471770dfe1cffb69fc2f9795ae2c9c1a6de00be1852388fe9d2b95c",
+      "foot_position_rmse_m": 0.006150374548596336,
+      "foot_position_max_error_m": 0.029593184965465924,
+      "max_floor_lift_m": 0.020579590991065044
+    },
+    "left_kick_6.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "6628eac135ba087235d1a0eb2ab21d7b29efd0cfb63cf66f0fb374ff99cd108f",
+      "output_sha256": "c6ad9bf255d613716309785205c31ba6705594af9e2f6803d0fd17d090b41e1b",
+      "foot_position_rmse_m": 0.0019589190943767472,
+      "foot_position_max_error_m": 0.0045433993143680395,
+      "max_floor_lift_m": 0.02502881345788921
+    },
+    "male1_side_step_left.csv": {
+      "accepted": true,
+      "frames": 184,
+      "source_sha256": "ed146bc0ee0f95f03fbb73ed296aef89af0e0db79e7e9fe553353c9c81cb4680",
+      "output_sha256": "5721d7e177e757ada6c45512bf7a05afeacc62a84b54264d829c0e7edbe6e117",
+      "foot_position_rmse_m": 0.004492764994888023,
+      "foot_position_max_error_m": 0.013775434355742782,
+      "max_floor_lift_m": 0.02189492664542647
+    },
+    "male1_side_step_right.csv": {
+      "accepted": true,
+      "frames": 140,
+      "source_sha256": "14ed9d1fe9fbf3bb27c7c6f9340f33370512e370a6835ecc19b4c681407cc594",
+      "output_sha256": "3bc45855b89884a491d78382b172c95a6900167bf5f032e3fbf23df58cc3a9e4",
+      "foot_position_rmse_m": 0.0031010741113649343,
+      "foot_position_max_error_m": 0.004640110366035865,
+      "max_floor_lift_m": 0.009819114476812385
+    },
+    "male1_walk_back.csv": {
+      "accepted": true,
+      "frames": 523,
+      "source_sha256": "89b9d2e4c110604a7cc58a8ceb5fa3f038ebbf3fc10a0adf658596edf86d4616",
+      "output_sha256": "4dd62852d627b45c3ecd00b635e34fe96cde48361b345fe845bc4d653e587511",
+      "foot_position_rmse_m": 0.00641375375847253,
+      "foot_position_max_error_m": 0.02271748708232076,
+      "max_floor_lift_m": 0.024252911993297044
+    },
+    "male1_walk_turn_around.csv": {
+      "accepted": true,
+      "frames": 462,
+      "source_sha256": "0b409dd1635ef799b90a539c8329310de820d8af2142a93aac95ddf316b7bf87",
+      "output_sha256": "221232fb709d5ef24c9fc150e8937b63d67977f26c67ef2b63bccfc7c95621e1",
+      "foot_position_rmse_m": 0.003394409821738927,
+      "foot_position_max_error_m": 0.013730259656205366,
+      "max_floor_lift_m": 0.023494393423337423
+    },
+    "male1_walk_turn_change.csv": {
+      "accepted": true,
+      "frames": 490,
+      "source_sha256": "f3e9c4959a778da6a9d6d136223784178a591784ab1f2b6cb92f86dc5dc73259",
+      "output_sha256": "359daee342410da9c094ea864075eb22c3c56891fb9b6cf1ba4b477e1bd07923",
+      "foot_position_rmse_m": 0.006325232925322752,
+      "foot_position_max_error_m": 0.030097188727746707,
+      "max_floor_lift_m": 0.04712562065053
+    },
+    "male1_walk_turn_left_45.csv": {
+      "accepted": true,
+      "frames": 340,
+      "source_sha256": "2394a7d52ed39cff9a1d948ee2cdb07a7c5892ddd88538ebc8d7c2f6c018412e",
+      "output_sha256": "8ed20ffaca7c57c7cf19def1113be1e52da906dd5c9fbb016d8869a820400a9a",
+      "foot_position_rmse_m": 0.00267273301371687,
+      "foot_position_max_error_m": 0.010772448760814382,
+      "max_floor_lift_m": 0.016900726484985473
+    },
+    "male1_walk_turn_right_45.csv": {
+      "accepted": true,
+      "frames": 375,
+      "source_sha256": "4cf79ab107e0e70b80f047bcd5e7e5197466685ec6feda23903236b304e8d746",
+      "output_sha256": "13b3c6aab3256b92b004404001c06adfd92803d882ae9fcbb04ab23c034a34c3",
+      "foot_position_rmse_m": 0.0022141883373527327,
+      "foot_position_max_error_m": 0.003992697313164938,
+      "max_floor_lift_m": 0.013747450607537182
+    },
+    "male2_walk_turn_around.csv": {
+      "accepted": false,
+      "frames": 311,
+      "source_sha256": "a882ab3098646965400ae405fa2b733c5acbec04c4d00c7fd8bda1254aad9d06",
+      "output_sha256": null,
+      "foot_position_rmse_m": 0.017978957838071723,
+      "foot_position_max_error_m": 0.04771296549778864,
+      "max_floor_lift_m": 0.056776289757859366
+    },
+    "male2_walk_turn_left_135.csv": {
+      "accepted": true,
+      "frames": 269,
+      "source_sha256": "764e660a9b7c1d64e1501cf0db6358f121cbe6effc679e9845dd6786ec9ac3ac",
+      "output_sha256": "5fd301bca8b5f6461dd3011d6e8e2008e767defd96248ecc8e348a76c1d6906b",
+      "foot_position_rmse_m": 0.0005292071941666979,
+      "foot_position_max_error_m": 0.003103756405843923,
+      "max_floor_lift_m": 0.016963023318281145
+    },
+    "male2_walk_turn_left_45.csv": {
+      "accepted": true,
+      "frames": 248,
+      "source_sha256": "c33d6951ba032628735c7a9f4e8e63ed80575cbf39a15bda66547a9f776f0f8c",
+      "output_sha256": "25066bea3f16519592168dfddee64aeab98cc44c9e045dfcf8d8bc1e2bdd207e",
+      "foot_position_rmse_m": 0.0020036286700262198,
+      "foot_position_max_error_m": 0.01102731392058164,
+      "max_floor_lift_m": 0.020625163951557945
+    },
+    "male2_walk_turn_right_45.csv": {
+      "accepted": true,
+      "frames": 240,
+      "source_sha256": "af733603df7a1a84cf300263c98646d24e201e7e8d248c628a5c55da51fdd050",
+      "output_sha256": "19f9d9811475759a159506561172a61d4ff91241f3f4a7392c7d042ab9a35197",
+      "foot_position_rmse_m": 0.0012115763462962818,
+      "foot_position_max_error_m": 0.0039477751073179615,
+      "max_floor_lift_m": 0.01704581289330126
+    },
+    "male2_walk_turn_right_90.csv": {
+      "accepted": false,
+      "frames": 232,
+      "source_sha256": "9302602982fe113bc4e5c9ab7fb7f25bb25a606af792aa568be0759aa14105ad",
+      "output_sha256": null,
+      "foot_position_rmse_m": 0.017101703437688628,
+      "foot_position_max_error_m": 0.05431070372350628,
+      "max_floor_lift_m": 0.06421151041798923
+    },
+    "right_kick_1.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "0e261063f6e037b05314d6b25e92b4840bc7e83f8f6bbd1ce3893722da8e18a2",
+      "output_sha256": "503c093eb06db3b7d4c42a5a78728b9269b6a20144061265a20b35a0dab8b53f",
+      "foot_position_rmse_m": 0.005807265135735636,
+      "foot_position_max_error_m": 0.02508231015636727,
+      "max_floor_lift_m": 0.04495538740417593
+    },
+    "right_kick_2.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "77a2eb3a702f80ca2ce254898b18b8f8523132ce8668d9fab9762cc82c4e8323",
+      "output_sha256": "35dd2675f6ae8b6942375df6254b40435beaba7224a9531073eb6112c0fea0b6",
+      "foot_position_rmse_m": 0.007421833217126446,
+      "foot_position_max_error_m": 0.030891224986119445,
+      "max_floor_lift_m": 0.03245717792906916
+    },
+    "right_kick_3.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "c1c794f149b346e5792f6151c320d4af6393318439379cb72a9abf14de38611d",
+      "output_sha256": "8210ee32b32c81cfd956974b43c458bab02148afef6fb6dfe0b12c6dfa0d2073",
+      "foot_position_rmse_m": 0.007453283720516331,
+      "foot_position_max_error_m": 0.02301427636304264,
+      "max_floor_lift_m": 0.029145942454474327
+    },
+    "right_kick_4.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "be4fb4b684c2f4d5f31f58172df1b896a60439b877810ec934ac67afac2bd414",
+      "output_sha256": "2225ef8b24aea9b9595d417091d6102693be74339df22d822ca8a1a149128853",
+      "foot_position_rmse_m": 0.0018961000414067966,
+      "foot_position_max_error_m": 0.004456141988203603,
+      "max_floor_lift_m": 0.015368504544566952
+    },
+    "right_kick_5.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "52c8075b21a88280ef4c08220a24884cc5e5627b4405e39f320eec28b8b0490a",
+      "output_sha256": "37a321e87df3230fbf4ffaaf5feb874b84df79e5d6b680c28f42c75dab2f46c9",
+      "foot_position_rmse_m": 0.006150387979038564,
+      "foot_position_max_error_m": 0.029593189252163088,
+      "max_floor_lift_m": 0.020579971166942712
+    },
+    "right_kick_6.csv": {
+      "accepted": true,
+      "frames": 125,
+      "source_sha256": "09542f0fe40c3979f711c9b6ea71c94ad544e2946ce4b11cc755a020e3dac61c",
+      "output_sha256": "b25c2efaec8569838c646837acc8460f964b53efebfad4b01a89451717303061",
+      "foot_position_rmse_m": 0.0019589008569650223,
+      "foot_position_max_error_m": 0.0045433741295885025,
+      "max_floor_lift_m": 0.025028610839869347
+    }
+  }
+}

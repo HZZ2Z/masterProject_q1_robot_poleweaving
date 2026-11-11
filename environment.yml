@@ -1,0 +1,8 @@
+name: q1-kick-4v4
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - -r requirements.txt
