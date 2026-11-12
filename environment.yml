@@ -1,4 +1,4 @@
-name: q1-kick-4v4
+name: q1-robot-soccer
 channels:
   - defaults
 dependencies:

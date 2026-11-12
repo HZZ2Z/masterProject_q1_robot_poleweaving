@@ -9,8 +9,6 @@
 | `courses/football-kicking/` | 踢球课程配置、说明和基线 | `q1_soccer` 包由 `shared/supermimic/q1_soccer/` 提供；配置位于本目录。 |
 | `courses/pole-weaving/pole_task/` | 绕杆环境、训练、评估、回放与课程数据 | `pole_task` 包；命令使用 `python -m pole_task.<模块>`，配置路径为 `courses/pole-weaving/pole_task/config.json`。 |
 | `courses/pole-weaving/q1_supermimic/` | 绕杆的 SuperMimic 训练扩展 | `q1_supermimic` 包。 |
-| `courses/soccer-4v4/` | 4v4 环境、训练算法、课程和比赛逻辑 | `q1_4v4` 包；训练、回放和分布式入口使用本目录下的 `train.py`、`play.py`、`train_distributed.py`。 |
-| `courses/soccer-4v4/scripts/` | 4v4 辅助脚本和环境 Python 启动器 | 直接调用本目录中的脚本；如需项目 Python 启动器，使用 `courses/soccer-4v4/scripts/python.sh`。 |
 
 ## 跨课程共享内容
 
@@ -32,12 +30,9 @@
 | `expert` | `shared/supermimic/expert/` |
 | `q1_soccer` | `shared/supermimic/q1_soccer/`（安装后仍以 Python 包名 `q1_soccer` 导入）。 |
 | `pole_task`、`q1_supermimic` | `courses/pole-weaving/pole_task/`、`courses/pole-weaving/q1_supermimic/`。 |
-| `q1_4v4` | `courses/soccer-4v4/q1_4v4/`（安装后仍以 Python 包名 `q1_4v4` 导入）。 |
-| 根目录 `train.py`、`train_distributed.py`、`play.py` | `courses/soccer-4v4/train.py`、`courses/soccer-4v4/train_distributed.py`、`courses/soccer-4v4/play.py`。 |
 | 根目录 `play_mujoco.py`、`evaluate_q1.py` | `shared/q1-mujoco/play_mujoco.py`、`shared/q1-mujoco/evaluate_q1.py`。 |
-| `scripts/python.sh` 及其下的 4v4 脚本别名 | `courses/soccer-4v4/scripts/` 中的规范脚本。 |
 
-旧命令示例 `python train.py ...` 请改为 `python courses/soccer-4v4/train.py ...`。旧模块导入应先执行可编辑安装；已有 Python 包名保持不变，但不再从根目录复制或链接源码。
+旧模块导入应先执行可编辑安装；课程包不再从根目录复制或链接源码。
 
 ## 维护约定
 

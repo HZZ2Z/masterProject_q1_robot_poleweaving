@@ -41,7 +41,7 @@ git submodule update --init --recursive
 
 # Create and activate the Python 3.11 environment
 conda env create -f environment.yml
-conda activate q1-kick-4v4
+conda activate q1-robot-soccer
 
 # Install the project in editable mode
 python -m pip install --no-deps -e .
@@ -75,8 +75,7 @@ Task-specific weights and datasets may not be distributed in Git. Check each cou
 Q1-Robot-Soccer/
 ├── courses/                 # Task configurations, implementations, and entry points
 │   ├── football-kicking/    # Kicking configuration and task guide
-│   ├── pole-weaving/        # S-shaped pole-weaving environment, training, and evaluation
-│   └── soccer-4v4/          # 4v4 simulation, training, and match logic
+│   └── pole-weaving/        # S-shaped pole-weaving environment, training, and evaluation
 ├── shared/                  # Code and resources shared across tasks
 │   ├── q1-mujoco/           # MuJoCo environments, robot models, and tools
 │   └── supermimic/          # Shared training code, policies, and expert tools
