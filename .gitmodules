@@ -1,0 +1,4 @@
+[submodule "3rdparty/SuperMimic"]
+	path = 3rdparty/SuperMimic
+	url = https://github.com/PrimebotTech/SuperMimic.git
+	ignore = untracked
