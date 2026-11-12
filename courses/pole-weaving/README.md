@@ -8,7 +8,7 @@ This course provides a Q1 baseline for weaving through a three-pole S-shaped cou
 
 ## Before You Start
 
-Set up the environment using the [shared environment setup guide](../../docs/setup.md) (currently in Chinese). Training defaults to `cuda:0` and requires an NVIDIA GPU with at least 4 GB of free memory. Evaluation and demonstrations default to CPU. Training requires the task 7.7 warmup checkpoint; download the [pole warmup checkpoint](https://drive.google.com/file/d/1PmM1NoD09gKIwzqlj3-rCeQRdffVutdJ/view?usp=sharing) and register it at the exact path described in the [asset and reproduction guide](../../docs/pole-weaving.md) (currently in Chinese). It cannot be replaced with the soccer expert checkpoint. A separate [trained pole demonstration checkpoint](https://drive.google.com/file/d/1bd2CDBAJr7fV_5Tpy5-2hrq3ZZIyg3so/view?usp=sharing) is available for playback; course models are not included in Git.
+Set up the environment using the [shared environment setup guide](../../docs/setup.md) (currently in Chinese). Training defaults to `cuda:0` and requires an NVIDIA GPU with at least 4 GB of free memory. Evaluation and demonstrations default to CPU. Training requires the task 7.7 warmup checkpoint; download the [pole warmup checkpoint](https://drive.google.com/file/d/1PmM1NoD09gKIwzqlj3-rCeQRdffVutjJ/view?usp=sharing) and register it at the exact path described in the [asset and reproduction guide](../../docs/pole-weaving.md) (currently in Chinese). It cannot be replaced with the soccer expert checkpoint. A separate [trained pole demonstration checkpoint](https://drive.google.com/file/d/1bd2CDBAJr7fV_5Tpy5-2hrq3ZZIyg3so/view?usp=sharing) is available for playback; course models are not included in Git.
 
 Training and demonstrations require the repository's `3rdparty/SuperMimic` submodule to be initialized; there is no need to clone the upstream repository separately. The source robot model, route data, and training configuration snapshots are maintained in this repository.
 
@@ -16,7 +16,7 @@ The baseline reproduces the three-pole route from source task 7.7 in the reposit
 
 ## Quick Start
 
-Run these commands from the repository root. Before training, download the [task 7.7 warmup checkpoint](https://drive.google.com/file/d/1PmM1NoD09gKIwzqlj3-rCeQRdffVutdJ/view?usp=sharing) and register it at the path shown in the [asset and reproduction guide](../../docs/pole-weaving.md). The smoke run performs one update and writes `latest.pt` for checking model loading and headless playback; it is not intended to train a policy that meets task metrics. The model is saved under `logs/q1-pole-weaving/run-<timestamp>/latest.pt`; a full run usually also produces `best.pt`. Evaluation and playback do not require the warmup file.
+Run these commands from the repository root. Before training, download the [task 7.7 warmup checkpoint](https://drive.google.com/file/d/1PmM1NoD09gKIwzqlj3-rCeQRdffVutjJ/view?usp=sharing) and register it at the path shown in the [asset and reproduction guide](../../docs/pole-weaving.md). The smoke run performs one update and writes `latest.pt` for checking model loading and headless playback; it is not intended to train a policy that meets task metrics. The model is saved under `logs/q1-pole-weaving/run-<timestamp>/latest.pt`; a full run usually also produces `best.pt`. Evaluation and playback do not require the warmup file.
 
 ```bash
 # Read-only preflight: hashes data and source assets, strictly loads the warmup checkpoint,
