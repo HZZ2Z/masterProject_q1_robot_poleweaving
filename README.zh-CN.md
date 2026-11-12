@@ -70,7 +70,7 @@ python -m pip install --no-deps -e .
 | 任务 | CPU 与 GPU 使用范围 | 额外模型或数据 |
 | --- | --- | --- |
 | 足球踢球 | CPU 可运行冒烟训练；正式训练使用 CUDA | 冒烟流程需要专家 checkpoint；正式训练还需完整成功轨迹数据集 |
-| S 型绕杆 | 训练默认使用 NVIDIA GPU；评估与演示默认使用 CPU | 训练需要任务 7.7 专用 warmup checkpoint；已有课程 checkpoint 可直接评估或回放 |
+| S 型绕杆 | 训练默认使用 NVIDIA GPU；评估与演示默认使用 CPU | 训练需要任务 7.7 专用 warmup checkpoint；模型文件需另行获取 |
 
 
 课程训练所需的专用权重和数据不一定随 Git 仓库分发，请在运行前阅读对应课程的资源说明。S 型绕杆的资产登记与复现细节见[资产与复现说明](docs/pole-weaving.md)。

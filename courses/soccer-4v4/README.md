@@ -33,18 +33,26 @@ python courses/soccer-4v4/train.py --backend warp --device cuda:0 --no-wandb \
   --output logs/soccer-4v4
 ```
 
-Training writes `last.pt` by default and saves stage checkpoints when curriculum gates are met. See the [curriculum](docs/CURRICULUM.md) for details on environments, rewards, and stages. The repository does not include a pretrained 4v4 model.
+Training writes `last.pt` by default and saves stage checkpoints when curriculum gates are met. See the [curriculum](docs/CURRICULUM.md) for details on environments, rewards, and stages. A pretrained demonstration checkpoint is available in the [demonstration section](#demonstration-and-evaluation).
 
 ## Demonstration and Evaluation
 
-After a smoke or full training run, load the generated checkpoint to run the policy. Policy demonstrations use the Warp environment and require an NVIDIA GPU:
+You can use the [4v4 demonstration checkpoint](https://drive.google.com/file/d/1j7rwR_2qROmvvqQbMsR0bI976Wppk5NK/view?usp=sharing) to run the provided policy without training. Download it as `logs/soccer-4v4/4v4-demo.pt` (create the directory first), then load it with `--checkpoint`:
+
+```bash
+mkdir -p logs/soccer-4v4
+python courses/soccer-4v4/play.py --checkpoint logs/soccer-4v4/4v4-demo.pt \
+  --course match --headless --steps 300 --device cuda:0
+```
+
+The download is for demonstration; continue training from a checkpoint produced by this repository. Policy demonstrations use the Warp environment and require an NVIDIA GPU. After a smoke or full training run, load the generated checkpoint as follows:
 
 ```bash
 python courses/soccer-4v4/play.py --checkpoint logs/soccer-4v4-smoke/last.pt \
   --course balance --headless --steps 30 --device cuda:0
 ```
 
-For a full model, use `last.pt` or a stage checkpoint from the corresponding training output directory. Training logs record curriculum success rate, stability rate, and competition metrics. After changing curriculum stages, use the same approach to inspect behavior and record the checkpoint path, course stage, and number of steps:
+For a trained model, use `last.pt` or a stage checkpoint from the corresponding training output directory. Training logs record curriculum success rate, stability rate, and competition metrics. After changing curriculum stages, use the same approach to inspect behavior and record the checkpoint path, course stage, and number of steps:
 
 ```bash
 python courses/soccer-4v4/play.py --checkpoint logs/soccer-4v4/last.pt \

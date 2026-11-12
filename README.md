@@ -65,7 +65,7 @@ The shared base environment uses **Linux, Python 3.11, MuJoCo, and PyTorch**. Th
 | Course | CPU and GPU support | Additional models or data |
 | --- | --- | --- |
 | Soccer Kicking | CPU smoke training; CUDA for full training | Expert checkpoint for smoke workflows; full successful-trajectory dataset for full training |
-| S-shaped Pole Weaving | Training defaults to an NVIDIA GPU; evaluation and demos default to CPU | Task 7.7 warmup checkpoint for training; existing course checkpoints can be evaluated or played back |
+| S-shaped Pole Weaving | Training defaults to an NVIDIA GPU; evaluation and demos default to CPU | Task 7.7 warmup checkpoint for training; obtain model files separately |
 
 Task-specific weights and datasets may not be distributed in Git. Check each course page before running its workflows. See the [pole-weaving reproduction guide](docs/pole-weaving.md) for asset registration and reproduction details (currently in Chinese).
 

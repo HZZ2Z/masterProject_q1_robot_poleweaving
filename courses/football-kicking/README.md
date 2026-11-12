@@ -8,7 +8,7 @@ This course provides a vision-based Q1 soccer policy training baseline. It cover
 
 ## First Run
 
-Set up the environment using the [shared environment setup guide](../../docs/setup.md) (currently in Chinese). Smoke training requires an expert checkpoint provided by the maintainers; full training also requires the complete successful-trajectory dataset. These assets are not distributed in Git. If you do not have them, read [Preparing Resources](#preparing-resources), contact the maintainers for the model, and then run the smoke workflow below.
+Set up the environment using the [shared environment setup guide](../../docs/setup.md) (currently in Chinese). Smoke training requires the [soccer expert checkpoint](https://drive.google.com/file/d/1Hb_vHlk4TK_Y8A7NvUUSi5kduLvhXu7P/view?usp=sharing); full training also requires the complete successful-trajectory dataset. These assets are not distributed in Git. Download the expert weights to `shared/supermimic/expert/checkpoints/model_17800.pth` before running the smoke workflow below. See [Preparing Resources](#preparing-resources) for details.
 
 Run these commands from the repository root. First collect four short training episodes with the teacher model, then start a small training run:
 
@@ -33,7 +33,7 @@ Full training uses the registered complete successful-trajectory dataset. Expert
 - Training data: `shared/supermimic/expert/datasets/q1_bounded_v1/`
 - Held-out validation set: located in the dataset directory above
 
-If the expert weights or full dataset are missing locally, follow the [SuperMimic expert resource guide](../../shared/supermimic/expert/README.md) to contact the maintainers. With only the expert weights, you can collect smoke data using the command above. The output directory must be empty; use a new directory for each rerun and update the `dataset` path in `configs/smoke.json` accordingly.
+Download the [soccer expert checkpoint](https://drive.google.com/file/d/1Hb_vHlk4TK_Y8A7NvUUSi5kduLvhXu7P/view?usp=sharing) and save it as `shared/supermimic/expert/checkpoints/model_17800.pth`; the collection and training commands load it from that path. The full successful-trajectory dataset is a separate resource: if it is missing locally, follow the [SuperMimic expert resource guide](../../shared/supermimic/expert/README.md) to obtain it. With only the expert weights, you can collect smoke data using the command above. The output directory must be empty; use a new directory for each rerun and update the `dataset` path in `configs/smoke.json` accordingly.
 
 ## Full Training and Checks
 

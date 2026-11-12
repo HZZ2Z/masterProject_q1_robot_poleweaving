@@ -8,7 +8,7 @@
 
 ## 首次体验
 
-先按[统一环境搭建指南](../../docs/setup.md)完成安装。足球踢球的冒烟训练需要维护者提供的专家 checkpoint；正式训练还需要完整成功轨迹数据集。这些资产不随 Git 仓库分发。没有资产时，请先阅读[资源准备](#资源准备)，联系维护者获取模型，再运行以下冒烟流程。
+先按[统一环境搭建指南](../../docs/setup.md)完成安装。冒烟训练需要[足球专家 checkpoint](https://drive.google.com/file/d/1Hb_vHlk4TK_Y8A7NvUUSi5kduLvhXu7P/view?usp=sharing)；正式训练还需要完整成功轨迹数据集。这些资产不随 Git 仓库分发。先下载专家权重并保存为 `shared/supermimic/expert/checkpoints/model_17800.pth`，再运行以下冒烟流程。详见[资源准备](#资源准备)。
 
 以下命令从仓库根目录执行。先用教师模型采集 4 个短程训练回合，再启动一次小规模训练：
 
@@ -33,7 +33,7 @@ python -m q1_soccer.play --checkpoint logs/latest/last.pt --headless --steps 100
 - 训练数据：`shared/supermimic/expert/datasets/q1_bounded_v1/`
 - 留出验证集：位于上述数据集目录
 
-若本地缺少专家权重或正式数据集，请按 [SuperMimic 专家资源说明](../../shared/supermimic/expert/README.md) 联系维护者获取。只有专家权重时，可按上方命令采集冒烟数据；采集输出目录必须为空，重跑时请使用新目录并同步修改 `configs/smoke.json` 中的 `dataset` 路径。
+下载[足球专家 checkpoint](https://drive.google.com/file/d/1Hb_vHlk4TK_Y8A7NvUUSi5kduLvhXu7P/view?usp=sharing)，并保存为 `shared/supermimic/expert/checkpoints/model_17800.pth`；上方采集和训练命令会从该路径加载。完整成功轨迹数据集是单独的资源，若本地缺失，请按 [SuperMimic 专家资源说明](../../shared/supermimic/expert/README.md) 获取。只有专家权重时，可按上方命令采集冒烟数据；采集输出目录必须为空，重跑时请使用新目录并同步修改 `configs/smoke.json` 中的 `dataset` 路径。
 
 ## 正式训练与检查
 
