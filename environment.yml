@@ -1,4 +1,4 @@
-name: q1-kick-4v4
+name: env_q1
 channels:
   - defaults
 dependencies:

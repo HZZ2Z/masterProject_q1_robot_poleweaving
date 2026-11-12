@@ -20,14 +20,22 @@ Q1 Robot Soccer is a research and development project built around the Qiyuan Q1
 - **Training, playback, and evaluation:** Each task provides its own configurations and commands for running pipelines, loading policies, and recording experiments.
 - **Shared simulation and robot resources:** Tasks reuse MuJoCo environments, robot models, and common training code. Editable installation supports direct source development.
 
-## Courses
 
-| Course | Goal | Methods and practice |
+## Requirements
+
+The shared base environment uses **Linux, Python 3.11, MuJoCo, and PyTorch**. The current environment installs a CUDA 12.8 build of PyTorch. GPU workflows require an NVIDIA GPU and a compatible driver.
+
+###  Install Conda
+Follow this link to install [conda](https://www.anaconda.com/download) environment. 
+
+
+
+| Course | CPU and GPU support | Additional models or data |
 | --- | --- | --- |
-| [Soccer Kicking](courses/football-kicking/README.md) | Approach and kick a ball using observations | Expert trajectory collection, imitation learning, and online policy updates |
-| [S-shaped Pole Weaving](courses/pole-weaving/README.md) | Navigate continuously around a three-pole course | SuperMimic world model, observation design, and reward design |
+| Soccer Kicking | CPU smoke training; CUDA for full training | Expert checkpoint for smoke workflows; full successful-trajectory dataset for full training |
+| S-shaped Pole Weaving | Training defaults to an NVIDIA GPU; evaluation and demos default to CPU | Task 7.7 warmup checkpoint for training; obtain model files separately |
 
-Each course README is available in English and Chinese. Linked supporting guides may currently be in Chinese. Each course has its own configurations, training workflow, and resource requirements. Course scope describes the training task design; actual policy capabilities should be assessed using checkpoints and evaluation results.
+Task-specific weights and datasets may not be distributed in Git. Check each course page before running its workflows. See the [pole-weaving reproduction guide](docs/pole-weaving.md) for asset registration and reproduction details (currently in Chinese).
 
 ## Quick Start
 
@@ -36,12 +44,18 @@ Each course README is available in English and Chinese. Linked supporting guides
 Prepare Linux and Conda or Mamba, then run these commands from the repository root:
 
 ```bash
+# clone down this repo
+git clone https://github.com/MohismLab/master_project_q1_robot_soccer.git
+
+# open the folder
+cd master_project_q1_robot_soccer/
+
 # Initialize third-party submodules
 git submodule update --init --recursive
 
 # Create and activate the Python 3.11 environment
 conda env create -f environment.yml
-conda activate q1-kick-4v4
+conda activate env_q1
 
 # Install the project in editable mode
 python -m pip install --no-deps -e .
@@ -58,16 +72,13 @@ See the [environment setup guide](docs/setup.md) for dependency downloads, CUDA 
 
 Use the selected course page for its first-run instructions, resource preparation, training, playback, and evaluation commands. Some linked supporting guides are currently in Chinese.
 
-## Requirements
-
-The shared base environment uses **Linux, Python 3.11, MuJoCo, and PyTorch**. The current environment installs a CUDA 12.8 build of PyTorch. GPU workflows require an NVIDIA GPU and a compatible driver.
-
-| Course | CPU and GPU support | Additional models or data |
+| Course | Goal | Methods and practice |
 | --- | --- | --- |
-| Soccer Kicking | CPU smoke training; CUDA for full training | Expert checkpoint for smoke workflows; full successful-trajectory dataset for full training |
-| S-shaped Pole Weaving | Training defaults to an NVIDIA GPU; evaluation and demos default to CPU | Task 7.7 warmup checkpoint for training; obtain model files separately |
+| [Soccer Kicking](courses/football-kicking/README.md) | Approach and kick a ball using observations | Expert trajectory collection, imitation learning, and online policy updates |
+| [S-shaped Pole Weaving](courses/pole-weaving/README.md) | Navigate continuously around a three-pole course | SuperMimic world model, observation design, and reward design |
 
-Task-specific weights and datasets may not be distributed in Git. Check each course page before running its workflows. See the [pole-weaving reproduction guide](docs/pole-weaving.md) for asset registration and reproduction details (currently in Chinese).
+Each course README is available in English and Chinese. Linked supporting guides may currently be in Chinese. Each course has its own configurations, training workflow, and resource requirements. Course scope describes the training task design; actual policy capabilities should be assessed using checkpoints and evaluation results.
+
 
 ## Project Structure
 
