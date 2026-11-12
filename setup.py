@@ -11,7 +11,6 @@ class DevelopInPlace(develop):
         super().run()
         project_root = Path(__file__).resolve().parent
         source_roots = (
-            "courses/soccer-4v4",
             "courses/pole-weaving",
             "shared/supermimic",
             "shared/q1-mujoco",
@@ -28,10 +27,9 @@ setup(
     name="q1-robot-soccer",
     version="0.1.0",
     description="Course and shared Python modules for Q1 Robot Soccer",
-    packages=["q1_4v4", "q1_supermimic", "pole_task", "q1_soccer", "expert", "envs", "utils"],
+    packages=["q1_supermimic", "pole_task", "q1_soccer", "expert", "envs", "utils"],
     package_dir={
         "": "shared/q1-mujoco",
-        "q1_4v4": "courses/soccer-4v4/q1_4v4",
         "q1_supermimic": "courses/pole-weaving/q1_supermimic",
         "pole_task": "courses/pole-weaving/pole_task",
         "q1_soccer": "shared/supermimic/q1_soccer",

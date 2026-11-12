@@ -6,7 +6,6 @@ import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATHS = (
-    PROJECT_ROOT / "courses/soccer-4v4",
     PROJECT_ROOT / "courses/pole-weaving",
     PROJECT_ROOT / "shared/supermimic",
     PROJECT_ROOT / "shared/q1-mujoco",

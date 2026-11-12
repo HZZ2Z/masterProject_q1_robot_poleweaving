@@ -8,7 +8,7 @@
 
 ## 首次体验前
 
-先按[统一环境搭建指南](../../docs/setup.md)完成安装。训练配置默认使用 `cuda:0`，需要可用的 NVIDIA GPU 和至少 4 GB 空闲显存；评估和演示默认在 CPU 上运行。训练需要任务 7.7 warmup checkpoint；请下载[绕杆 warmup checkpoint](https://drive.google.com/file/d/1PmM1NoD09gKIwzqlj3-rCeQRdffVutdJ/view?usp=sharing)，并按[资产与复现说明](../../docs/pole-weaving.md)登记到指定路径。该权重不能用足球专家权重替代。另有可直接回放的[绕杆演示策略 checkpoint](https://drive.google.com/file/d/1bd2CDBAJr7fV_5Tpy5-2hrq3ZZIyg3so/view?usp=sharing)；课程模型不纳入 Git。
+先按[统一环境搭建指南](../../docs/setup.md)完成安装。训练配置默认使用 `cuda:0`，需要可用的 NVIDIA GPU 和至少 4 GB 空闲显存；评估和演示默认在 CPU 上运行。训练需要任务 7.7 warmup checkpoint；请下载[绕杆 warmup checkpoint](https://drive.google.com/file/d/1PmM1NoD09gKIwzqlj3-rCeQRdffVutjJ/view?usp=sharing)，并按[资产与复现说明](../../docs/pole-weaving.md)登记到指定路径。该权重不能用足球专家权重替代。另有可直接回放的[绕杆演示策略 checkpoint](https://drive.google.com/file/d/1bd2CDBAJr7fV_5Tpy5-2hrq3ZZIyg3so/view?usp=sharing)；课程模型不纳入 Git。
 
 训练和演示需要初始化仓库自带的 `3rdparty/SuperMimic` 子模块，无需另行克隆上游仓库。源机器人模型、路线数据和训练配置快照均由本仓库管理。
 
@@ -16,7 +16,7 @@
 
 ## 快速开始
 
-以下命令从仓库根目录执行。训练前请下载[任务 7.7 warmup checkpoint](https://drive.google.com/file/d/1PmM1NoD09gKIwzqlj3-rCeQRdffVutdJ/view?usp=sharing)，并按[资产与复现说明](../../docs/pole-weaving.md)放到指定路径。冒烟运行执行一次更新，生成可用于检查模型加载和无头演示的 `latest.pt`，不要求训练出达到任务指标的策略。模型位于 `logs/q1-pole-weaving/run-<timestamp>/latest.pt`；正式运行通常还会生成 `best.pt`。评估和演示不需要 warmup 文件。
+以下命令从仓库根目录执行。训练前请下载[任务 7.7 warmup checkpoint](https://drive.google.com/file/d/1PmM1NoD09gKIwzqlj3-rCeQRdffVutjJ/view?usp=sharing)，并按[资产与复现说明](../../docs/pole-weaving.md)放到指定路径。冒烟运行执行一次更新，生成可用于检查模型加载和无头演示的 `latest.pt`，不要求训练出达到任务指标的策略。模型位于 `logs/q1-pole-weaving/run-<timestamp>/latest.pt`；正式运行通常还会生成 `best.pt`。评估和演示不需要 warmup 文件。
 
 ```bash
 # 只读检查：计算数据和源资产哈希，严格加载 warmup，解析源配置并检查硬件；不会创建运行目录。

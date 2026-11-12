@@ -45,7 +45,7 @@ git submodule update --init --recursive
 
 # 创建并激活 Python 3.11 环境
 conda env create -f environment.yml
-conda activate q1-kick-4v4
+conda activate env_q1
 
 # 以可编辑模式安装项目包
 python -m pip install --no-deps -e .
@@ -81,8 +81,7 @@ python -m pip install --no-deps -e .
 Q1-Robot-Soccer/
 ├── courses/                 # 任务配置、课程实现与运行入口
 │   ├── football-kicking/    # 踢球配置与任务说明
-│   ├── pole-weaving/        # S 型绕杆环境、训练与评估
-│   └── soccer-4v4/          # 4v4 仿真、训练与比赛逻辑
+│   └── pole-weaving/        # S 型绕杆环境、训练与评估
 ├── shared/                  # 跨任务共用的代码与资源
 │   ├── q1-mujoco/           # MuJoCo 环境、机器人模型与工具
 │   └── supermimic/          # 共享训练代码、策略与专家工具
