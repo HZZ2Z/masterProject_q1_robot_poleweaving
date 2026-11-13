@@ -1,0 +1,478 @@
+{
+  "data": {
+    "manifest": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/manifest.json",
+    "cases": {
+      "nominal-01": {
+        "identity": "nominal-01:6c49b6df27172d3daf00348849418592e893797908a07543d14b0b6f6f3d51a3",
+        "split": "train",
+        "control_steps": 675,
+        "poles_xy_m": [
+          [
+            -2.0,
+            2.4179999828338623
+          ],
+          [
+            0.023999929428100586,
+            2.5460000038146973
+          ],
+          [
+            1.8389999866485596,
+            2.517000198364258
+          ]
+        ]
+      },
+      "eval-01": {
+        "identity": "eval-01:42843e377675f214aff6d4a0d1bbc139a566927b1962cac992271ab550b90338",
+        "split": "held_out",
+        "control_steps": 671,
+        "poles_xy_m": [
+          [
+            -2.0,
+            2.3400001525878906
+          ],
+          [
+            -0.0700000524520874,
+            2.490000009536743
+          ],
+          [
+            1.9500000476837158,
+            2.380000114440918
+          ]
+        ]
+      }
+    },
+    "retention": {
+      "straight": {
+        "frames": 199,
+        "control_steps": 198
+      },
+      "left_turn": {
+        "frames": 299,
+        "control_steps": 298
+      },
+      "right_turn": {
+        "frames": 299,
+        "control_steps": 298
+      }
+    }
+  },
+  "q1_v3": {
+    "scene_sha256": "11b737bba76907dc40cf7da2802200775cb102b6c3031c9033563b1830efc09e",
+    "joint_names": [
+      "left_hip_pitch_joint",
+      "left_hip_roll_joint",
+      "left_hip_yaw_joint",
+      "left_knee_joint",
+      "left_ankle_pitch_joint",
+      "left_ankle_roll_joint",
+      "right_hip_pitch_joint",
+      "right_hip_roll_joint",
+      "right_hip_yaw_joint",
+      "right_knee_joint",
+      "right_ankle_pitch_joint",
+      "right_ankle_roll_joint",
+      "waist_roll_joint",
+      "waist_yaw_joint",
+      "left_shoulder_pitch_joint",
+      "left_shoulder_roll_joint",
+      "left_shoulder_yaw_joint",
+      "left_elbow_joint",
+      "right_shoulder_pitch_joint",
+      "right_shoulder_roll_joint",
+      "right_shoulder_yaw_joint",
+      "right_elbow_joint"
+    ],
+    "action_dim": 22
+  },
+  "output_root": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/logs/q1-pole-weaving",
+  "hardware": {
+    "cpu_count": 48,
+    "cuda_available": true,
+    "torch_version": "2.9.0+cu128",
+    "requested_device": "cuda:0",
+    "ready": true,
+    "gpu_free_gb": 10.4112548828125,
+    "gpu_total_gb": 10.56732177734375,
+    "gpu_min_free_gb": 4.0,
+    "gpu_name": "NVIDIA GeForce RTX 2080 Ti",
+    "gpu_capability": "sm_75",
+    "torch_cuda_arches": [
+      "sm_70",
+      "sm_75",
+      "sm_80",
+      "sm_86",
+      "sm_90",
+      "sm_100",
+      "sm_120"
+    ],
+    "gpu_architecture_supported": true
+  },
+  "source": {
+    "manifest": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/source_manifest.json",
+    "asset_root": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer",
+    "source_root": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer",
+    "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
+    "verified_artifacts": [
+      "warmup_checkpoint",
+      "warmup_config",
+      "actor_config",
+      "robot_xml",
+      "course_catalog",
+      "course_geometry"
+    ],
+    "verified_artifact_count": 6,
+    "artifact_paths": {
+      "warmup_checkpoint": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/assets/checkpoints/source-task-7.7-warmup.pt",
+      "warmup_config": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/source-configs/warmup-v10.toml",
+      "actor_config": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/source-configs/actor-v10-block7.toml",
+      "robot_xml": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/shared/q1-mujoco/resources/q1_description/source_task_7_7/q1_v3_mc.xml",
+      "course_catalog": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/course/source-catalog-v7.toml",
+      "course_geometry": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/course/geometry.toml"
+    },
+    "warmup_checkpoint_id": "warmup_checkpoint",
+    "final_checkpoint_reference_id": "passed_final_checkpoint_reference",
+    "tensor_shapes": {
+      "actor": {
+        "obs_scale": [
+          78
+        ],
+        "encoder.0.weight": [
+          2048,
+          570
+        ],
+        "encoder.0.bias": [
+          2048
+        ],
+        "encoder.2.weight": [
+          1024,
+          2048
+        ],
+        "encoder.2.bias": [
+          1024
+        ],
+        "encoder.4.weight": [
+          512,
+          1024
+        ],
+        "encoder.4.bias": [
+          512
+        ],
+        "encoder.6.weight": [
+          256,
+          512
+        ],
+        "encoder.6.bias": [
+          256
+        ],
+        "encoder.8.weight": [
+          32,
+          256
+        ],
+        "encoder.8.bias": [
+          32
+        ],
+        "decoder.0.weight": [
+          2048,
+          812
+        ],
+        "decoder.0.bias": [
+          2048
+        ],
+        "decoder.2.weight": [
+          1024,
+          2048
+        ],
+        "decoder.2.bias": [
+          1024
+        ],
+        "decoder.4.weight": [
+          512,
+          1024
+        ],
+        "decoder.4.bias": [
+          512
+        ],
+        "decoder.6.weight": [
+          256,
+          512
+        ],
+        "decoder.6.bias": [
+          256
+        ],
+        "decoder.8.weight": [
+          22,
+          256
+        ],
+        "decoder.8.bias": [
+          22
+        ]
+      },
+      "model": {
+        "scale": [
+          79
+        ],
+        "context_scale": [
+          149
+        ],
+        "termination_scale": [
+          2
+        ],
+        "heading_state.input_scale": [
+          79
+        ],
+        "heading_state.output_scale": [
+          56
+        ],
+        "heading_state.error_scale": [
+          56
+        ],
+        "dynamics.0.weight": [
+          2048,
+          250
+        ],
+        "dynamics.0.bias": [
+          2048
+        ],
+        "dynamics.2.weight": [
+          2048,
+          2048
+        ],
+        "dynamics.2.bias": [
+          2048
+        ],
+        "dynamics.4.weight": [
+          2048,
+          2048
+        ],
+        "dynamics.4.bias": [
+          2048
+        ],
+        "dynamics.6.weight": [
+          56,
+          2048
+        ],
+        "dynamics.6.bias": [
+          56
+        ],
+        "termination.0.weight": [
+          64,
+          4
+        ],
+        "termination.0.bias": [
+          64
+        ],
+        "termination.2.weight": [
+          64,
+          64
+        ],
+        "termination.2.bias": [
+          64
+        ],
+        "termination.4.weight": [
+          1,
+          64
+        ],
+        "termination.4.bias": [
+          1
+        ]
+      },
+      "critic": {
+        "scale": [
+          79
+        ],
+        "network.0.weight": [
+          256,
+          798
+        ],
+        "network.0.bias": [
+          256
+        ],
+        "network.2.weight": [
+          128,
+          256
+        ],
+        "network.2.bias": [
+          128
+        ],
+        "network.4.weight": [
+          1,
+          128
+        ],
+        "network.4.bias": [
+          1
+        ]
+      },
+      "robot": {
+        "arm_links": [
+          26
+        ],
+        "body_pos": [
+          27,
+          3
+        ],
+        "body_quat": [
+          27,
+          4
+        ],
+        "joint_axis": [
+          23,
+          3
+        ],
+        "joint_anchor": [
+          23,
+          3
+        ],
+        "default_q": [
+          22
+        ],
+        "joint_limits": [
+          22,
+          2
+        ],
+        "actuator_qindex": [
+          22
+        ],
+        "actuator_gear": [
+          22
+        ],
+        "ctrl_limits": [
+          22,
+          2
+        ],
+        "course_origin": [
+          3
+        ],
+        "course_yaw": [],
+        "course_pole_radius": []
+      }
+    }
+  },
+  "recipe": {
+    "format": "supermimic_source_task_7_7_recipe_v1",
+    "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
+    "warmup_checkpoint_id": "warmup_checkpoint",
+    "warmup_checkpoint_sha256": "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5",
+    "final_checkpoint_id": "passed_final_checkpoint_reference",
+    "final_checkpoint_sha256": "c42237dff52a5664d83af37fa7afed00670d09955f562855161dc59f7b73f8d6",
+    "stages": [
+      {
+        "name": "warmup",
+        "updates": 2000,
+        "start_update": 1,
+        "end_update": 2000,
+        "actor_updates_enabled": false,
+        "randomize": false,
+        "freeze_pole_input_columns": false
+      },
+      {
+        "name": "actor",
+        "updates": 500,
+        "start_update": 2001,
+        "end_update": 2500,
+        "actor_updates_enabled": true,
+        "randomize": true,
+        "freeze_pole_input_columns": true
+      }
+    ],
+    "optimizers": {
+      "model": {
+        "name": "adam",
+        "learning_rate": 0.0001,
+        "betas": [
+          0.9,
+          0.999
+        ],
+        "eps": 1e-08,
+        "weight_decay": 0.0
+      },
+      "actor": {
+        "name": "adam",
+        "learning_rate": 1e-05,
+        "betas": [
+          0.9,
+          0.95
+        ],
+        "eps": 1e-08,
+        "weight_decay": 0.0
+      },
+      "critic": {
+        "name": "adam",
+        "learning_rate": 0.0001,
+        "betas": [
+          0.9,
+          0.999
+        ],
+        "eps": 1e-08,
+        "weight_decay": 0.0
+      }
+    },
+    "imagination_horizon": 32,
+    "model_batch_size": 512,
+    "policy_batch_size": 512,
+    "model_batches": 10,
+    "critic_epochs": 5,
+    "critic_minibatches": 4,
+    "action_scale": 0.5,
+    "clean_policy_actions": true,
+    "modeled_action_delay": true,
+    "learning_rate_schedule": {
+      "kind": "cosine",
+      "period_updates": 250000,
+      "floor": 0.03
+    }
+  },
+  "initialization": {
+    "source_checkpoint_id": "warmup_checkpoint",
+    "required_path": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/assets/checkpoints/source-task-7.7-warmup.pt",
+    "available": true,
+    "sha256": "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5",
+    "strictly_loaded": true,
+    "warmup_iteration": 2000,
+    "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
+    "source_config": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/source-configs/warmup-v10.toml",
+    "source_config_sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
+    "final_checkpoint_id": "passed_final_checkpoint_reference",
+    "final_checkpoint_sha256": "c42237dff52a5664d83af37fa7afed00670d09955f562855161dc59f7b73f8d6",
+    "source_final_checkpoint_loaded": false,
+    "state_dict_mapping": "identity for actor, world model, critic and robot; no renamed or skipped keys",
+    "provenance": {
+      "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
+      "source_change": "openspec/changes/q1-pole-weaving-demo",
+      "source_task": "7.7",
+      "warmup_checkpoint_id": "warmup_checkpoint",
+      "warmup_checkpoint_path": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/assets/checkpoints/source-task-7.7-warmup.pt",
+      "warmup_checkpoint_sha256": "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5",
+      "warmup_iteration": 2000,
+      "final_checkpoint_reference_id": "passed_final_checkpoint_reference",
+      "final_checkpoint_reference_sha256": "c42237dff52a5664d83af37fa7afed00670d09955f562855161dc59f7b73f8d6",
+      "source_final_checkpoint_loaded": false,
+      "source_config": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/source-configs/warmup-v10.toml",
+      "source_config_sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
+      "robot_xml": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/shared/q1-mujoco/resources/q1_description/source_task_7_7/q1_v3_mc.xml",
+      "robot_xml_sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
+      "bundled_robot_xml_sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
+      "state_dict_mapping": "identity for actor, world model, critic and robot; no renamed or skipped keys",
+      "observation_mapping": "78 values: 22 joints + 22 joint velocities + 3 gyro + 3 gravity + 22 previous actions + 6 heading-frame pole offsets",
+      "normalization_mapping": "actor obs_scale is 78 values (72 vendored values plus six 1.0 pole columns); world model/critic state scale is 79 values (1 x 29, 3 x 6, 10 x 22, 1 x 22); world model context scale is ones(149) with the delay column scaled by 0.016",
+      "goal_mapping": "10 future reference frames x 57 physical values in the robot root frame",
+      "context_mapping": "149 columns; course pole XY centers occupy columns 143:149",
+      "history_order": "oldest_to_newest",
+      "excluded_checkpoint_absent_modules": [
+        "speed_encoder",
+        "route_encoder",
+        "route_adapter"
+      ],
+      "actor_parity_tolerance": 1e-06,
+      "verified_artifacts": [
+        "warmup_checkpoint",
+        "warmup_config",
+        "actor_config",
+        "robot_xml",
+        "course_catalog",
+        "course_geometry"
+      ]
+    }
+  },
+  "training_ready": true,
+  "training_blocker": null
+}

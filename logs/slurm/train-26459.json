@@ -1,0 +1,12 @@
+{
+  "stage": "full",
+  "status": "PASS",
+  "run_dir": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/logs/q1-pole-weaving/run-20261112-163903",
+  "completed_updates": 2500,
+  "latest_checkpoint": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/logs/q1-pole-weaving/run-20261112-163903/latest.pt",
+  "stop_reason": {
+    "reason": "recipe_exhausted",
+    "update": 2500,
+    "environment_steps": 216960
+  }
+}

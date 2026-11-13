@@ -9,10 +9,10 @@ __pycache__/
 *.egg-info/
 
 # Training output and downloaded model artifacts
-logs/
+# logs/
 wandb/
-checkpoints/
-*.pt
+# checkpoints/
+# *.pt
 *.pth
 *.ckpt
 *.onnx

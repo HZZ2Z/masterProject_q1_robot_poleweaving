@@ -1,0 +1,121 @@
+{
+  "format": "supermimic_pole_weaving_profile_v1",
+  "profile": "pole-weaving",
+  "seed": 20261103,
+  "device": "cuda:0",
+  "config_path": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/config.json",
+  "config_sha256": "0cd7e59790676624048fd2fa58ccde3968c2c7581aa79520cf4d5d8ae8647855",
+  "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
+  "source_warmup_checkpoint_id": "warmup_checkpoint",
+  "source_warmup_checkpoint_path": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/assets/checkpoints/source-task-7.7-warmup.pt",
+  "source_warmup_checkpoint_sha256": "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5",
+  "source_final_checkpoint_id": "passed_final_checkpoint_reference",
+  "source_final_checkpoint_sha256": "c42237dff52a5664d83af37fa7afed00670d09955f562855161dc59f7b73f8d6",
+  "source_final_checkpoint_loaded": false,
+  "source_config": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/source-configs/warmup-v10.toml",
+  "source_config_sha256": "781f71ec1720c2d33f336154c494b2c9a45d6843a9f20060c042d381a6907c98",
+  "source_state_dict_mapping": "identity for actor, world model, critic and robot; no renamed or skipped keys",
+  "robot_xml_sha256": "d9442f0de18071b100d927e310bc58b04e7be305fea8f126893b2700e8c4bd3b",
+  "data_manifest": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/courses/pole-weaving/pole_task/data/manifest.json",
+  "data_manifest_sha256": "e4b532f4ff6d34a21eb39d87492d0034b6b15f72164c1f6225ff16ea1c780b48",
+  "data_split": {
+    "train": {
+      "nominal-01": "nominal-01:6c49b6df27172d3daf00348849418592e893797908a07543d14b0b6f6f3d51a3",
+      "straight": "straight:4002294f66aded795eecb04f2c943a1a86fd95e66dc0ff66075bdef040dc8485",
+      "left_turn": "left_turn:43d19be7b0a63bd4ad47249b958c5fff6482dd5fd4a83872ff2008f3d61c462a",
+      "right_turn": "right_turn:b5bb2403ee13810ae265e1c7495d537270c62fe2f94e1d4a690f4b8a3369aca7"
+    },
+    "held_out": {
+      "eval-01": "eval-01:42843e377675f214aff6d4a0d1bbc139a566927b1962cac992271ab550b90338"
+    }
+  },
+  "recipe": {
+    "format": "supermimic_source_task_7_7_recipe_v1",
+    "source_revision": "e023c3147e5c20af17f329e0b467538f627a27cb",
+    "warmup_checkpoint_id": "warmup_checkpoint",
+    "warmup_checkpoint_sha256": "b27dabb8c1f1698b669f7dcb59b5b08f1655a7a43f85b57b2686f76096a224f5",
+    "final_checkpoint_id": "passed_final_checkpoint_reference",
+    "final_checkpoint_sha256": "c42237dff52a5664d83af37fa7afed00670d09955f562855161dc59f7b73f8d6",
+    "stages": [
+      {
+        "name": "warmup",
+        "updates": 2000,
+        "start_update": 1,
+        "end_update": 2000,
+        "actor_updates_enabled": false,
+        "randomize": false,
+        "freeze_pole_input_columns": false
+      },
+      {
+        "name": "actor",
+        "updates": 500,
+        "start_update": 2001,
+        "end_update": 2500,
+        "actor_updates_enabled": true,
+        "randomize": true,
+        "freeze_pole_input_columns": true
+      }
+    ],
+    "optimizers": {
+      "model": {
+        "name": "adam",
+        "learning_rate": 0.0001,
+        "betas": [
+          0.9,
+          0.999
+        ],
+        "eps": 1e-08,
+        "weight_decay": 0.0
+      },
+      "actor": {
+        "name": "adam",
+        "learning_rate": 1e-05,
+        "betas": [
+          0.9,
+          0.95
+        ],
+        "eps": 1e-08,
+        "weight_decay": 0.0
+      },
+      "critic": {
+        "name": "adam",
+        "learning_rate": 0.0001,
+        "betas": [
+          0.9,
+          0.999
+        ],
+        "eps": 1e-08,
+        "weight_decay": 0.0
+      }
+    },
+    "imagination_horizon": 32,
+    "model_batch_size": 512,
+    "policy_batch_size": 512,
+    "model_batches": 10,
+    "critic_epochs": 5,
+    "critic_minibatches": 4,
+    "action_scale": 0.5,
+    "clean_policy_actions": true,
+    "modeled_action_delay": true,
+    "learning_rate_schedule": {
+      "kind": "cosine",
+      "period_updates": 250000,
+      "floor": 0.03
+    }
+  },
+  "started_unix": 1794501193.1744268,
+  "resume_checkpoint": null,
+  "resume_checkpoint_sha256": null,
+  "resumed_from_update": 0,
+  "completed_updates": 1,
+  "environment_steps": 4780,
+  "best_checkpoint": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/logs/q1-pole-weaving/run-20261112-163313/best.pt",
+  "latest_checkpoint": "/home/mc63588/course_projects/7104/master_project_q1_robot_soccer/logs/q1-pole-weaving/run-20261112-163313/latest.pt",
+  "stop_reason": {
+    "reason": "caller_update_limit",
+    "update": 1,
+    "environment_steps": 4780
+  },
+  "best_checkpoint_sha256": "4ad2a1af3aaf49c4e9cf2a808834f6fae5c5278aed7878aaf2d4c35a7a5744ab",
+  "latest_checkpoint_sha256": "6698b856aa8ee88e15170fa9b3f4dba646f3209f7149ad6027328b0dcd14c663"
+}
